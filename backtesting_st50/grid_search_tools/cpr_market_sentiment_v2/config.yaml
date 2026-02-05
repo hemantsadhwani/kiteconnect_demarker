@@ -36,6 +36,8 @@ DATE_MAPPINGS:
   feb01: FEB03
   feb02: FEB03
   feb03: FEB03
+  feb04: FEB10
+  feb05: FEB10
 # CPR Pivot Width Filter (TC - BC)
 # Dynamic CPR_BAND_WIDTH adjustment based on CPR_PIVOT_WIDTH
 CPR_PIVOT_WIDTH_FILTER:

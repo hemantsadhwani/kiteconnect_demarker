@@ -134,6 +134,7 @@ def process_strategy_csv_data(csv_file_path):
     supertrend2_data = []
     fast_ma_data = []
     slow_ma_data = []
+    demarker_data = []
     
     for _, row in df.iterrows():
         time_val = int(row['time'])
@@ -223,6 +224,13 @@ def process_strategy_csv_data(csv_file_path):
             slow_ma_data.append({
                 'time': time_val,
                 'value': float(row['sma7'])
+            })
+        
+        # DeMarker (only if column exists and not NaN)
+        if 'demarker' in df.columns and not pd.isna(row.get('demarker', None)):
+            demarker_data.append({
+                'time': time_val,
+                'value': float(row['demarker'])
             })
     
     # Process trades data from strategy CSV
@@ -371,6 +379,7 @@ def process_strategy_csv_data(csv_file_path):
         'supertrend2': supertrend2_data,
         'fast_ma': fast_ma_data,
         'slow_ma': slow_ma_data,
+        'demarker': demarker_data,
         'trades_csv': trades_csv_content
     }
 
@@ -402,6 +411,8 @@ def generate_html(csv_file_path):
     
     wpr_9_oversold = thresholds.get('WPR_FAST_OVERSOLD', -80)
     wpr_28_oversold = thresholds.get('WPR_SLOW_OVERSOLD', -80)
+    demarker_overbought = float(thresholds.get('DEMARKER_OVERBOUGHT', 0.7))
+    demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.3))
     
     # Process the data
     data = process_strategy_csv_data(csv_file_path)
@@ -640,6 +651,7 @@ def generate_html(csv_file_path):
                 <div id="stoch-chart-container" class="chart-pane"></div>
                 <div id="williams9-chart-container" class="chart-pane"></div>
                 <div id="williams28-chart-container" class="chart-pane"></div>
+                <div id="demarker-chart-container" class="chart-pane"></div>
             </div>
             <div id="legend"></div>
             <div id="error-container"></div>
@@ -698,6 +710,7 @@ def generate_html(csv_file_path):
         const stochChartContainer = document.getElementById('stoch-chart-container');
         const williams9ChartContainer = document.getElementById('williams9-chart-container');
         const williams28ChartContainer = document.getElementById('williams28-chart-container');
+        const demarkerChartContainer = document.getElementById('demarker-chart-container');
         const legend = document.getElementById('legend');
         const errorContainer = document.getElementById('error-container');
         const tradesContent = document.getElementById('trades-content');
@@ -752,7 +765,7 @@ def generate_html(csv_file_path):
         try {{
             const totalHeight = document.getElementById('chart-container').clientHeight;
             const mainChartHeight = Math.floor(totalHeight * 0.55);
-            const indicatorHeight = Math.floor(totalHeight * 0.15);
+            const indicatorHeight = Math.floor(totalHeight * 0.1125);
 
             const mainChart = LightweightCharts.createChart(mainChartContainer, {{ ...chartOptions, height: mainChartHeight, width: mainChartContainer.clientWidth }});
             const candleSeries = mainChart.addCandlestickSeries({{
@@ -1052,6 +1065,50 @@ def generate_html(csv_file_path):
             wpr28OversoldLine.setData(wpr28OversoldData);
             wpr28OverboughtLine.setData(wpr28OverboughtData);
 
+            const demarkerChart = LightweightCharts.createChart(demarkerChartContainer, {{
+                ...chartOptions,
+                height: indicatorHeight,
+                width: demarkerChartContainer.clientWidth,
+                watermark: {{ color: 'rgba(255, 255, 255, 0.4)', visible: true, text: 'DeMarker', fontSize: 16, horzAlign: 'left', vertAlign: 'top' }},
+                timeScale: {{
+                    ...chartOptions.timeScale,
+                    visible: false,
+                }},
+            }});
+            const demarkerSeries = demarkerChart.addLineSeries({{
+                color: '#2196F3',
+                lineWidth: 2,
+                title: '',
+                priceLineVisible: false,
+                lastValueVisible: false,
+                priceLineWidth: 0
+            }});
+            if (data.demarker && data.demarker.length > 0) {{
+                demarkerSeries.setData(data.demarker);
+            }}
+            const demarkerObLine = demarkerChart.addLineSeries({{
+                color: '#808080',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                title: '',
+                priceLineVisible: false,
+                lastValueVisible: false,
+                priceLineWidth: 0
+            }});
+            const demarkerOsLine = demarkerChart.addLineSeries({{
+                color: '#808080',
+                lineWidth: 2,
+                lineStyle: LightweightCharts.LineStyle.Dotted,
+                title: '',
+                priceLineVisible: false,
+                lastValueVisible: false,
+                priceLineWidth: 0
+            }});
+            const demarkerObData = (data.demarker && data.demarker.length > 0 ? data.demarker : data.ohlc).map(point => ({{ time: point.time, value: {demarker_overbought} }}));
+            const demarkerOsData = (data.demarker && data.demarker.length > 0 ? data.demarker : data.ohlc).map(point => ({{ time: point.time, value: {demarker_oversold} }}));
+            demarkerObLine.setData(demarkerObData);
+            demarkerOsLine.setData(demarkerOsData);
+
             const ohlcMap = new Map(data.ohlc.map(d => [d.time, d]));
             const stochMapD = new Map(data.stochRSI.map(d => [d.time, d.value]));
             const stochMapK = new Map(data.stochRSI_K.map(d => [d.time, d.value]));
@@ -1061,6 +1118,7 @@ def generate_html(csv_file_path):
             const supertrend2Map = new Map(data.supertrend2.map(d => [d.time, d]));
             const fastMaMap = new Map(data.fast_ma.map(d => [d.time, d.value]));
             const slowMaMap = new Map(data.slow_ma.map(d => [d.time, d.value]));
+            const demarkerMap = new Map((data.demarker || []).map(d => [d.time, d.value]));
 
             function updateLegend(param) {{
                 if (!param.time || !param.point) {{
@@ -1076,6 +1134,7 @@ def generate_html(csv_file_path):
                 const supertrend2Data = supertrend2Map.get(param.time);
                 const fastMa = fastMaMap.get(param.time);
                 const slowMa = slowMaMap.get(param.time);
+                const demarkerVal = demarkerMap.get(param.time);
                 if (!ohlcData) {{
                     legend.style.display = 'none';
                     return;
@@ -1124,11 +1183,12 @@ def generate_html(csv_file_path):
                     <div style="color: #26A69A;"><strong>Stoch D:</strong> ${{stochD !== undefined ? stochD.toFixed(2) : 'N/A'}}</div>
                     <div style="color: #2196F3;"><strong>Will %R(9):</strong> ${{will9 !== undefined ? will9.toFixed(2) : 'N/A'}}</div>
                     <div style="color: #FF9800;"><strong>Will %R(28):</strong> ${{will28 !== undefined ? will28.toFixed(2) : 'N/A'}}</div>
+                    <div style="color: #2196F3;"><strong>DeMarker:</strong> ${{demarkerVal !== undefined ? demarkerVal.toFixed(4) : 'N/A'}}</div>
                 `;
             }}
 
-            const charts = [mainChart, stochChart, williams9Chart, williams28Chart];
-            const chartContainers = [mainChartContainer, stochChartContainer, williams9ChartContainer, williams28ChartContainer];
+            const charts = [mainChart, stochChart, williams9Chart, williams28Chart, demarkerChart];
+            const chartContainers = [mainChartContainer, stochChartContainer, williams9ChartContainer, williams28ChartContainer, demarkerChartContainer];
             const crosshairOverlay = document.getElementById('crosshair-overlay');
 
             function updateCrosshairOverlay(param, container) {{
@@ -1158,13 +1218,14 @@ def generate_html(csv_file_path):
             new ResizeObserver(() => {{
                 const totalHeight = document.getElementById('chart-container').clientHeight;
                 const mainChartHeight = Math.floor(totalHeight * 0.55);
-                const indicatorHeight = Math.floor(totalHeight * 0.15);
+                const indicatorHeight = Math.floor(totalHeight * 0.1125);
                 const width = mainChartContainer.clientWidth;
 
                 mainChart.applyOptions({{ height: mainChartHeight, width }});
                 stochChart.applyOptions({{ height: indicatorHeight, width }});
                 williams9Chart.applyOptions({{ height: indicatorHeight, width }});
                 williams28Chart.applyOptions({{ height: indicatorHeight, width }});
+                demarkerChart.applyOptions({{ height: indicatorHeight, width }});
             }}).observe(document.getElementById('chart-container'));
 
             // Populate trades panel and add markers

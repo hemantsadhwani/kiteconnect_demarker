@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 TradeView Indicators - Final Python Implementation
 Using pandas_ta library to match TradeView results exactly
@@ -170,6 +170,34 @@ def calculate_ma(df, ma_type='ema', length=14, column_name=None):
         else:
             df[f'sma{length}'] = ma_data.round(2)
     
+    return df
+
+def calculate_demarker(df, period=14, column_name='demarker'):
+    """
+    DeMarker indicator matching Pine Script (education purpose, © 2025 Pavel Medd).
+    
+    Pine Script logic:
+    - high_diff = high > high[1] ? high - high[1] : 0
+    - low_diff = low < low[1] ? low[1] - low : 0
+    - sum_high = math.sum(high_diff, period)
+    - sum_low = math.sum(low_diff, period)
+    - dem = (sum_high + sum_low != 0) ? sum_high / (sum_high + sum_low) : 0
+    
+    Args:
+        df: DataFrame with 'high' and 'low' columns
+        period: Lookback period (default 14)
+        column_name: Output column name (default 'demarker')
+    
+    Returns:
+        DataFrame with DeMarker column added (values 0 to 1).
+    """
+    high_diff = np.where(df['high'] > df['high'].shift(1), df['high'] - df['high'].shift(1), 0.0)
+    low_diff = np.where(df['low'] < df['low'].shift(1), df['low'].shift(1) - df['low'], 0.0)
+    sum_high = pd.Series(high_diff, index=df.index).rolling(window=period, min_periods=1).sum()
+    sum_low = pd.Series(low_diff, index=df.index).rolling(window=period, min_periods=1).sum()
+    total = sum_high + sum_low
+    dem = np.where(total != 0, sum_high / total, 0.0)
+    df[column_name] = np.round(dem.astype(float), 4)
     return df
 
 def calculate_swing_low(df, candles=5):

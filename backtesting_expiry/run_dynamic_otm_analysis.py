@@ -313,7 +313,7 @@ class ConsolidatedDynamicOTMAnalysis:
                     last_tuesday_oct = datetime(2025, 10, 28).date()
                     is_monthly = (target_date == last_tuesday_oct)
                 
-                logger.info(f"Analysis date {target_date}: Is Monthly = {is_monthly}")
+                logger.debug(f"Analysis date {target_date}: Is Monthly = {is_monthly}")
                 return is_monthly
             
             # For other months, use the same logic
@@ -341,7 +341,8 @@ class ConsolidatedDynamicOTMAnalysis:
             # If it's the last Tuesday or holiday-adjusted Monday
             is_monthly = is_last_tuesday or is_holiday_adjusted
             
-            logger.info(f"Target date {target_date}: Last Tuesday = {last_tuesday.date()}, Is Monthly = {is_monthly}")
+            # Log once per date at DEBUG (called many times per day from create_dynamic_otm_slabs loop)
+            logger.debug(f"Target date {target_date}: Last Tuesday = {last_tuesday.date()}, Is Monthly = {is_monthly}")
             return is_monthly
             
         except Exception as e:
@@ -586,9 +587,13 @@ class ConsolidatedDynamicOTMAnalysis:
                     logger.warning(f"Slabs file format mismatch detected. Regenerating slabs with correct format...")
                     should_regenerate_slabs = True
         
-        if nifty_file.exists() and slabs_file.exists() and not should_regenerate_slabs:
+        # Treat empty slabs file as missing so we regenerate it
+        slabs_exists = slabs_file.exists() and slabs_file.stat().st_size > 0
+        if nifty_file.exists() and slabs_exists and not should_regenerate_slabs:
             logger.info(f"NIFTY data and OTM slabs already exist for {day_label}")
             return True
+        if slabs_file.exists() and slabs_file.stat().st_size == 0:
+            logger.warning(f"OTM slabs file is empty for {day_label}, will regenerate")
         if not nifty_file.exists():
             logger.info(f"NIFTY data missing for {day_label}, downloading...")
             nifty_df = self.download_nifty50_data(date_str)
@@ -601,7 +606,7 @@ class ConsolidatedDynamicOTMAnalysis:
             nifty_df = pd.read_csv(nifty_file)
             nifty_df['date'] = pd.to_datetime(nifty_df['date'])
             logger.info(f"Loaded existing NIFTY 50 data from: {nifty_file}")
-        if not slabs_file.exists() or should_regenerate_slabs:
+        if not slabs_exists or should_regenerate_slabs:
             if should_regenerate_slabs:
                 logger.info(f"Regenerating dynamic OTM slabs for {day_label} with correct format...")
             else:
@@ -1642,7 +1647,11 @@ class ConsolidatedDynamicOTMAnalysis:
             logger.error(f"Dynamic OTM slabs file not found: {slabs_file}")
             return False
         
-        df_slabs = pd.read_csv(slabs_file)
+        try:
+            df_slabs = pd.read_csv(slabs_file)
+        except pd.errors.EmptyDataError as e:
+            logger.error(f"Dynamic OTM slabs file has no parseable columns: {slabs_file}. Delete it and re-run to regenerate. {e}")
+            return False
         logger.info(f"OTM slabs file columns: {list(df_slabs.columns)}")
         logger.info(f"OTM slabs file shape: {df_slabs.shape}")
         

@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Import our validated indicators
-from indicators_backtesting import calculate_supertrend, calculate_stochrsi, calculate_williams_r, calculate_ema, calculate_sma, calculate_ma, calculate_swing_low
+from indicators_backtesting import calculate_supertrend, calculate_stochrsi, calculate_williams_r, calculate_ema, calculate_sma, calculate_ma, calculate_swing_low, calculate_demarker
 
 # Import utilities
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -241,6 +241,12 @@ def calculate_all_indicators(df, config):
         if swing_low_config:
             swing_low_candles = swing_low_config.get('CANDLES', 5)
             df_copy = calculate_swing_low(df_copy, candles=swing_low_candles)
+        
+        # Calculate DeMarker if configured
+        demarker_config = indicators.get('DEMARKER', {})
+        if demarker_config:
+            period = demarker_config.get('PERIOD', 14)
+            df_copy = calculate_demarker(df_copy, period=period, column_name='demarker')
         
         logger.info(f"Calculated indicators for {len(df_copy)} rows")
         return df_copy
@@ -573,7 +579,7 @@ def process_csv_file(file_path, config, skip_existing=False, trading_date=None):
         # Check for common indicator columns to determine if indicators exist
         # Support both new (supertrend1/supertrend1_dir, fast_wpr/slow_wpr) and legacy (supertrend/supertrend_dir, wpr_9/wpr_28) column names
         common_indicator_columns = ['supertrend1', 'supertrend1_dir', 'supertrend2', 'supertrend2_dir', 
-                                   'supertrend', 'supertrend_dir', 'k', 'd', 'fast_wpr', 'slow_wpr', 'wpr_9', 'wpr_28', 'swing_low']
+                                   'supertrend', 'supertrend_dir', 'k', 'd', 'fast_wpr', 'slow_wpr', 'wpr_9', 'wpr_28', 'swing_low', 'demarker']
         has_indicators = any(col in df.columns for col in common_indicator_columns)
         
         if skip_existing and has_indicators:
@@ -865,7 +871,7 @@ def verify_indicators_calculation(data_dir, expiry_weeks, trading_dates, config)
     """Verify that indicators were calculated correctly"""
     # Support both new (supertrend1/supertrend1_dir, supertrend2/supertrend2_dir, fast_wpr/slow_wpr) and legacy column names
     indicator_columns = ['supertrend1', 'supertrend1_dir', 'supertrend2', 'supertrend2_dir', 
-                        'supertrend', 'supertrend_dir', 'k', 'd', 'fast_wpr', 'slow_wpr', 'fast_ma', 'slow_ma', 'swing_low']
+                        'supertrend', 'supertrend_dir', 'k', 'd', 'fast_wpr', 'slow_wpr', 'fast_ma', 'slow_ma', 'swing_low', 'demarker']
     
     for expiry_week in expiry_weeks:
         for trading_date in trading_dates:

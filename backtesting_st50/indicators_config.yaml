@@ -11,6 +11,10 @@ INDICATORS:
     D: 3
     RSI_LENGTH: 14
     STOCH_PERIOD: 14
+  DEMARKER:
+    PERIOD: 14
+    OB_LEVEL: 0.7
+    OS_LEVEL: 0.3
   FAST_MA:
     MA: sma
     LENGTH: 11
@@ -21,6 +25,8 @@ THRESHOLDS:
   WPR_FAST_OVERSOLD: -79
   WPR_SLOW_OVERSOLD: -77
   STOCH_RSI_OVERSOLD: 20
+  DEMARKER_OVERBOUGHT: 0.7
+  DEMARKER_OVERSOLD: 0.3
 TARGET_EXPIRY:
   EXPIRY_WEEK_LABELS:
   - OCT20
@@ -36,22 +42,25 @@ TARGET_EXPIRY:
   - JAN20
   - JAN27
   - FEB03
+  - FEB10
   TRADING_DAYS:
-  - '2026-01-07'
-  - '2026-01-08'
-  - '2026-01-09'
-  - '2026-01-12'
-  - '2026-01-14'
-  - '2026-01-16'
-  - '2026-01-19'
-  - '2026-01-21'
-  - '2026-01-22'
-  - '2026-01-23'
-  - '2026-01-28'
-  - '2026-01-29'
-  - '2026-01-30'
-  - '2026-02-01'
-  - '2026-02-02'
+  # - '2026-01-07'
+  # - '2026-01-08'
+  # - '2026-01-09'
+  # - '2026-01-12'
+  # - '2026-01-14'
+  # - '2026-01-16'
+  # - '2026-01-19'
+  # - '2026-01-21'
+  # - '2026-01-22'
+  # - '2026-01-23'
+  # - '2026-01-28'
+  # - '2026-01-29'
+  # - '2026-01-30'
+  # - '2026-02-01'
+  # - '2026-02-02'
+  - '2026-02-04'
+  - '2026-02-05'
 PATHS:
   DATA_DIR: data
   LOGS_DIR: logs

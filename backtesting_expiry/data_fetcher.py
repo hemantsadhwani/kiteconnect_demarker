@@ -98,11 +98,15 @@ class DataFetcher:
             return None
     
     def _get_expiry_date_from_label(self, expiry_label):
-        """Extract expiry date from expiry label (e.g., OCT20 -> 2025-10-20)"""
+        """Extract expiry date from expiry label (e.g., OCT20 -> 2025-10-20, FEB10 or FEB010 -> 2026-02-10)"""
         try:
-            # Extract month and day from label (e.g., OCT20 -> OCT, 20)
-            month_str = expiry_label[:3]  # OCT
-            day_str = expiry_label[3:]    # 20
+            # Extract month and day from label (e.g., OCT20 -> OCT, 20; FEB010 -> FEB, 010)
+            month_str = expiry_label[:3]  # OCT, FEB
+            day_str = expiry_label[3:].lstrip('0') or '0'  # 20, 010->10, 01->1
+            day_int = int(day_str)
+            if day_int < 1 or day_int > 31:
+                raise ValueError(f"Invalid day: {day_str}")
+            day_padded = str(day_int).zfill(2)
             
             # Map month abbreviations to numbers
             month_map = {
@@ -115,9 +119,9 @@ class DataFetcher:
             if not month_num:
                 raise ValueError(f"Invalid month: {month_str}")
             
-            # Assume current year
+            # Use current year so we fetch live/available contracts
             current_year = datetime.now().year
-            expiry_date_str = f"{current_year}-{month_num}-{day_str.zfill(2)}"
+            expiry_date_str = f"{current_year}-{month_num}-{day_padded}"
             
             return datetime.strptime(expiry_date_str, '%Y-%m-%d').date()
             
