@@ -1,0 +1,499 @@
+2026-01-19 16:12:18,439 - __main__ - INFO - ================================================================================
+2026-01-19 16:12:18,440 - __main__ - INFO - TESTING SKIP_FIRST FOR JAN19
+2026-01-19 16:12:18,440 - __main__ - INFO - ================================================================================
+2026-01-19 16:12:18,444 - strategy - INFO - Entry1 TAKE_PROFIT_PERCENT: 6.0%
+2026-01-19 16:12:18,444 - strategy - INFO - DYNAMIC_TRAILING_WPR9 setting loaded: False (from config: False)
+2026-01-19 16:12:18,444 - strategy - INFO - DYNAMIC_TRAILING_MA setting loaded: True (threshold: 7%)
+2026-01-19 16:12:18,444 - strategy - INFO - ST_SL_WHEN_TRAILING_TP setting loaded: True (SuperTrend SL enabled when trailing TP is active)
+2026-01-19 16:12:18,444 - strategy - INFO - SKIP_FIRST setting loaded: True
+2026-01-19 16:12:18,444 - strategy - INFO - SKIP_FIRST: Kite API will be used for pivot calculation (required for SKIP_FIRST)
+2026-01-19 16:12:18,444 - strategy - DEBUG - SKIP_FIRST: Skipping pre-load (will fetch lazily when needed to avoid rate limiting)
+2026-01-19 16:12:18,445 - strategy - INFO - Entry2 confirmation window: 4 candles (from entry2_config: 4, strategy_config: NOT_FOUND)
+2026-01-19 16:12:18,446 - strategy - INFO - Entry2 flexible StochRSI confirmation: True
+2026-01-19 16:12:18,447 - strategy - INFO - PRICE_ZONES for DYNAMIC_ATM: [50, 250]
+2026-01-19 16:12:18,447 - strategy - INFO - PRICE_ZONES for STATIC_ATM: [30, 600]
+2026-01-19 16:12:18,447 - __main__ - INFO - Found 10 CSV files in C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\data\JAN20_DYNAMIC\JAN19\ATM
+2026-01-19 16:12:18,448 - __main__ - INFO - ================================================================================
+2026-01-19 16:12:18,448 - __main__ - INFO - Processing: NIFTY2612025450CE.csv
+2026-01-19 16:12:18,448 - __main__ - INFO - ================================================================================
+2026-01-19 16:12:18,448 - strategy - INFO - Processing: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\data\JAN20_DYNAMIC\JAN19\ATM\NIFTY2612025450CE.csv
+2026-01-19 16:12:18,461 - strategy - INFO - Found 09:15 at index 65 (2026-01-19 09:15:00+05:30), filtering data from this point onwards
+2026-01-19 16:12:18,461 - strategy - DEBUG - DYNAMIC_TRAILING_WPR9 is DISABLED for NIFTY2612025450CE.csv - will exit at fixed TP only
+2026-01-19 16:12:18,461 - strategy - DEBUG - DYNAMIC_TRAILING_MA is enabled for NIFTY2612025450CE.csv (threshold: 7%)
+2026-01-19 16:12:18,462 - strategy - DEBUG - Calling _check_entry2_signal for index 0
+2026-01-19 16:12:18,462 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,462 - strategy - DEBUG - Checking entry signals at index 0 for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - No Entry2 signal at index 0 for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - Calling _check_entry1_signal for index 0
+2026-01-19 16:12:18,462 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,462 - strategy - DEBUG - No Entry1 signal at index 0 for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - Calling _check_entry2_signal for index 1
+2026-01-19 16:12:18,462 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,462 - strategy - DEBUG - Checking entry signals at index 1 for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - No Entry2 signal at index 1 for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - Calling _check_entry1_signal for index 1
+2026-01-19 16:12:18,462 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,462 - strategy - DEBUG - No Entry1 signal at index 1 for NIFTY2612025450CE
+2026-01-19 16:12:18,462 - strategy - DEBUG - Calling _check_entry2_signal for index 2
+2026-01-19 16:12:18,463 - strategy - DEBUG - Entry2: Trigger check at index 2: wpr9_crosses=False (prev=-87.71, curr=-83.46), wpr28_crosses=False (prev=-87.71, curr=-83.68), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,463 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,463 - strategy - DEBUG - Checking entry signals at index 2 for NIFTY2612025450CE
+2026-01-19 16:12:18,463 - strategy - DEBUG - No Entry2 signal at index 2 for NIFTY2612025450CE
+2026-01-19 16:12:18,463 - strategy - DEBUG - Calling _check_entry1_signal for index 2
+2026-01-19 16:12:18,463 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,463 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,463 - strategy - DEBUG - No Entry1 signal at index 2 for NIFTY2612025450CE
+2026-01-19 16:12:18,463 - strategy - DEBUG - Calling _check_entry2_signal for index 3
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry2: Trigger check at index 3: wpr9_crosses=False (prev=-83.46, curr=-84.12), wpr28_crosses=False (prev=-83.68, curr=-84.34), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,464 - strategy - DEBUG - Checking entry signals at index 3 for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - No Entry2 signal at index 3 for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - Calling _check_entry1_signal for index 3
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,464 - strategy - DEBUG - No Entry1 signal at index 3 for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - Calling _check_entry2_signal for index 4
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry2: Trigger check at index 4: wpr9_crosses=False (prev=-84.12, curr=-82.53), wpr28_crosses=False (prev=-84.34, curr=-82.92), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,464 - strategy - DEBUG - Checking entry signals at index 4 for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - No Entry2 signal at index 4 for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - Calling _check_entry1_signal for index 4
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,464 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,464 - strategy - DEBUG - No Entry1 signal at index 4 for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - Calling _check_entry2_signal for index 5
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry2: Trigger check at index 5: wpr9_crosses=False (prev=-82.53, curr=-84.25), wpr28_crosses=False (prev=-82.92, curr=-84.60), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,465 - strategy - DEBUG - Checking entry signals at index 5 for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - No Entry2 signal at index 5 for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - Calling _check_entry1_signal for index 5
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,465 - strategy - DEBUG - No Entry1 signal at index 5 for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - Calling _check_entry2_signal for index 6
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry2: Trigger check at index 6: wpr9_crosses=False (prev=-84.25, curr=-89.67), wpr28_crosses=False (prev=-84.60, curr=-90.09), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,465 - strategy - DEBUG - Checking entry signals at index 6 for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - No Entry2 signal at index 6 for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - Calling _check_entry1_signal for index 6
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,465 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,465 - strategy - DEBUG - No Entry1 signal at index 6 for NIFTY2612025450CE
+2026-01-19 16:12:18,466 - strategy - DEBUG - Calling _check_entry2_signal for index 7
+2026-01-19 16:12:18,466 - strategy - DEBUG - Entry2: Trigger check at index 7: wpr9_crosses=False (prev=-89.67, curr=-89.70), wpr28_crosses=False (prev=-90.09, curr=-90.35), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,466 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,466 - strategy - DEBUG - Checking entry signals at index 7 for NIFTY2612025450CE
+2026-01-19 16:12:18,466 - strategy - DEBUG - No Entry2 signal at index 7 for NIFTY2612025450CE
+2026-01-19 16:12:18,466 - strategy - DEBUG - Calling _check_entry1_signal for index 7
+2026-01-19 16:12:18,466 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,466 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,466 - strategy - DEBUG - No Entry1 signal at index 7 for NIFTY2612025450CE
+2026-01-19 16:12:18,466 - strategy - DEBUG - Calling _check_entry2_signal for index 8
+2026-01-19 16:12:18,467 - strategy - DEBUG - Entry2: Trigger check at index 8: wpr9_crosses=True (prev=-89.70, curr=-77.63), wpr28_crosses=False (prev=-90.35, curr=-89.20), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=W%R(9), new_trigger=True
+2026-01-19 16:12:18,467 - strategy - INFO - Entry2: NEW TRIGGER DETECTED at index 8 for NIFTY2612025450CE: Triggered by W%R(9) crossover - W%R(9) -89.70->-77.63, W%R(28) -90.35->-89.20, is_bearish=True, current_state=AWAITING_TRIGGER
+2026-01-19 16:12:18,467 - strategy - INFO - Entry2: Trigger detected at index 8 - W%R(9) crossed above threshold in bearish trend (W%R(9): -89.70->-77.63, W%R(28): -90.35->-89.20)
+2026-01-19 16:12:18,467 - strategy - DEBUG - Entry2: Starting 4-candle confirmation window (T, T+1, ..., T+3)
+2026-01-19 16:12:18,467 - strategy - DEBUG - Entry2: StochRSI confirmation at index 8 (same candle as trigger, flexible mode)
+2026-01-19 16:12:18,467 - strategy - INFO - Entry2: StochRSI confirmation at index 8 (flexible mode) - trigger was at 8
+2026-01-19 16:12:18,467 - strategy - INFO - Entry2: Confirmation check at index 8 (trigger at 8, 0 bars since trigger, window=4, expires at 12, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-90.35, wpr28_current=-89.20, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=20.71, stoch_d=20.15, stoch_condition=True
+2026-01-19 16:12:18,467 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,467 - strategy - DEBUG - Checking entry signals at index 8 for NIFTY2612025450CE
+2026-01-19 16:12:18,467 - strategy - DEBUG - No Entry2 signal at index 8 for NIFTY2612025450CE
+2026-01-19 16:12:18,467 - strategy - DEBUG - Calling _check_entry1_signal for index 8
+2026-01-19 16:12:18,467 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,467 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,467 - strategy - DEBUG - No Entry1 signal at index 8 for NIFTY2612025450CE
+2026-01-19 16:12:18,467 - strategy - DEBUG - Calling _check_entry2_signal for index 9
+2026-01-19 16:12:18,468 - strategy - DEBUG - Entry2: Trigger check at index 9: wpr9_crosses=False (prev=-77.63, curr=-71.15), wpr28_crosses=False (prev=-89.20, curr=-94.28), wpr9_was_below=False, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,468 - strategy - INFO - Entry2: StochRSI confirmation at index 9 (flexible mode) - trigger was at 8
+2026-01-19 16:12:18,468 - strategy - INFO - Entry2: Confirmation check at index 9 (trigger at 8, 1 bars since trigger, window=4, expires at 12, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-89.20, wpr28_current=-94.28, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=21.13, stoch_d=20.48, stoch_condition=True
+2026-01-19 16:12:18,468 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,468 - strategy - DEBUG - Checking entry signals at index 9 for NIFTY2612025450CE
+2026-01-19 16:12:18,468 - strategy - DEBUG - No Entry2 signal at index 9 for NIFTY2612025450CE
+2026-01-19 16:12:18,468 - strategy - DEBUG - Calling _check_entry1_signal for index 9
+2026-01-19 16:12:18,468 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,468 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,468 - strategy - DEBUG - No Entry1 signal at index 9 for NIFTY2612025450CE
+2026-01-19 16:12:18,469 - strategy - DEBUG - Calling _check_entry2_signal for index 10
+2026-01-19 16:12:18,469 - strategy - DEBUG - Entry2: Trigger check at index 10: wpr9_crosses=False (prev=-71.15, curr=-92.80), wpr28_crosses=False (prev=-94.28, curr=-94.51), wpr9_was_below=False, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,469 - strategy - INFO - Entry2: StochRSI confirmation at index 10 (flexible mode) - trigger was at 8
+2026-01-19 16:12:18,469 - strategy - INFO - Entry2: Confirmation check at index 10 (trigger at 8, 2 bars since trigger, window=4, expires at 12, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-94.28, wpr28_current=-94.51, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=22.28, stoch_d=21.37, stoch_condition=True
+2026-01-19 16:12:18,469 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,469 - strategy - DEBUG - Checking entry signals at index 10 for NIFTY2612025450CE
+2026-01-19 16:12:18,469 - strategy - DEBUG - No Entry2 signal at index 10 for NIFTY2612025450CE
+2026-01-19 16:12:18,469 - strategy - DEBUG - Calling _check_entry1_signal for index 10
+2026-01-19 16:12:18,469 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,469 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,469 - strategy - DEBUG - No Entry1 signal at index 10 for NIFTY2612025450CE
+2026-01-19 16:12:18,469 - strategy - DEBUG - Calling _check_entry2_signal for index 11
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry2: Trigger check at index 11: wpr9_crosses=False (prev=-92.80, curr=-86.21), wpr28_crosses=False (prev=-94.51, curr=-93.49), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,470 - strategy - INFO - Entry2: StochRSI confirmation at index 11 (flexible mode) - trigger was at 8
+2026-01-19 16:12:18,470 - strategy - INFO - Entry2: Confirmation check at index 11 (trigger at 8, 3 bars since trigger, window=4, expires at 12, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-94.51, wpr28_current=-93.49, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=23.55, stoch_d=22.32, stoch_condition=True
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,470 - strategy - DEBUG - Checking entry signals at index 11 for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - No Entry2 signal at index 11 for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - Calling _check_entry1_signal for index 11
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,470 - strategy - DEBUG - No Entry1 signal at index 11 for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - Calling _check_entry2_signal for index 12
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry2: Trigger check at index 12: wpr9_crosses=False (prev=-86.21, curr=-80.25), wpr28_crosses=False (prev=-93.49, curr=-92.57), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry2: Window expired at index 12 (trigger was at 8, window=4)
+2026-01-19 16:12:18,470 - strategy - INFO - Entry2: StochRSI confirmation at index 12 (flexible mode) - trigger was at 8
+2026-01-19 16:12:18,470 - strategy - INFO - Entry2: Confirmation check at index 12 (trigger at 8, 4 bars since trigger, window=4, expires at 12, in_window=False): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-93.49, wpr28_current=-92.57, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=26.77, stoch_d=24.20, stoch_condition=True
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,470 - strategy - DEBUG - Checking entry signals at index 12 for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - No Entry2 signal at index 12 for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - Calling _check_entry1_signal for index 12
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,470 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,470 - strategy - DEBUG - No Entry1 signal at index 12 for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - Calling _check_entry2_signal for index 13
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry2: Trigger check at index 13: wpr9_crosses=False (prev=-80.25, curr=-89.58), wpr28_crosses=False (prev=-92.57, curr=-94.28), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,471 - strategy - DEBUG - Checking entry signals at index 13 for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - No Entry2 signal at index 13 for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - Calling _check_entry1_signal for index 13
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,471 - strategy - DEBUG - No Entry1 signal at index 13 for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - Calling _check_entry2_signal for index 14
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry2: Trigger check at index 14: wpr9_crosses=False (prev=-89.58, curr=-100.00), wpr28_crosses=False (prev=-94.28, curr=-98.38), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,471 - strategy - DEBUG - Checking entry signals at index 14 for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - No Entry2 signal at index 14 for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - Calling _check_entry1_signal for index 14
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,471 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,471 - strategy - DEBUG - No Entry1 signal at index 14 for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - Calling _check_entry2_signal for index 15
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry2: Trigger check at index 15: wpr9_crosses=False (prev=-100.00, curr=-94.07), wpr28_crosses=False (prev=-98.38, curr=-99.10), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,472 - strategy - DEBUG - Checking entry signals at index 15 for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - No Entry2 signal at index 15 for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - Calling _check_entry1_signal for index 15
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,472 - strategy - DEBUG - No Entry1 signal at index 15 for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - Calling _check_entry2_signal for index 16
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry2: Trigger check at index 16: wpr9_crosses=True (prev=-94.07, curr=-78.89), wpr28_crosses=False (prev=-99.10, curr=-96.32), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=W%R(9), new_trigger=True
+2026-01-19 16:12:18,472 - strategy - INFO - Entry2: NEW TRIGGER DETECTED at index 16 for NIFTY2612025450CE: Triggered by W%R(9) crossover - W%R(9) -94.07->-78.89, W%R(28) -99.10->-96.32, is_bearish=True, current_state=AWAITING_TRIGGER
+2026-01-19 16:12:18,472 - strategy - INFO - Entry2: Trigger detected at index 16 - W%R(9) crossed above threshold in bearish trend (W%R(9): -94.07->-78.89, W%R(28): -99.10->-96.32)
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry2: Starting 4-candle confirmation window (T, T+1, ..., T+3)
+2026-01-19 16:12:18,472 - strategy - INFO - Entry2: Confirmation check at index 16 (trigger at 16, 0 bars since trigger, window=4, expires at 20, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=False, wpr28_prev=-99.10, wpr28_current=-96.32, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=20.34, stoch_d=44.83, stoch_condition=False
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,472 - strategy - DEBUG - Checking entry signals at index 16 for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - No Entry2 signal at index 16 for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - Calling _check_entry1_signal for index 16
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,472 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,472 - strategy - DEBUG - No Entry1 signal at index 16 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Calling _check_entry2_signal for index 17
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry2: Trigger check at index 17: wpr9_crosses=False (prev=-78.89, curr=-34.26), wpr28_crosses=False (prev=-96.32, curr=-88.55), wpr9_was_below=False, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,473 - strategy - INFO - Entry2: Confirmation check at index 17 (trigger at 16, 1 bars since trigger, window=4, expires at 20, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=False, wpr28_prev=-96.32, wpr28_current=-88.55, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=33.33, stoch_d=35.23, stoch_condition=False
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,473 - strategy - DEBUG - Checking entry signals at index 17 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - No Entry2 signal at index 17 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Calling _check_entry1_signal for index 17
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,473 - strategy - DEBUG - No Entry1 signal at index 17 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Calling _check_entry2_signal for index 18
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry2: Trigger check at index 18: wpr9_crosses=False (prev=-34.26, curr=-31.31), wpr28_crosses=False (prev=-88.55, curr=-88.04), wpr9_was_below=False, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,473 - strategy - INFO - Entry2: StochRSI confirmation at index 18 (flexible mode) - trigger was at 16
+2026-01-19 16:12:18,473 - strategy - INFO - Entry2: Confirmation check at index 18 (trigger at 16, 2 bars since trigger, window=4, expires at 20, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-88.55, wpr28_current=-88.04, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=66.67, stoch_d=40.11, stoch_condition=True
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,473 - strategy - DEBUG - Checking entry signals at index 18 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - No Entry2 signal at index 18 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Calling _check_entry1_signal for index 18
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,473 - strategy - DEBUG - No Entry1 signal at index 18 for NIFTY2612025450CE
+2026-01-19 16:12:18,473 - strategy - DEBUG - Calling _check_entry2_signal for index 19
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry2: Trigger check at index 19: wpr9_crosses=False (prev=-31.31, curr=-11.47), wpr28_crosses=False (prev=-88.04, curr=-78.37), wpr9_was_below=False, wpr28_was_below=True, is_bearish=False, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,474 - strategy - INFO - Entry2: StochRSI confirmation at index 19 (flexible mode) - trigger was at 16
+2026-01-19 16:12:18,474 - strategy - INFO - Entry2: Confirmation check at index 19 (trigger at 16, 3 bars since trigger, window=4, expires at 20, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-88.04, wpr28_current=-78.37, wpr28_crosses=False, wpr28_above=False, is_bearish=False, stoch_k=100.00, stoch_d=66.67, stoch_condition=True
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,474 - strategy - DEBUG - Checking entry signals at index 19 for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - No Entry2 signal at index 19 for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - Calling _check_entry1_signal for index 19
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,474 - strategy - DEBUG - No Entry1 signal at index 19 for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - Calling _check_entry2_signal for index 20
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry2: Trigger check at index 20: wpr9_crosses=False (prev=-11.47, curr=-40.69), wpr28_crosses=False (prev=-78.37, curr=-84.45), wpr9_was_below=False, wpr28_was_below=True, is_bearish=False, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry2: Window expired at index 20 (trigger was at 16, window=4)
+2026-01-19 16:12:18,474 - strategy - INFO - Entry2: StochRSI confirmation at index 20 (flexible mode) - trigger was at 16
+2026-01-19 16:12:18,474 - strategy - INFO - Entry2: Confirmation check at index 20 (trigger at 16, 4 bars since trigger, window=4, expires at 20, in_window=False): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-78.37, wpr28_current=-84.45, wpr28_crosses=False, wpr28_above=False, is_bearish=False, stoch_k=94.16, stoch_d=86.94, stoch_condition=True
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,474 - strategy - DEBUG - Checking entry signals at index 20 for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - No Entry2 signal at index 20 for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - Calling _check_entry1_signal for index 20
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,474 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,474 - strategy - DEBUG - No Entry1 signal at index 20 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Calling _check_entry2_signal for index 21
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 21 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,475 - strategy - DEBUG - Checking entry signals at index 21 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - No Entry2 signal at index 21 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Calling _check_entry1_signal for index 21
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,475 - strategy - DEBUG - No Entry1 signal at index 21 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Calling _check_entry2_signal for index 22
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 22 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,475 - strategy - DEBUG - Checking entry signals at index 22 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - No Entry2 signal at index 22 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Calling _check_entry1_signal for index 22
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,475 - strategy - DEBUG - No Entry1 signal at index 22 for NIFTY2612025450CE
+2026-01-19 16:12:18,475 - strategy - DEBUG - Calling _check_entry2_signal for index 23
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 23 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,476 - strategy - DEBUG - Checking entry signals at index 23 for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - No Entry2 signal at index 23 for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - Calling _check_entry1_signal for index 23
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,476 - strategy - DEBUG - No Entry1 signal at index 23 for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - Calling _check_entry2_signal for index 24
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 24 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,476 - strategy - DEBUG - Checking entry signals at index 24 for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - No Entry2 signal at index 24 for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - Calling _check_entry1_signal for index 24
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,476 - strategy - DEBUG - No Entry1 signal at index 24 for NIFTY2612025450CE
+2026-01-19 16:12:18,476 - strategy - DEBUG - Calling _check_entry2_signal for index 25
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 25 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,477 - strategy - DEBUG - Checking entry signals at index 25 for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - No Entry2 signal at index 25 for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - Calling _check_entry1_signal for index 25
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,477 - strategy - DEBUG - No Entry1 signal at index 25 for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - Calling _check_entry2_signal for index 26
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 26 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,477 - strategy - DEBUG - Checking entry signals at index 26 for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - No Entry2 signal at index 26 for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - Calling _check_entry1_signal for index 26
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,477 - strategy - DEBUG - No Entry1 signal at index 26 for NIFTY2612025450CE
+2026-01-19 16:12:18,477 - strategy - DEBUG - Calling _check_entry2_signal for index 27
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 27 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,478 - strategy - DEBUG - Checking entry signals at index 27 for NIFTY2612025450CE
+2026-01-19 16:12:18,478 - strategy - DEBUG - No Entry2 signal at index 27 for NIFTY2612025450CE
+2026-01-19 16:12:18,478 - strategy - DEBUG - Calling _check_entry1_signal for index 27
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,478 - strategy - DEBUG - No Entry1 signal at index 27 for NIFTY2612025450CE
+2026-01-19 16:12:18,478 - strategy - DEBUG - Calling _check_entry2_signal for index 28
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 28 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,478 - strategy - DEBUG - Checking entry signals at index 28 for NIFTY2612025450CE
+2026-01-19 16:12:18,478 - strategy - DEBUG - No Entry2 signal at index 28 for NIFTY2612025450CE
+2026-01-19 16:12:18,478 - strategy - DEBUG - Calling _check_entry1_signal for index 28
+2026-01-19 16:12:18,478 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,479 - strategy - DEBUG - No Entry1 signal at index 28 for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - Calling _check_entry2_signal for index 29
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 29 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,479 - strategy - DEBUG - Checking entry signals at index 29 for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - No Entry2 signal at index 29 for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - Calling _check_entry1_signal for index 29
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,479 - strategy - DEBUG - No Entry1 signal at index 29 for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - Calling _check_entry2_signal for index 30
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 30 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,479 - strategy - DEBUG - Checking entry signals at index 30 for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - No Entry2 signal at index 30 for NIFTY2612025450CE
+2026-01-19 16:12:18,479 - strategy - DEBUG - Calling _check_entry1_signal for index 30
+2026-01-19 16:12:18,479 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,480 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,480 - strategy - DEBUG - No Entry1 signal at index 30 for NIFTY2612025450CE
+2026-01-19 16:12:18,480 - strategy - DEBUG - Calling _check_entry2_signal for index 31
+2026-01-19 16:12:18,480 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 31 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,480 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,480 - strategy - DEBUG - Checking entry signals at index 31 for NIFTY2612025450CE
+2026-01-19 16:12:18,480 - strategy - DEBUG - No Entry2 signal at index 31 for NIFTY2612025450CE
+2026-01-19 16:12:18,480 - strategy - DEBUG - Calling _check_entry1_signal for index 31
+2026-01-19 16:12:18,480 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,480 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,480 - strategy - DEBUG - No Entry1 signal at index 31 for NIFTY2612025450CE
+2026-01-19 16:12:18,481 - strategy - DEBUG - Calling _check_entry2_signal for index 32
+2026-01-19 16:12:18,481 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 32 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,481 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,481 - strategy - DEBUG - Checking entry signals at index 32 for NIFTY2612025450CE
+2026-01-19 16:12:18,481 - strategy - DEBUG - No Entry2 signal at index 32 for NIFTY2612025450CE
+2026-01-19 16:12:18,481 - strategy - DEBUG - Calling _check_entry1_signal for index 32
+2026-01-19 16:12:18,481 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,481 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,481 - strategy - DEBUG - No Entry1 signal at index 32 for NIFTY2612025450CE
+2026-01-19 16:12:18,481 - strategy - DEBUG - Calling _check_entry2_signal for index 33
+2026-01-19 16:12:18,482 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 33 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,482 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,482 - strategy - DEBUG - Checking entry signals at index 33 for NIFTY2612025450CE
+2026-01-19 16:12:18,482 - strategy - DEBUG - No Entry2 signal at index 33 for NIFTY2612025450CE
+2026-01-19 16:12:18,482 - strategy - DEBUG - Calling _check_entry1_signal for index 33
+2026-01-19 16:12:18,482 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,482 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,482 - strategy - DEBUG - No Entry1 signal at index 33 for NIFTY2612025450CE
+2026-01-19 16:12:18,482 - strategy - DEBUG - Calling _check_entry2_signal for index 34
+2026-01-19 16:12:18,482 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 34 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,482 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,482 - strategy - DEBUG - Checking entry signals at index 34 for NIFTY2612025450CE
+2026-01-19 16:12:18,482 - strategy - DEBUG - No Entry2 signal at index 34 for NIFTY2612025450CE
+2026-01-19 16:12:18,483 - strategy - DEBUG - Calling _check_entry1_signal for index 34
+2026-01-19 16:12:18,483 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,483 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,483 - strategy - DEBUG - No Entry1 signal at index 34 for NIFTY2612025450CE
+2026-01-19 16:12:18,483 - strategy - DEBUG - Calling _check_entry2_signal for index 35
+2026-01-19 16:12:18,483 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 35 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,483 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,483 - strategy - DEBUG - Checking entry signals at index 35 for NIFTY2612025450CE
+2026-01-19 16:12:18,483 - strategy - DEBUG - No Entry2 signal at index 35 for NIFTY2612025450CE
+2026-01-19 16:12:18,483 - strategy - DEBUG - Calling _check_entry1_signal for index 35
+2026-01-19 16:12:18,483 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,483 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,483 - strategy - DEBUG - No Entry1 signal at index 35 for NIFTY2612025450CE
+2026-01-19 16:12:18,484 - strategy - DEBUG - Calling _check_entry2_signal for index 36
+2026-01-19 16:12:18,484 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 36 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,484 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,484 - strategy - DEBUG - Checking entry signals at index 36 for NIFTY2612025450CE
+2026-01-19 16:12:18,484 - strategy - DEBUG - No Entry2 signal at index 36 for NIFTY2612025450CE
+2026-01-19 16:12:18,484 - strategy - DEBUG - Calling _check_entry1_signal for index 36
+2026-01-19 16:12:18,484 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,484 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,484 - strategy - DEBUG - No Entry1 signal at index 36 for NIFTY2612025450CE
+2026-01-19 16:12:18,484 - strategy - DEBUG - Calling _check_entry2_signal for index 37
+2026-01-19 16:12:18,485 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 37 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,485 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,485 - strategy - DEBUG - Checking entry signals at index 37 for NIFTY2612025450CE
+2026-01-19 16:12:18,485 - strategy - DEBUG - No Entry2 signal at index 37 for NIFTY2612025450CE
+2026-01-19 16:12:18,485 - strategy - DEBUG - Calling _check_entry1_signal for index 37
+2026-01-19 16:12:18,485 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,485 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,485 - strategy - DEBUG - No Entry1 signal at index 37 for NIFTY2612025450CE
+2026-01-19 16:12:18,485 - strategy - DEBUG - Calling _check_entry2_signal for index 38
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry2: SuperTrend not bearish at index 38 (dir=1.0) - cannot trigger new entry
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,486 - strategy - DEBUG - Checking entry signals at index 38 for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - DEBUG - No Entry2 signal at index 38 for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - DEBUG - Calling _check_entry1_signal for index 38
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,486 - strategy - DEBUG - No Entry1 signal at index 38 for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - INFO - SKIP_FIRST: SuperTrend switched from bullish to bearish for 'NIFTY2612025450CE' at index 39 (time=09:54:00) - reset state machine and will check nifty_930_sentiment and pivot_sentiment at signal time. Flag dict: {'NIFTY2612025450CE': True}
+2026-01-19 16:12:18,486 - strategy - DEBUG - Calling _check_entry2_signal for index 39
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry2: Trigger check at index 39: wpr9_crosses=False (prev=-88.89, curr=-95.96), wpr28_crosses=False (prev=-73.45, curr=-95.75), wpr9_was_below=True, wpr28_was_below=False, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,486 - strategy - DEBUG - Checking entry signals at index 39 for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - DEBUG - No Entry2 signal at index 39 for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - DEBUG - Calling _check_entry1_signal for index 39
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,486 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,487 - strategy - DEBUG - No Entry1 signal at index 39 for NIFTY2612025450CE
+2026-01-19 16:12:18,487 - strategy - DEBUG - Calling _check_entry2_signal for index 40
+2026-01-19 16:12:18,487 - strategy - DEBUG - Entry2: Trigger check at index 40: wpr9_crosses=True (prev=-95.96, curr=-65.32), wpr28_crosses=True (prev=-95.75, curr=-74.83), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=both (same candle), new_trigger=True
+2026-01-19 16:12:18,487 - strategy - INFO - Entry2: NEW TRIGGER DETECTED at index 40 for NIFTY2612025450CE: Triggered by both W%R(9) and W%R(28) crossover - W%R(9) -95.96->-65.32, W%R(28) -95.75->-74.83, is_bearish=True, current_state=AWAITING_TRIGGER
+2026-01-19 16:12:18,487 - strategy - INFO - Entry2: Trigger detected at index 40 - both W%R(9) and W%R(28) crossed above threshold in bearish trend (W%R(9): -95.96->-65.32, W%R(28): -95.75->-74.83)
+2026-01-19 16:12:18,487 - strategy - DEBUG - Entry2: Starting 4-candle confirmation window (T, T+1, ..., T+3)
+2026-01-19 16:12:18,487 - strategy - INFO - Entry2: W%R(28) confirmation at index 40 (crossed above -77 from -95.75 to -74.83, same candle as trigger, SuperTrend1 bearish)
+2026-01-19 16:12:18,487 - strategy - INFO - Entry2: W%R(28) confirmation at index 40 (crossed above -77 from -95.75 to -74.83, SuperTrend1 bearish) - trigger was at 40
+2026-01-19 16:12:18,487 - strategy - INFO - Entry2: Confirmation check at index 40 (trigger at 40, 0 bars since trigger, window=4, expires at 44, in_window=True): WPR28_confirmed=True, StochRSI_confirmed=False, wpr28_prev=-95.75, wpr28_current=-74.83, wpr28_crosses=True, wpr28_above=True, is_bearish=True, stoch_k=26.00, stoch_d=45.90, stoch_condition=False
+2026-01-19 16:12:18,487 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,487 - strategy - DEBUG - Checking entry signals at index 40 for NIFTY2612025450CE
+2026-01-19 16:12:18,487 - strategy - DEBUG - No Entry2 signal at index 40 for NIFTY2612025450CE
+2026-01-19 16:12:18,487 - strategy - DEBUG - Calling _check_entry1_signal for index 40
+2026-01-19 16:12:18,487 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,487 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,487 - strategy - DEBUG - No Entry1 signal at index 40 for NIFTY2612025450CE
+2026-01-19 16:12:18,488 - strategy - DEBUG - Calling _check_entry2_signal for index 41
+2026-01-19 16:12:18,488 - strategy - DEBUG - Entry2: Trigger check at index 41: wpr9_crosses=False (prev=-65.32, curr=-80.98), wpr28_crosses=False (prev=-74.83, curr=-85.52), wpr9_was_below=False, wpr28_was_below=False, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,488 - strategy - INFO - Entry2: Confirmation check at index 41 (trigger at 40, 1 bars since trigger, window=4, expires at 44, in_window=True): WPR28_confirmed=True, StochRSI_confirmed=False, wpr28_prev=-74.83, wpr28_current=-85.52, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=31.88, stoch_d=32.36, stoch_condition=False
+2026-01-19 16:12:18,488 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,488 - strategy - DEBUG - Checking entry signals at index 41 for NIFTY2612025450CE
+2026-01-19 16:12:18,488 - strategy - DEBUG - No Entry2 signal at index 41 for NIFTY2612025450CE
+2026-01-19 16:12:18,488 - strategy - DEBUG - Calling _check_entry1_signal for index 41
+2026-01-19 16:12:18,488 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,488 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,488 - strategy - DEBUG - No Entry1 signal at index 41 for NIFTY2612025450CE
+2026-01-19 16:12:18,488 - strategy - DEBUG - Calling _check_entry2_signal for index 42
+2026-01-19 16:12:18,489 - strategy - DEBUG - Entry2: Trigger check at index 42: wpr9_crosses=True (prev=-80.98, curr=-78.45), wpr28_crosses=False (prev=-85.52, curr=-83.79), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=W%R(9), new_trigger=True
+2026-01-19 16:12:18,489 - strategy - INFO - Entry2: NEW TRIGGER DETECTED at index 42 for NIFTY2612025450CE: Triggered by W%R(9) crossover - W%R(9) -80.98->-78.45, W%R(28) -85.52->-83.79, is_bearish=True, current_state=AWAITING_CONFIRMATION
+2026-01-19 16:12:18,489 - strategy - DEBUG - Entry2: New trigger detected at index 42 - replacing old trigger at 40
+2026-01-19 16:12:18,489 - strategy - DEBUG - Entry2: Starting 4-candle confirmation window (T, T+1, ..., T+3)
+2026-01-19 16:12:18,490 - strategy - DEBUG - Entry2: StochRSI confirmation at index 42 (same candle as trigger, flexible mode)
+2026-01-19 16:12:18,490 - strategy - INFO - Entry2: StochRSI confirmation at index 42 (flexible mode) - trigger was at 42
+2026-01-19 16:12:18,490 - strategy - INFO - Entry2: Confirmation check at index 42 (trigger at 42, 0 bars since trigger, window=4, expires at 46, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-85.52, wpr28_current=-83.79, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=46.50, stoch_d=34.79, stoch_condition=True
+2026-01-19 16:12:18,490 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,490 - strategy - DEBUG - Checking entry signals at index 42 for NIFTY2612025450CE
+2026-01-19 16:12:18,490 - strategy - DEBUG - No Entry2 signal at index 42 for NIFTY2612025450CE
+2026-01-19 16:12:18,490 - strategy - DEBUG - Calling _check_entry1_signal for index 42
+2026-01-19 16:12:18,490 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,490 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,491 - strategy - DEBUG - No Entry1 signal at index 42 for NIFTY2612025450CE
+2026-01-19 16:12:18,491 - strategy - DEBUG - Calling _check_entry2_signal for index 43
+2026-01-19 16:12:18,491 - strategy - DEBUG - Entry2: Trigger check at index 43: wpr9_crosses=False (prev=-78.45, curr=-87.04), wpr28_crosses=False (prev=-83.79, curr=-89.66), wpr9_was_below=False, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,491 - strategy - INFO - Entry2: Confirmation check at index 43 (trigger at 42, 1 bars since trigger, window=4, expires at 46, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-83.79, wpr28_current=-89.66, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=39.13, stoch_d=39.17, stoch_condition=False
+2026-01-19 16:12:18,491 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,491 - strategy - DEBUG - Checking entry signals at index 43 for NIFTY2612025450CE
+2026-01-19 16:12:18,491 - strategy - DEBUG - No Entry2 signal at index 43 for NIFTY2612025450CE
+2026-01-19 16:12:18,491 - strategy - DEBUG - Calling _check_entry1_signal for index 43
+2026-01-19 16:12:18,491 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,491 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,491 - strategy - DEBUG - No Entry1 signal at index 43 for NIFTY2612025450CE
+2026-01-19 16:12:18,491 - strategy - DEBUG - Calling _check_entry2_signal for index 44
+2026-01-19 16:12:18,491 - strategy - DEBUG - Entry2: Trigger check at index 44: wpr9_crosses=False (prev=-87.04, curr=-96.51), wpr28_crosses=False (prev=-89.66, curr=-97.57), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,491 - strategy - INFO - Entry2: Confirmation check at index 44 (trigger at 42, 2 bars since trigger, window=4, expires at 46, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-89.66, wpr28_current=-97.57, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=33.48, stoch_d=39.70, stoch_condition=False
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,493 - strategy - DEBUG - Checking entry signals at index 44 for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - No Entry2 signal at index 44 for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - Calling _check_entry1_signal for index 44
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,493 - strategy - DEBUG - No Entry1 signal at index 44 for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - Calling _check_entry2_signal for index 45
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry2: Trigger check at index 45: wpr9_crosses=False (prev=-96.51, curr=-100.00), wpr28_crosses=False (prev=-97.57, curr=-100.00), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,493 - strategy - INFO - Entry2: Confirmation check at index 45 (trigger at 42, 3 bars since trigger, window=4, expires at 46, in_window=True): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-97.57, wpr28_current=-100.00, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=18.85, stoch_d=30.49, stoch_condition=False
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,493 - strategy - DEBUG - Checking entry signals at index 45 for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - No Entry2 signal at index 45 for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - Calling _check_entry1_signal for index 45
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,493 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,494 - strategy - DEBUG - No Entry1 signal at index 45 for NIFTY2612025450CE
+2026-01-19 16:12:18,494 - strategy - DEBUG - Calling _check_entry2_signal for index 46
+2026-01-19 16:12:18,494 - strategy - DEBUG - Entry2: Trigger check at index 46: wpr9_crosses=False (prev=-100.00, curr=-96.13), wpr28_crosses=False (prev=-100.00, curr=-97.41), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,494 - strategy - DEBUG - Entry2: Window expired at index 46 (trigger was at 42, window=4)
+2026-01-19 16:12:18,494 - strategy - INFO - Entry2: Confirmation check at index 46 (trigger at 42, 4 bars since trigger, window=4, expires at 46, in_window=False): WPR28_confirmed=False, StochRSI_confirmed=True, wpr28_prev=-100.00, wpr28_current=-97.41, wpr28_crosses=False, wpr28_above=False, is_bearish=True, stoch_k=7.47, stoch_d=19.93, stoch_condition=False
+2026-01-19 16:12:18,494 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,494 - strategy - DEBUG - Checking entry signals at index 46 for NIFTY2612025450CE
+2026-01-19 16:12:18,494 - strategy - DEBUG - No Entry2 signal at index 46 for NIFTY2612025450CE
+2026-01-19 16:12:18,494 - strategy - DEBUG - Calling _check_entry1_signal for index 46
+2026-01-19 16:12:18,494 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,494 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,494 - strategy - DEBUG - No Entry1 signal at index 46 for NIFTY2612025450CE
+2026-01-19 16:12:18,494 - strategy - DEBUG - Calling _check_entry2_signal for index 47
+2026-01-19 16:12:18,494 - strategy - DEBUG - Entry2: Trigger check at index 47: wpr9_crosses=False (prev=-96.13, curr=-94.47), wpr28_crosses=False (prev=-97.41, curr=-97.17), wpr9_was_below=True, wpr28_was_below=True, is_bearish=True, trigger_type=none, new_trigger=False
+2026-01-19 16:12:18,497 - strategy - DEBUG - Entry2 result: False
+2026-01-19 16:12:18,497 - strategy - DEBUG - Checking entry signals at index 47 for NIFTY2612025450CE
+2026-01-19 16:12:18,497 - strategy - DEBUG - No Entry2 signal at index 47 for NIFTY2612025450CE
+2026-01-19 16:12:18,497 - strategy - DEBUG - Calling _check_entry1_signal for index 47
+2026-01-19 16:12:18,497 - strategy - DEBUG - Entry1: Entry1 not enabled for NIFTY2612025450CE
+2026-01-19 16:12:18,497 - strategy - DEBUG - Entry1 result: False
+2026-01-19 16:12:18,497 - strategy - DEBUG - No Entry1 signal at index 47 for NIFTY2612025450CE
+2026-01-19 16:12:18,497 - strategy - DEBUG - Calling _check_entry2_signal for index 48

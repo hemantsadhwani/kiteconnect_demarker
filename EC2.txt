@@ -1,0 +1,23 @@
+13.235.225.209
+
+# First, secure the new key file
+icacls.exe ec2-windows-keys.pem /reset
+icacls.exe ec2-windows-keys.pem /grant:r "$($env:username):(r)"
+icacls.exe ec2-windows-keys.pem /inheritance:r
+
+# Now, connect with the new key
+ssh -i "ec2-windows-keys.pem" ec2-user@13.235.225.209
+
+ssh -i /path/to/your-key.pem ec2-user@13.235.225.209
+
+
+# Debbuging login issue with cursor
+connect -> "ssh -i "ec2-windows-keys.pem" ec2-user@13.235.225.209"
+rm -rf ~/.cursor-server
+sudo pkill dnf
+sudo pkill yum
+sudo rm -f /var/lib/rpm/.rpm.lock
+
+
+connect with logs
+tail -f logs/dynamic_atm_strike.log

@@ -1,0 +1,42 @@
+{
+  "search_timestamp": "2025-10-29T21:09:02.857553",
+  "best_take_profit_percent": null,
+  "best_filtered_pnl": 310.47,
+  "total_tests": 3,
+  "successful_tests": 3,
+  "results": [
+    {
+      "take_profit_percent": 6.0,
+      "filtered_pnl": 173.17,
+      "win_rate": 61.35,
+      "composite_score": -44.22327439044031,
+      "score_type": "P&L Only",
+      "pnl_improvement_pct": -44.22327439044031,
+      "win_rate_improvement_pct": 12.321493958257058,
+      "test_time": 197.192040681839,
+      "timestamp": "2025-10-29T21:00:00.827831"
+    },
+    {
+      "take_profit_percent": 8.0,
+      "filtered_pnl": 185.49,
+      "win_rate": 64.73,
+      "composite_score": -40.25509711083197,
+      "score_type": "P&L Only",
+      "pnl_improvement_pct": -40.25509711083197,
+      "win_rate_improvement_pct": 18.50970340534604,
+      "test_time": 258.8974542617798,
+      "timestamp": "2025-10-29T21:04:19.725379"
+    },
+    {
+      "take_profit_percent": 10.0,
+      "filtered_pnl": 310.47,
+      "win_rate": 54.62,
+      "composite_score": 0.0,
+      "score_type": "P&L Only",
+      "pnl_improvement_pct": 0.0,
+      "win_rate_improvement_pct": 0.0,
+      "test_time": 283.13189482688904,
+      "timestamp": "2025-10-29T21:09:02.857347"
+    }
+  ]
+}

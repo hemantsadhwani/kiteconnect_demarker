@@ -1,0 +1,171 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+# Usually these files are created by PyInstaller.
+# You should commit your .spec file.
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+# Log files are now tracked in git (removed *.log ignore rule)
+# Allow specific log files under logs/ to be checked in for debugging/backtesting
+# !logs/manual_startup_test.log
+# !logs/dynamic_atm_strike.log
+# !logs/dynamic_atm_strike_*.log  # Allow date-suffixed daily log files (e.g., dynamic_atm_strike_dec31.log)
+# !logs/cron_smoke_test.log
+# !logs/cron_async_bot.log
+# !logs/ledger.txt
+logs/token_generation.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# PEP 582; __pypackages__ directory
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Secrets and tokens
+key_secrets/access_token.txt
+key_secrets/token_cache.json
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# PyCharm files
+.idea/
+*.iml
+
+# VSCode files
+.vscode/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Ignore output folder files
+output/
+output/cron_workflow1.log
+output/cron_workflow2.log
+output/market_sentiment.txt
+output/ohlc_data.db
+output/subscribed_tickers.json
+
+# Market sentiment output folder
+market_sentiment/output/
+
+# Data files
+backtesting/data/
+backtesting/logs/
+*.csv
+*.parquet
+*.feather
+*.hdf5
+*.htm
+*.html
+
+# Analytics output files
+backtesting/analytics/*.xlsx
+
+# Backtesting directories - logs, data, and output files
+backtesting_st50/logs/
+backtesting_st50/data/
+backtesting_st100/logs/
+backtesting_st100/data/
+# Backtesting cache files
+backtesting_st50/logs/.ohlc_cache.json
+backtesting_st100/logs/.ohlc_cache.json
+# Backtesting output files (CSV, Excel, HTML reports)
+backtesting_st50/output/
+backtesting_st100/output/
+# Backtesting analytics Excel files
+backtesting_st50/analytics/**/*.xlsx
+backtesting_st100/analytics/**/*.xlsx

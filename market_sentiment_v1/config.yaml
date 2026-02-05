@@ -1,0 +1,41 @@
+# Trading Sentiment Analyzer Configuration
+
+# Source directory for sentiment files (used only in batch processing)
+SOURCE_DIR: nifty_data
+
+# Width to create bullish/bearish zones around a CPR level
+CPR_BAND_WIDTH: 10
+
+# Width to create a band around a horizontal level (default or swing)
+HORIZONTAL_BAND_WIDTH: 2.5
+
+# Buffer around CPR bands where swing points should be ignored
+CPR_IGNORE_BUFFER: 12.5
+
+# Minimum width between two CPR levels to create a default 50% horizontal band
+CPR_PAIR_WIDTH_THRESHOLD: 80.0
+
+# Number of candles to confirm a swing high/low (N candles before, N after)
+# A value of 2 means 2 before and 2 after, for a total of 5 candles.
+SWING_CONFIRMATION_CANDLES: 5
+
+# Tolerance for merging new swings with existing horizontal bands.
+# Formula: 2 * HORIZONTAL_BAND_WIDTH
+MERGE_TOLERANCE: 10.0
+
+# Swing Midpoint Validation
+# Enable/disable percentage-based swing validation from CPR pair boundaries
+# When enabled:
+#   - If CPR pair size < CPR_PAIR_WIDTH_THRESHOLD: 
+#     * Swing high must be above (upper_level - 50% of pair_size)
+#     * Swing low must be below (lower_level + 50% of pair_size)
+#   - If CPR pair size >= CPR_PAIR_WIDTH_THRESHOLD:
+#     * Swing high must be above (upper_level - 25% of pair_size)
+#     * Swing low must be below (lower_level + 25% of pair_size)
+# When disabled: All valid swings (not within CPR_IGNORE_BUFFER) are considered
+ENABLE_SWING_MIDPOINT_VALIDATION: false
+
+# Plot Generation Configuration
+# Enable/disable HTML plot generation (can be slow, disable for faster execution)
+PLOT_ENABLED: false
+

@@ -1,0 +1,15 @@
+================================================================================
+MARKET SENTIMENT FILTER RESEARCH SUMMARY
+================================================================================
+
+Total Trades: 134
+Filtered Trades: 65 (48.51%)
+Unfiltered Trades: 69 (51.49%)
+
+Total P&L: 8.37%
+Filtered P&L: 145.67%
+Unfiltered P&L: 321.88%
+P&L Loss from Filtering: 145.67% (1740.4% of total)
+
+Filtered Win Rate: 46.15%
+Unfiltered Win Rate: 49.28%

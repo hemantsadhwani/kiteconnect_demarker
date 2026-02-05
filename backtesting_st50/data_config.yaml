@@ -1,0 +1,95 @@
+# Data Collection Configuration
+# Configuration specific to data fetching and collection workflows
+
+# Target Expiry Week Configuration (for data collection)
+TARGET_EXPIRY:
+  EXPIRY_DATE: "2025-02-03"  # Monday expiry date (YYYY-MM-DD format)
+  EXPIRY_WEEK_LABEL: "FEB03"  # Base label for folder naming (e.g., OCT20, NOV25, etc.)
+  
+  # Trading days in the expiry week (Monday to Friday)
+  # NOTE: Only include date mentioned in config (OCT16) - no past or future dates
+  TRADING_DAYS:
+  - "2026-02-01"
+  - "2026-02-02"
+  - "2026-02-03"
+
+
+# Data Collection Settings
+DATA_COLLECTION:
+  # NIFTY 50 Configuration
+  NIFTY_TOKEN: 256265  # NIFTY 50 token (fixed)
+  
+  # Strike Configuration
+  STRIKE_DIFFERENCE: 50  # NIFTY options have strikes in multiples of 50
+  
+  # Historical Data Settings
+  PREVIOUS_DAY_CANDLES: 65  # Number of 1-minute candles from previous trading day for cold start
+  CANDLE_INTERVAL: "minute"  # Data interval (minute, 3minute, 5minute, etc.)
+  
+  # Market Hours (Indian Market)
+  MARKET_OPEN_TIME: "09:15"  # Market open time
+  MARKET_CLOSE_TIME: "15:30"  # Market close time
+  TOTAL_MARKET_MINUTES: 375  # 9:15 AM to 3:30 PM = 375 minutes
+  
+  # Static Collection - All Option Types
+  STATIC_OPTION_TYPES:
+    - "ATM"  # At-The-Money
+    - "OTM"  # Out-of-The-Money
+  
+  # Dynamic Collection - Only OTM with dynamic selection
+  DYNAMIC_OPTION_TYPES:
+    - "ATM"  # At-The-Money
+    - "OTM"  # Out-of-The-Money
+
+# Dynamic OTM Ticker Collection Settings (for dynamic workflow only)
+DYNAMIC_COLLECTION:
+  # Range-based switching: Only change when price moves to different 50-point range
+  RANGE_SIZE: 50  # 50-point ranges (e.g., 25001-25050, 25051-25100, etc.)
+  
+  # Dynamic OTM Logic (Nearest OTM Strategy)
+  # For Call (CE): First available strike ABOVE current NIFTY price
+  # For Put (PE): First available strike BELOW current NIFTY price
+  OTM_RULE:
+    RANGE_SIZE: 50  # 50-point ranges (e.g., 25001-25050, 25051-25100, etc.)
+    CE_STRATEGY: "ABOVE"  # CE: First strike above current price
+    PE_STRATEGY: "BELOW"  # PE: First strike below current price
+
+  # Dynamic ATM Logic (At-The-Money Strategy)
+  # For Call (CE): Strike at or below current NIFTY price (floor)
+  # For Put (PE): Strike at or above current NIFTY price (ceil)
+  ATM_RULE:
+    RANGE_SIZE: 50  # 50-point ranges (e.g., 25001-25050, 25051-25100, etc.)
+    CE_STRATEGY: "FLOOR"  # CE: Floor of current price (at or below)
+    PE_STRATEGY: "CEIL"   # PE: Ceiling of current price (at or above)
+
+# Paths Configuration
+PATHS:
+  DATA_DIR: "data"  # Base directory for data storage
+  LOGS_DIR: "logs"  # Directory for log files
+
+# API Configuration
+API:
+  # KiteConnect API settings
+  TIMEOUT: 30  # API timeout in seconds
+  RETRY_ATTEMPTS: 3  # Number of retry attempts for API calls
+  RATE_LIMIT_DELAY: 1  # Delay between API calls in seconds
+
+# Data Quality Settings
+DATA_QUALITY:
+  # Validation settings
+  VALIDATE_OHLC: true  # Validate OHLC data integrity
+  MIN_CANDLES_PER_DAY: 300  # Minimum candles expected per trading day
+  MAX_MISSING_CANDLES: 10  # Maximum allowed missing candles per day
+  
+  # Data cleaning
+  REMOVE_DUPLICATES: true  # Remove duplicate timestamps
+  FILL_MISSING_DATA: false  # Whether to fill missing data points
+  INTERPOLATION_METHOD: "linear"  # Method for data interpolation
+
+# Logging Configuration
+LOGGING:
+  LEVEL: "INFO"  # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  FORMAT: "%(asctime)s - %(levelname)s - %(message)s"
+  FILE_ROTATION: true  # Enable log file rotation
+  MAX_FILE_SIZE: "10MB"  # Maximum log file size
+  BACKUP_COUNT: 5  # Number of backup log files to keep

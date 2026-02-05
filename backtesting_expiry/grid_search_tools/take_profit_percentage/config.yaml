@@ -1,0 +1,23 @@
+# Grid Search Configuration
+# Choose which metrics to optimize for
+
+# Scoring Options
+SCORING:
+  # Optimize for Filtered P&L only
+  FILTERED_PNL: false
+  
+  # Optimize for Win Rate only  
+  WIN_RATE: true
+  
+  # When both are true, use composite scoring (60% P&L, 40% Win Rate)
+  # When only one is true, optimize for that metric only
+  # When both are false, defaults to composite scoring
+
+# Grid Search Parameters
+GRID_SEARCH:
+  START_PERCENT: 6.0
+  END_PERCENT: 10.0
+  STEP: 0.5
+  
+# Validation Mode (3 steps for testing)
+VALIDATION_MODE: true

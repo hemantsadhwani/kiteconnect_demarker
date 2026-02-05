@@ -1,0 +1,2 @@
+2026-02-05 15:24:57,600 - INFO - Using EXPIRY_WEEK_LABELS from config: ['OCT20', 'OCT28', 'NOV04', 'NOV11', 'NOV18', 'NOV25', 'DEC02', 'DEC09', 'DEC16', 'JAN13', 'JAN20', 'JAN27', 'FEB03']
+2026-02-05 15:24:57,600 - INFO - Found 13 expiry weeks to process: ['JAN27', 'JAN20', 'JAN13', 'DEC16', 'DEC09', 'DEC02', 'NOV25', 'NOV18', 'NOV11', 'NOV04', 'OCT28', 'OCT20', 'FEB03']

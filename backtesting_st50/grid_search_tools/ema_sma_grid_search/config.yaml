@@ -1,0 +1,46 @@
+# EMA/SMA Grid Search Configuration (Standardized)
+# Optimizes FAST_MA and SLOW_MA indicators in indicators_config.yaml
+# Target: DYNAMIC_ATM (all trades, no market sentiment filter)
+
+# Grid Search Parameters
+GRID_SEARCH:
+  # Period range for both FAST_MA and SLOW_MA indicators
+  PERIOD_RANGE:
+    MIN: 9
+    MAX: 21
+    STEP: 1
+  
+  # Indicator types to test (MA types: EMA or SMA)
+  INDICATOR_TYPES:
+    - EMA
+    - SMA
+
+# Optimization Target
+OPTIMIZATION:
+  # Primary metric to optimize for
+  PRIMARY_METRIC: "filtered_pnl"  # Options: filtered_pnl, win_rate, composite
+  
+  # Composite scoring weights (if PRIMARY_METRIC is "composite")
+  COMPOSITE_WEIGHTS:
+    FILTERED_PNL: 0.6
+    WIN_RATE: 0.4
+  
+  # Strike type to optimize for (DYNAMIC_ATM only - no market sentiment filter)
+  STRIKE_TYPE: "DYNAMIC_ATM"  # Only DYNAMIC_ATM is optimized
+
+# Execution Settings
+EXECUTION:
+  # Timeout for workflow execution (seconds)
+  # Full workflow can take 30-60 minutes depending on data size
+  WORKFLOW_TIMEOUT: 3600  # 1 hour default
+  
+  # Restore indicators_config.yaml after completion
+  RESTORE_CONFIG: true
+  
+  # Clean up backup files after successful completion
+  CLEANUP_BACKUPS: true  # Set to false to keep backup files
+
+# Logging
+LOGGING:
+  LEVEL: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
+  SHOW_PROGRESS: true

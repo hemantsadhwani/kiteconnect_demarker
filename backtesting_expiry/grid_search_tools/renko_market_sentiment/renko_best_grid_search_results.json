@@ -1,0 +1,25 @@
+{
+  "search_timestamp": "2025-11-02T22:19:37.267733",
+  "progress": "235/300",
+  "benchmark": {
+    "pnl": 207.7,
+    "win_rate": 43.8
+  },
+  "best_combination": {
+    "brick_size": 8.5,
+    "period": 9,
+    "multiplier": 3.0
+  },
+  "best_results": {
+    "filtered_pnl": 84.98,
+    "win_rate": 39.73,
+    "composite_score": -75.25999999999999,
+    "pnl_improvement": -122.71999999999998,
+    "win_rate_improvement": -4.07
+  },
+  "improvement_vs_benchmark": {
+    "pnl_improvement_percent": -122.72,
+    "win_rate_improvement_percent": -4.07,
+    "composite_score": -75.26
+  }
+}

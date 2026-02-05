@@ -1,0 +1,1536 @@
+2026-01-18 10:34:49,675 - INFO - Logging to file: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\grid_search.log
+2026-01-18 10:34:49,675 - INFO - Initialized Entry2 Hyperparameters Grid Search
+2026-01-18 10:34:49,675 - INFO - Base path: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting
+2026-01-18 10:34:49,675 - INFO - Entry type: Entry2
+2026-01-18 10:34:49,676 - INFO - Summary CSV: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\entry2_aggregate_summary.csv
+2026-01-18 10:34:49,676 - INFO - WPR Fast Length: 9-29 (step: 10)
+2026-01-18 10:34:49,676 - INFO - WPR Slow Length: 28-68 (step: 10)
+2026-01-18 10:34:49,676 - INFO - WPR Fast Oversold: -79--77 (step: 1)
+2026-01-18 10:34:49,676 - INFO - WPR Slow Oversold: -79--77 (step: 1)
+2026-01-18 10:34:49,676 - INFO - StochRSI Oversold: 15-25 (step: 1)
+2026-01-18 10:34:49,676 - INFO - Optimization target: composite for DYNAMIC_ATM
+2026-01-18 10:34:49,680 - INFO - Indicators config backed up to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\indicators_config_backup_20260118_103449.yaml
+2026-01-18 10:34:49,680 - INFO - ================================================================================
+2026-01-18 10:34:49,680 - INFO - ESTABLISHING BASELINE FROM CURRENT CONFIGURATION
+2026-01-18 10:34:49,680 - INFO - ================================================================================
+2026-01-18 10:34:49,682 - INFO - Current configuration:
+2026-01-18 10:34:49,682 - INFO -   WPR_FAST_LENGTH: 9
+2026-01-18 10:34:49,682 - INFO -   WPR_SLOW_LENGTH: 28
+2026-01-18 10:34:49,682 - INFO -   WPR_FAST_OVERSOLD: -79
+2026-01-18 10:34:49,682 - INFO -   WPR_SLOW_OVERSOLD: -77
+2026-01-18 10:34:49,682 - INFO -   STOCH_RSI_OVERSOLD: 20
+2026-01-18 10:34:49,682 - INFO - 
+2026-01-18 10:34:49,682 - INFO - Running baseline workflow...
+2026-01-18 10:34:49,682 - INFO - Running run_indicators.py...
+2026-01-18 10:34:54,145 - INFO - run_indicators.py completed successfully
+2026-01-18 10:34:54,145 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:35:27,043 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:35:27,546 - INFO - Read DYNAMIC_ATM metrics: P&L=523.45%, Win Rate=47.6%, Trades=105
+2026-01-18 10:35:27,546 - INFO - ================================================================================
+2026-01-18 10:35:27,546 - INFO - BASELINE ESTABLISHED
+2026-01-18 10:35:27,546 - INFO - ================================================================================
+2026-01-18 10:35:27,546 - INFO - WPR Fast: 9 | WPR Slow: 28
+2026-01-18 10:35:27,547 - INFO - WPR Fast Oversold: -79 | WPR Slow Oversold: -77 | StochRSI Oversold: 20
+2026-01-18 10:35:27,547 - INFO - Filtered P&L: 523.45%
+2026-01-18 10:35:27,547 - INFO - Win Rate: 47.6%
+2026-01-18 10:35:27,547 - INFO - Total Trades: 107
+2026-01-18 10:35:27,547 - INFO - Filtered Trades: 105
+2026-01-18 10:35:27,547 - INFO - ================================================================================
+2026-01-18 10:35:27,547 - INFO - Running FULL GRID SEARCH
+2026-01-18 10:35:27,547 - INFO - Starting full grid search with all hyperparameter combinations...
+2026-01-18 10:35:27,548 - INFO - Total combinations to test: 1386
+2026-01-18 10:35:27,548 - INFO - WPR Fast Length: 9-29 (step: 10)
+2026-01-18 10:35:27,548 - INFO - WPR Slow Length: 28-68 (step: 10)
+2026-01-18 10:35:27,548 - INFO - WPR Fast Oversold: -79--77 (step: 1)
+2026-01-18 10:35:27,548 - INFO - WPR Slow Oversold: -79--77 (step: 1)
+2026-01-18 10:35:27,548 - INFO - StochRSI Oversold: 15-25 (step: 1)
+2026-01-18 10:35:27,548 - INFO - 
+[PROGRESS 1/1386] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-79, StochRSI_OV=15
+2026-01-18 10:35:27,569 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=15
+2026-01-18 10:35:27,573 - INFO - Running run_indicators.py...
+2026-01-18 10:35:31,266 - INFO - run_indicators.py completed successfully
+2026-01-18 10:35:31,266 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:35:32,192 - INFO - Grid search interrupted by user
+2026-01-18 10:35:32,193 - INFO - Restoring original indicators config...
+2026-01-18 10:35:32,196 - INFO - Indicators config restored from: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\indicators_config_backup_20260118_103449.yaml
+2026-01-18 10:35:32,196 - INFO - Cleaning up backup files...
+2026-01-18 10:35:32,197 - INFO - Deleted current backup file: indicators_config_backup_20260118_103449.yaml
+2026-01-18 10:35:32,197 - INFO - Cleaned up 1 backup file(s)
+2026-01-18 10:37:45,676 - INFO - Logging to file: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\grid_search.log
+2026-01-18 10:37:45,676 - INFO - Initialized Entry2 Hyperparameters Grid Search
+2026-01-18 10:37:45,677 - INFO - Base path: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting
+2026-01-18 10:37:45,677 - INFO - Entry type: Entry2
+2026-01-18 10:37:45,677 - INFO - Summary CSV: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\entry2_aggregate_summary.csv
+2026-01-18 10:37:45,677 - INFO - WPR Fast Length: 9-29 (step: 10)
+2026-01-18 10:37:45,677 - INFO - WPR Slow Length: 28-68 (step: 10)
+2026-01-18 10:37:45,677 - INFO - WPR Fast Oversold: -79--77 (step: 1)
+2026-01-18 10:37:45,677 - INFO - WPR Slow Oversold: -79--77 (step: 1)
+2026-01-18 10:37:45,677 - INFO - StochRSI Oversold: 20 (from indicators_config.yaml, not optimized)
+2026-01-18 10:37:45,677 - INFO - Optimization target: composite for DYNAMIC_ATM
+2026-01-18 10:37:45,680 - INFO - Indicators config backed up to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\indicators_config_backup_20260118_103745.yaml
+2026-01-18 10:37:45,680 - INFO - ================================================================================
+2026-01-18 10:37:45,680 - INFO - ESTABLISHING BASELINE FROM CURRENT CONFIGURATION
+2026-01-18 10:37:45,680 - INFO - ================================================================================
+2026-01-18 10:37:45,682 - INFO - Current configuration:
+2026-01-18 10:37:45,682 - INFO -   WPR_FAST_LENGTH: 9
+2026-01-18 10:37:45,682 - INFO -   WPR_SLOW_LENGTH: 28
+2026-01-18 10:37:45,682 - INFO -   WPR_FAST_OVERSOLD: -79
+2026-01-18 10:37:45,682 - INFO -   WPR_SLOW_OVERSOLD: -77
+2026-01-18 10:37:45,682 - INFO -   STOCH_RSI_OVERSOLD: 20
+2026-01-18 10:37:45,683 - INFO - 
+2026-01-18 10:37:45,683 - INFO - Running baseline workflow...
+2026-01-18 10:37:45,683 - INFO - Running run_indicators.py...
+2026-01-18 10:37:48,932 - INFO - run_indicators.py completed successfully
+2026-01-18 10:37:48,933 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:38:17,950 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:38:18,453 - INFO - Read DYNAMIC_ATM metrics: P&L=523.45%, Win Rate=47.6%, Trades=105
+2026-01-18 10:38:18,454 - INFO - ================================================================================
+2026-01-18 10:38:18,454 - INFO - BASELINE ESTABLISHED
+2026-01-18 10:38:18,454 - INFO - ================================================================================
+2026-01-18 10:38:18,454 - INFO - WPR Fast: 9 | WPR Slow: 28
+2026-01-18 10:38:18,454 - INFO - WPR Fast Oversold: -79 | WPR Slow Oversold: -77 | StochRSI Oversold: 20
+2026-01-18 10:38:18,454 - INFO - Filtered P&L: 523.45%
+2026-01-18 10:38:18,454 - INFO - Win Rate: 47.6%
+2026-01-18 10:38:18,454 - INFO - Total Trades: 107
+2026-01-18 10:38:18,454 - INFO - Filtered Trades: 105
+2026-01-18 10:38:18,455 - INFO - ================================================================================
+2026-01-18 10:38:18,455 - INFO - Running FULL GRID SEARCH
+2026-01-18 10:38:18,455 - INFO - Starting full grid search with all hyperparameter combinations...
+2026-01-18 10:38:18,455 - INFO - Total combinations to test: 126
+2026-01-18 10:38:18,455 - INFO - WPR Fast Length: 9-29 (step: 10)
+2026-01-18 10:38:18,455 - INFO - WPR Slow Length: 28-68 (step: 10)
+2026-01-18 10:38:18,455 - INFO - WPR Fast Oversold: -79--77 (step: 1)
+2026-01-18 10:38:18,455 - INFO - WPR Slow Oversold: -79--77 (step: 1)
+2026-01-18 10:38:18,455 - INFO - 
+[PROGRESS 1/126] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 10:38:18,455 - INFO - [TIME] Calculating time estimates after first iteration...
+2026-01-18 10:38:18,455 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:38:18,458 - INFO - Running run_indicators.py...
+2026-01-18 10:38:21,572 - INFO - run_indicators.py completed successfully
+2026-01-18 10:38:21,573 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:38:49,925 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:38:50,427 - INFO - Read DYNAMIC_ATM metrics: P&L=453.82%, Win Rate=45.4%, Trades=108
+2026-01-18 10:38:50,428 - INFO - [OK] Combination - P&L: 453.82% (-69.63% vs baseline) | Win Rate: 45.4% (-2.2% vs baseline) | Trades: 108 (+3 vs baseline)
+2026-01-18 10:38:50,428 - INFO - [BEST] NEW BEST: WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-79 with 453.82% P&L!
+2026-01-18 10:38:50,428 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:38:50,428 - INFO - 
+[PROGRESS 2/126 (1.6%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 10:38:50,428 - INFO - [TIME] Elapsed: 32s | Est. Remaining: 1hr 6min | Est. Total: 1hr 6min | ETA: 11:44:55
+2026-01-18 10:38:50,428 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:38:50,431 - INFO - Running run_indicators.py...
+2026-01-18 10:38:53,653 - INFO - run_indicators.py completed successfully
+2026-01-18 10:38:53,653 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:39:22,970 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:39:23,472 - INFO - Read DYNAMIC_ATM metrics: P&L=464.73%, Win Rate=45.4%, Trades=108
+2026-01-18 10:39:23,472 - INFO - [OK] Combination - P&L: 464.73% (-58.72% vs baseline) | Win Rate: 45.4% (-2.2% vs baseline) | Trades: 108 (+3 vs baseline)
+2026-01-18 10:39:23,473 - INFO - [BEST] NEW BEST: WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-78 with 464.73% P&L!
+2026-01-18 10:39:23,473 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:39:23,473 - INFO - 
+[PROGRESS 3/126 (2.4%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 10:39:23,473 - INFO - [TIME] Elapsed: 1.1min | Est. Remaining: 1hr 6min | Est. Total: 1hr 7min | ETA: 11:46:02
+2026-01-18 10:39:23,473 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:39:23,477 - INFO - Running run_indicators.py...
+2026-01-18 10:39:26,760 - INFO - run_indicators.py completed successfully
+2026-01-18 10:39:26,760 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:39:55,506 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:39:56,007 - INFO - Read DYNAMIC_ATM metrics: P&L=523.45%, Win Rate=47.6%, Trades=105
+2026-01-18 10:39:56,008 - INFO - [OK] Combination - P&L: 523.45% (+0.00% vs baseline) | Win Rate: 47.6% (+0.0% vs baseline) | Trades: 105 (+0 vs baseline)
+2026-01-18 10:39:56,008 - INFO - [BEST] NEW BEST: WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-77 with 523.45% P&L!
+2026-01-18 10:39:56,008 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:39:56,008 - INFO - 
+[PROGRESS 4/126 (3.2%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 10:39:56,008 - INFO - [TIME] Elapsed: 1.6min | Est. Remaining: 1hr 6min | Est. Total: 1hr 7min | ETA: 11:46:03
+2026-01-18 10:39:56,008 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:39:56,012 - INFO - Running run_indicators.py...
+2026-01-18 10:39:59,252 - INFO - run_indicators.py completed successfully
+2026-01-18 10:39:59,252 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:40:28,646 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:40:29,148 - INFO - Read DYNAMIC_ATM metrics: P&L=432.59%, Win Rate=44.2%, Trades=113
+2026-01-18 10:40:29,148 - INFO - [OK] Combination - P&L: 432.59% (-90.86% vs baseline) | Win Rate: 44.2% (-3.4% vs baseline) | Trades: 113 (+8 vs baseline)
+2026-01-18 10:40:29,149 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:40:29,149 - INFO - 
+[PROGRESS 5/126 (4.0%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 10:40:29,149 - INFO - [TIME] Elapsed: 2.2min | Est. Remaining: 1hr 5min | Est. Total: 1hr 8min | ETA: 11:46:22
+2026-01-18 10:40:29,149 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:40:29,152 - INFO - Running run_indicators.py...
+2026-01-18 10:40:32,508 - INFO - run_indicators.py completed successfully
+2026-01-18 10:40:32,509 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:41:01,275 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:41:01,776 - INFO - Read DYNAMIC_ATM metrics: P&L=443.50%, Win Rate=44.2%, Trades=113
+2026-01-18 10:41:01,777 - INFO - [OK] Combination - P&L: 443.50% (-79.95% vs baseline) | Win Rate: 44.2% (-3.4% vs baseline) | Trades: 113 (+8 vs baseline)
+2026-01-18 10:41:01,777 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:41:01,777 - INFO - 
+[PROGRESS 6/126 (4.8%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 10:41:01,777 - INFO - [TIME] Elapsed: 2.7min | Est. Remaining: 1hr 5min | Est. Total: 1hr 8min | ETA: 11:46:21
+2026-01-18 10:41:01,777 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:41:01,780 - INFO - Running run_indicators.py...
+2026-01-18 10:41:04,943 - INFO - run_indicators.py completed successfully
+2026-01-18 10:41:04,943 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:41:33,140 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:41:33,642 - INFO - Read DYNAMIC_ATM metrics: P&L=502.22%, Win Rate=46.4%, Trades=110
+2026-01-18 10:41:33,642 - INFO - [OK] Combination - P&L: 502.22% (-21.23% vs baseline) | Win Rate: 46.4% (-1.3% vs baseline) | Trades: 110 (+5 vs baseline)
+2026-01-18 10:41:33,642 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:41:33,642 - INFO - 
+[PROGRESS 7/126 (5.6%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 10:41:33,642 - INFO - [TIME] Elapsed: 3.3min | Est. Remaining: 1hr 4min | Est. Total: 1hr 7min | ETA: 11:46:04
+2026-01-18 10:41:33,643 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:41:33,645 - INFO - Running run_indicators.py...
+2026-01-18 10:41:36,895 - INFO - run_indicators.py completed successfully
+2026-01-18 10:41:36,895 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:42:05,106 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:42:05,608 - INFO - Read DYNAMIC_ATM metrics: P&L=431.51%, Win Rate=44.4%, Trades=115
+2026-01-18 10:42:05,608 - INFO - [OK] Combination - P&L: 431.51% (-91.94% vs baseline) | Win Rate: 44.4% (-3.3% vs baseline) | Trades: 115 (+10 vs baseline)
+2026-01-18 10:42:05,608 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:42:05,609 - INFO - 
+[PROGRESS 8/126 (6.3%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 10:42:05,609 - INFO - [TIME] Elapsed: 3.8min | Est. Remaining: 1hr 3min | Est. Total: 1hr 7min | ETA: 11:45:54
+2026-01-18 10:42:05,609 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:42:05,612 - INFO - Running run_indicators.py...
+2026-01-18 10:42:08,865 - INFO - run_indicators.py completed successfully
+2026-01-18 10:42:08,865 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:42:37,508 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:42:38,010 - INFO - Read DYNAMIC_ATM metrics: P&L=442.42%, Win Rate=44.4%, Trades=115
+2026-01-18 10:42:38,011 - INFO - [OK] Combination - P&L: 442.42% (-81.03% vs baseline) | Win Rate: 44.4% (-3.3% vs baseline) | Trades: 115 (+10 vs baseline)
+2026-01-18 10:42:38,011 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:42:38,011 - INFO - 
+[PROGRESS 9/126 (7.1%)] WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 10:42:38,011 - INFO - [TIME] Elapsed: 4.3min | Est. Remaining: 1hr 3min | Est. Total: 1hr 7min | ETA: 11:45:54
+2026-01-18 10:42:38,011 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=28, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:42:38,014 - INFO - Running run_indicators.py...
+2026-01-18 10:42:41,300 - INFO - run_indicators.py completed successfully
+2026-01-18 10:42:41,300 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:43:09,937 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:43:10,439 - INFO - Read DYNAMIC_ATM metrics: P&L=501.14%, Win Rate=46.4%, Trades=112
+2026-01-18 10:43:10,440 - INFO - [OK] Combination - P&L: 501.14% (-22.31% vs baseline) | Win Rate: 46.4% (-1.2% vs baseline) | Trades: 112 (+7 vs baseline)
+2026-01-18 10:43:10,440 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:43:10,440 - INFO - 
+[PROGRESS 10/126 (7.9%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 10:43:10,440 - INFO - [TIME] Elapsed: 4.9min | Est. Remaining: 1hr 2min | Est. Total: 1hr 7min | ETA: 11:45:53
+2026-01-18 10:43:10,440 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:43:10,443 - INFO - Running run_indicators.py...
+2026-01-18 10:43:13,759 - INFO - run_indicators.py completed successfully
+2026-01-18 10:43:13,759 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:43:41,801 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:43:42,303 - INFO - Read DYNAMIC_ATM metrics: P&L=308.96%, Win Rate=45.2%, Trades=84
+2026-01-18 10:43:42,303 - INFO - [OK] Combination - P&L: 308.96% (-214.49% vs baseline) | Win Rate: 45.2% (-2.4% vs baseline) | Trades: 84 (-21 vs baseline)
+2026-01-18 10:43:42,303 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:43:42,303 - INFO - 
+[PROGRESS 11/126 (8.7%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 10:43:42,304 - INFO - [TIME] Elapsed: 5.4min | Est. Remaining: 1hr 2min | Est. Total: 1hr 7min | ETA: 11:45:46
+2026-01-18 10:43:42,304 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:43:42,307 - INFO - Running run_indicators.py...
+2026-01-18 10:43:45,554 - INFO - run_indicators.py completed successfully
+2026-01-18 10:43:45,554 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:44:14,335 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:44:14,837 - INFO - Read DYNAMIC_ATM metrics: P&L=358.50%, Win Rate=46.4%, Trades=84
+2026-01-18 10:44:14,837 - INFO - [OK] Combination - P&L: 358.50% (-164.95% vs baseline) | Win Rate: 46.4% (-1.2% vs baseline) | Trades: 84 (-21 vs baseline)
+2026-01-18 10:44:14,837 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:44:14,838 - INFO - 
+[PROGRESS 12/126 (9.5%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 10:44:14,838 - INFO - [TIME] Elapsed: 5.9min | Est. Remaining: 1hr 1min | Est. Total: 1hr 7min | ETA: 11:45:48
+2026-01-18 10:44:14,838 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:44:14,841 - INFO - Running run_indicators.py...
+2026-01-18 10:44:18,090 - INFO - run_indicators.py completed successfully
+2026-01-18 10:44:18,090 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:44:46,234 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:44:46,735 - INFO - Read DYNAMIC_ATM metrics: P&L=420.16%, Win Rate=48.2%, Trades=83
+2026-01-18 10:44:46,735 - INFO - [OK] Combination - P&L: 420.16% (-103.29% vs baseline) | Win Rate: 48.2% (+0.6% vs baseline) | Trades: 83 (-22 vs baseline)
+2026-01-18 10:44:46,735 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:44:46,736 - INFO - 
+[PROGRESS 13/126 (10.3%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 10:44:46,736 - INFO - [TIME] Elapsed: 6.5min | Est. Remaining: 1hr 0min | Est. Total: 1hr 7min | ETA: 11:45:43
+2026-01-18 10:44:46,736 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:44:46,739 - INFO - Running run_indicators.py...
+2026-01-18 10:44:49,927 - INFO - run_indicators.py completed successfully
+2026-01-18 10:44:49,927 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:45:17,883 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:45:18,384 - INFO - Read DYNAMIC_ATM metrics: P&L=293.73%, Win Rate=44.3%, Trades=88
+2026-01-18 10:45:18,384 - INFO - [OK] Combination - P&L: 293.73% (-229.72% vs baseline) | Win Rate: 44.3% (-3.3% vs baseline) | Trades: 88 (-17 vs baseline)
+2026-01-18 10:45:18,385 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:45:18,385 - INFO - 
+[PROGRESS 14/126 (11.1%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 10:45:18,385 - INFO - [TIME] Elapsed: 7.0min | Est. Remaining: 1hr 0min | Est. Total: 1hr 7min | ETA: 11:45:36
+2026-01-18 10:45:18,385 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:45:18,388 - INFO - Running run_indicators.py...
+2026-01-18 10:45:21,604 - INFO - run_indicators.py completed successfully
+2026-01-18 10:45:21,605 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:45:49,926 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:45:50,429 - INFO - Read DYNAMIC_ATM metrics: P&L=343.27%, Win Rate=45.5%, Trades=88
+2026-01-18 10:45:50,429 - INFO - [OK] Combination - P&L: 343.27% (-180.18% vs baseline) | Win Rate: 45.5% (-2.2% vs baseline) | Trades: 88 (-17 vs baseline)
+2026-01-18 10:45:50,429 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:45:50,429 - INFO - 
+[PROGRESS 15/126 (11.9%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 10:45:50,429 - INFO - [TIME] Elapsed: 7.5min | Est. Remaining: 59.7min | Est. Total: 1hr 7min | ETA: 11:45:33
+2026-01-18 10:45:50,429 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:45:50,434 - INFO - Running run_indicators.py...
+2026-01-18 10:45:53,652 - INFO - run_indicators.py completed successfully
+2026-01-18 10:45:53,653 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:46:21,435 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:46:21,937 - INFO - Read DYNAMIC_ATM metrics: P&L=410.93%, Win Rate=47.7%, Trades=86
+2026-01-18 10:46:21,937 - INFO - [OK] Combination - P&L: 410.93% (-112.52% vs baseline) | Win Rate: 47.7% (+0.1% vs baseline) | Trades: 86 (-19 vs baseline)
+2026-01-18 10:46:21,937 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:46:21,937 - INFO - 
+[PROGRESS 16/126 (12.7%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 10:46:21,937 - INFO - [TIME] Elapsed: 8.1min | Est. Remaining: 59.1min | Est. Total: 1hr 7min | ETA: 11:45:27
+2026-01-18 10:46:21,937 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:46:21,940 - INFO - Running run_indicators.py...
+2026-01-18 10:46:25,165 - INFO - run_indicators.py completed successfully
+2026-01-18 10:46:25,166 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:46:53,290 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:46:53,792 - INFO - Read DYNAMIC_ATM metrics: P&L=297.33%, Win Rate=44.9%, Trades=89
+2026-01-18 10:46:53,792 - INFO - [OK] Combination - P&L: 297.33% (-226.12% vs baseline) | Win Rate: 44.9% (-2.7% vs baseline) | Trades: 89 (-16 vs baseline)
+2026-01-18 10:46:53,792 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:46:53,792 - INFO - 
+[PROGRESS 17/126 (13.5%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 10:46:53,792 - INFO - [TIME] Elapsed: 8.6min | Est. Remaining: 58.5min | Est. Total: 1hr 7min | ETA: 11:45:24
+2026-01-18 10:46:53,792 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:46:53,795 - INFO - Running run_indicators.py...
+2026-01-18 10:46:57,018 - INFO - run_indicators.py completed successfully
+2026-01-18 10:46:57,018 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:47:25,466 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:47:25,968 - INFO - Read DYNAMIC_ATM metrics: P&L=346.87%, Win Rate=46.1%, Trades=89
+2026-01-18 10:47:25,968 - INFO - [OK] Combination - P&L: 346.87% (-176.58% vs baseline) | Win Rate: 46.1% (-1.5% vs baseline) | Trades: 89 (-16 vs baseline)
+2026-01-18 10:47:25,968 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:47:25,968 - INFO - 
+[PROGRESS 18/126 (14.3%)] WPR_Fast=9, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 10:47:25,968 - INFO - [TIME] Elapsed: 9.1min | Est. Remaining: 58.0min | Est. Total: 1hr 7min | ETA: 11:45:24
+2026-01-18 10:47:25,968 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:47:25,971 - INFO - Running run_indicators.py...
+2026-01-18 10:47:29,212 - INFO - run_indicators.py completed successfully
+2026-01-18 10:47:29,212 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:47:57,377 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:47:57,878 - INFO - Read DYNAMIC_ATM metrics: P&L=414.53%, Win Rate=48.3%, Trades=87
+2026-01-18 10:47:57,878 - INFO - [OK] Combination - P&L: 414.53% (-108.92% vs baseline) | Win Rate: 48.3% (+0.7% vs baseline) | Trades: 87 (-18 vs baseline)
+2026-01-18 10:47:57,879 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:47:57,879 - INFO - 
+[PROGRESS 19/126 (15.1%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 10:47:57,879 - INFO - [TIME] Elapsed: 9.7min | Est. Remaining: 57.4min | Est. Total: 1hr 7min | ETA: 11:45:22
+2026-01-18 10:47:57,879 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:47:57,882 - INFO - Running run_indicators.py...
+2026-01-18 10:48:01,090 - INFO - run_indicators.py completed successfully
+2026-01-18 10:48:01,091 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:48:28,853 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:48:29,354 - INFO - Read DYNAMIC_ATM metrics: P&L=366.93%, Win Rate=51.5%, Trades=66
+2026-01-18 10:48:29,355 - INFO - [OK] Combination - P&L: 366.93% (-156.52% vs baseline) | Win Rate: 51.5% (+3.9% vs baseline) | Trades: 66 (-39 vs baseline)
+2026-01-18 10:48:29,355 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:48:29,355 - INFO - 
+[PROGRESS 20/126 (15.9%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 10:48:29,355 - INFO - [TIME] Elapsed: 10.2min | Est. Remaining: 56.8min | Est. Total: 1hr 6min | ETA: 11:45:17
+2026-01-18 10:48:29,355 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:48:29,358 - INFO - Running run_indicators.py...
+2026-01-18 10:48:32,710 - INFO - run_indicators.py completed successfully
+2026-01-18 10:48:32,710 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:49:00,440 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:49:00,942 - INFO - Read DYNAMIC_ATM metrics: P&L=344.46%, Win Rate=49.2%, Trades=61
+2026-01-18 10:49:00,942 - INFO - [OK] Combination - P&L: 344.46% (-178.99% vs baseline) | Win Rate: 49.2% (+1.6% vs baseline) | Trades: 61 (-44 vs baseline)
+2026-01-18 10:49:00,943 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:49:00,943 - INFO - 
+[PROGRESS 21/126 (16.7%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 10:49:00,943 - INFO - [TIME] Elapsed: 10.7min | Est. Remaining: 56.2min | Est. Total: 1hr 6min | ETA: 11:45:14
+2026-01-18 10:49:00,943 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:49:00,947 - INFO - Running run_indicators.py...
+2026-01-18 10:49:04,249 - INFO - run_indicators.py completed successfully
+2026-01-18 10:49:04,249 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:49:31,591 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:49:32,093 - INFO - Read DYNAMIC_ATM metrics: P&L=395.15%, Win Rate=50.0%, Trades=64
+2026-01-18 10:49:32,093 - INFO - [OK] Combination - P&L: 395.15% (-128.30% vs baseline) | Win Rate: 50.0% (+2.4% vs baseline) | Trades: 64 (-41 vs baseline)
+2026-01-18 10:49:32,093 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:49:32,093 - INFO - 
+[PROGRESS 22/126 (17.5%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 10:49:32,093 - INFO - [TIME] Elapsed: 11.2min | Est. Remaining: 55.6min | Est. Total: 1hr 6min | ETA: 11:45:08
+2026-01-18 10:49:32,094 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:49:32,097 - INFO - Running run_indicators.py...
+2026-01-18 10:49:35,287 - INFO - run_indicators.py completed successfully
+2026-01-18 10:49:35,288 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:50:02,298 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:50:02,800 - INFO - Read DYNAMIC_ATM metrics: P&L=357.70%, Win Rate=50.7%, Trades=69
+2026-01-18 10:50:02,800 - INFO - [OK] Combination - P&L: 357.70% (-165.75% vs baseline) | Win Rate: 50.7% (+3.1% vs baseline) | Trades: 69 (-36 vs baseline)
+2026-01-18 10:50:02,801 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:50:02,801 - INFO - 
+[PROGRESS 23/126 (18.3%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 10:50:02,801 - INFO - [TIME] Elapsed: 11.7min | Est. Remaining: 55.0min | Est. Total: 1hr 6min | ETA: 11:45:00
+2026-01-18 10:50:02,801 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:50:02,804 - INFO - Running run_indicators.py...
+2026-01-18 10:50:06,155 - INFO - run_indicators.py completed successfully
+2026-01-18 10:50:06,155 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:50:33,642 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:50:34,144 - INFO - Read DYNAMIC_ATM metrics: P&L=335.23%, Win Rate=48.4%, Trades=64
+2026-01-18 10:50:34,144 - INFO - [OK] Combination - P&L: 335.23% (-188.22% vs baseline) | Win Rate: 48.4% (+0.8% vs baseline) | Trades: 64 (-41 vs baseline)
+2026-01-18 10:50:34,145 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:50:34,145 - INFO - 
+[PROGRESS 24/126 (19.0%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 10:50:34,145 - INFO - [TIME] Elapsed: 12.3min | Est. Remaining: 54.4min | Est. Total: 1hr 6min | ETA: 11:44:56
+2026-01-18 10:50:34,145 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:50:34,148 - INFO - Running run_indicators.py...
+2026-01-18 10:50:37,415 - INFO - run_indicators.py completed successfully
+2026-01-18 10:50:37,415 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:51:04,718 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:51:05,220 - INFO - Read DYNAMIC_ATM metrics: P&L=385.92%, Win Rate=49.2%, Trades=67
+2026-01-18 10:51:05,220 - INFO - [OK] Combination - P&L: 385.92% (-137.53% vs baseline) | Win Rate: 49.2% (+1.6% vs baseline) | Trades: 67 (-38 vs baseline)
+2026-01-18 10:51:05,220 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:51:05,220 - INFO - 
+[PROGRESS 25/126 (19.8%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 10:51:05,220 - INFO - [TIME] Elapsed: 12.8min | Est. Remaining: 53.8min | Est. Total: 1hr 6min | ETA: 11:44:52
+2026-01-18 10:51:05,220 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:51:05,223 - INFO - Running run_indicators.py...
+2026-01-18 10:51:08,482 - INFO - run_indicators.py completed successfully
+2026-01-18 10:51:08,483 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:51:36,483 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:51:36,985 - INFO - Read DYNAMIC_ATM metrics: P&L=356.13%, Win Rate=50.0%, Trades=70
+2026-01-18 10:51:36,985 - INFO - [OK] Combination - P&L: 356.13% (-167.32% vs baseline) | Win Rate: 50.0% (+2.4% vs baseline) | Trades: 70 (-35 vs baseline)
+2026-01-18 10:51:36,985 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:51:36,986 - INFO - 
+[PROGRESS 26/126 (20.6%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 10:51:36,986 - INFO - [TIME] Elapsed: 13.3min | Est. Remaining: 53.2min | Est. Total: 1hr 6min | ETA: 11:44:51
+2026-01-18 10:51:36,986 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:51:36,989 - INFO - Running run_indicators.py...
+2026-01-18 10:51:40,216 - INFO - run_indicators.py completed successfully
+2026-01-18 10:51:40,216 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:52:07,884 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:52:08,386 - INFO - Read DYNAMIC_ATM metrics: P&L=333.66%, Win Rate=47.7%, Trades=65
+2026-01-18 10:52:08,387 - INFO - [OK] Combination - P&L: 333.66% (-189.79% vs baseline) | Win Rate: 47.7% (+0.1% vs baseline) | Trades: 65 (-40 vs baseline)
+2026-01-18 10:52:08,387 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:52:08,387 - INFO - 
+[PROGRESS 27/126 (21.4%)] WPR_Fast=9, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 10:52:08,387 - INFO - [TIME] Elapsed: 13.8min | Est. Remaining: 52.7min | Est. Total: 1hr 6min | ETA: 11:44:48
+2026-01-18 10:52:08,387 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:52:08,390 - INFO - Running run_indicators.py...
+2026-01-18 10:52:11,565 - INFO - run_indicators.py completed successfully
+2026-01-18 10:52:11,566 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:52:38,841 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:52:39,343 - INFO - Read DYNAMIC_ATM metrics: P&L=384.35%, Win Rate=48.5%, Trades=68
+2026-01-18 10:52:39,343 - INFO - [OK] Combination - P&L: 384.35% (-139.10% vs baseline) | Win Rate: 48.5% (+0.9% vs baseline) | Trades: 68 (-37 vs baseline)
+2026-01-18 10:52:39,343 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:52:39,344 - INFO - 
+[PROGRESS 28/126 (22.2%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 10:52:39,344 - INFO - [TIME] Elapsed: 14.3min | Est. Remaining: 52.1min | Est. Total: 1hr 6min | ETA: 11:44:44
+2026-01-18 10:52:39,344 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:52:39,347 - INFO - Running run_indicators.py...
+2026-01-18 10:52:42,562 - INFO - run_indicators.py completed successfully
+2026-01-18 10:52:42,562 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:53:09,356 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:53:09,858 - INFO - Read DYNAMIC_ATM metrics: P&L=137.73%, Win Rate=48.1%, Trades=52
+2026-01-18 10:53:09,858 - INFO - [OK] Combination - P&L: 137.73% (-385.72% vs baseline) | Win Rate: 48.1% (+0.5% vs baseline) | Trades: 52 (-53 vs baseline)
+2026-01-18 10:53:09,858 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:53:09,858 - INFO - 
+[PROGRESS 29/126 (23.0%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 10:53:09,858 - INFO - [TIME] Elapsed: 14.9min | Est. Remaining: 51.5min | Est. Total: 1hr 6min | ETA: 11:44:37
+2026-01-18 10:53:09,858 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:53:09,861 - INFO - Running run_indicators.py...
+2026-01-18 10:53:13,026 - INFO - run_indicators.py completed successfully
+2026-01-18 10:53:13,026 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:53:39,544 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:53:40,046 - INFO - Read DYNAMIC_ATM metrics: P&L=120.52%, Win Rate=46.9%, Trades=49
+2026-01-18 10:53:40,047 - INFO - [OK] Combination - P&L: 120.52% (-402.93% vs baseline) | Win Rate: 46.9% (-0.7% vs baseline) | Trades: 49 (-56 vs baseline)
+2026-01-18 10:53:40,047 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:53:40,047 - INFO - 
+[PROGRESS 30/126 (23.8%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 10:53:40,047 - INFO - [TIME] Elapsed: 15.4min | Est. Remaining: 50.8min | Est. Total: 1hr 6min | ETA: 11:44:30
+2026-01-18 10:53:40,047 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:53:40,050 - INFO - Running run_indicators.py...
+2026-01-18 10:53:43,243 - INFO - run_indicators.py completed successfully
+2026-01-18 10:53:43,243 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:54:10,368 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:54:10,870 - INFO - Read DYNAMIC_ATM metrics: P&L=192.11%, Win Rate=49.0%, Trades=49
+2026-01-18 10:54:10,870 - INFO - [OK] Combination - P&L: 192.11% (-331.34% vs baseline) | Win Rate: 49.0% (+1.4% vs baseline) | Trades: 49 (-56 vs baseline)
+2026-01-18 10:54:10,871 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:54:10,871 - INFO - 
+[PROGRESS 31/126 (24.6%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 10:54:10,871 - INFO - [TIME] Elapsed: 15.9min | Est. Remaining: 50.3min | Est. Total: 1hr 6min | ETA: 11:44:26
+2026-01-18 10:54:10,871 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:54:10,874 - INFO - Running run_indicators.py...
+2026-01-18 10:54:14,192 - INFO - run_indicators.py completed successfully
+2026-01-18 10:54:14,192 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:54:41,249 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:54:41,751 - INFO - Read DYNAMIC_ATM metrics: P&L=127.00%, Win Rate=47.3%, Trades=55
+2026-01-18 10:54:41,751 - INFO - [OK] Combination - P&L: 127.00% (-396.45% vs baseline) | Win Rate: 47.3% (-0.3% vs baseline) | Trades: 55 (-50 vs baseline)
+2026-01-18 10:54:41,751 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:54:41,751 - INFO - 
+[PROGRESS 32/126 (25.4%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 10:54:41,751 - INFO - [TIME] Elapsed: 16.4min | Est. Remaining: 49.7min | Est. Total: 1hr 6min | ETA: 11:44:23
+2026-01-18 10:54:41,752 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:54:41,755 - INFO - Running run_indicators.py...
+2026-01-18 10:54:44,872 - INFO - run_indicators.py completed successfully
+2026-01-18 10:54:44,872 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:55:11,923 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:55:12,425 - INFO - Read DYNAMIC_ATM metrics: P&L=109.79%, Win Rate=46.1%, Trades=52
+2026-01-18 10:55:12,425 - INFO - [OK] Combination - P&L: 109.79% (-413.66% vs baseline) | Win Rate: 46.1% (-1.5% vs baseline) | Trades: 52 (-53 vs baseline)
+2026-01-18 10:55:12,425 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:55:12,425 - INFO - 
+[PROGRESS 33/126 (26.2%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 10:55:12,425 - INFO - [TIME] Elapsed: 16.9min | Est. Remaining: 49.1min | Est. Total: 1hr 6min | ETA: 11:44:19
+2026-01-18 10:55:12,425 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:55:12,428 - INFO - Running run_indicators.py...
+2026-01-18 10:55:15,671 - INFO - run_indicators.py completed successfully
+2026-01-18 10:55:15,671 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:55:43,025 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:55:43,527 - INFO - Read DYNAMIC_ATM metrics: P&L=181.38%, Win Rate=48.1%, Trades=52
+2026-01-18 10:55:43,527 - INFO - [OK] Combination - P&L: 181.38% (-342.07% vs baseline) | Win Rate: 48.1% (+0.5% vs baseline) | Trades: 52 (-53 vs baseline)
+2026-01-18 10:55:43,527 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:55:43,528 - INFO - 
+[PROGRESS 34/126 (27.0%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 10:55:43,528 - INFO - [TIME] Elapsed: 17.4min | Est. Remaining: 48.6min | Est. Total: 1hr 5min | ETA: 11:44:17
+2026-01-18 10:55:43,528 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:55:43,531 - INFO - Running run_indicators.py...
+2026-01-18 10:55:46,706 - INFO - run_indicators.py completed successfully
+2026-01-18 10:55:46,706 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:56:13,847 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:56:14,349 - INFO - Read DYNAMIC_ATM metrics: P&L=127.00%, Win Rate=47.3%, Trades=55
+2026-01-18 10:56:14,349 - INFO - [OK] Combination - P&L: 127.00% (-396.45% vs baseline) | Win Rate: 47.3% (-0.3% vs baseline) | Trades: 55 (-50 vs baseline)
+2026-01-18 10:56:14,349 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:56:14,349 - INFO - 
+[PROGRESS 35/126 (27.8%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 10:56:14,349 - INFO - [TIME] Elapsed: 17.9min | Est. Remaining: 48.0min | Est. Total: 1hr 5min | ETA: 11:44:13
+2026-01-18 10:56:14,350 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:56:14,352 - INFO - Running run_indicators.py...
+2026-01-18 10:56:17,571 - INFO - run_indicators.py completed successfully
+2026-01-18 10:56:17,572 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:56:44,705 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:56:45,206 - INFO - Read DYNAMIC_ATM metrics: P&L=109.79%, Win Rate=46.1%, Trades=52
+2026-01-18 10:56:45,207 - INFO - [OK] Combination - P&L: 109.79% (-413.66% vs baseline) | Win Rate: 46.1% (-1.5% vs baseline) | Trades: 52 (-53 vs baseline)
+2026-01-18 10:56:45,207 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:56:45,207 - INFO - 
+[PROGRESS 36/126 (28.6%)] WPR_Fast=9, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 10:56:45,207 - INFO - [TIME] Elapsed: 18.4min | Est. Remaining: 47.4min | Est. Total: 1hr 5min | ETA: 11:44:11
+2026-01-18 10:56:45,207 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:56:45,210 - INFO - Running run_indicators.py...
+2026-01-18 10:56:48,453 - INFO - run_indicators.py completed successfully
+2026-01-18 10:56:48,453 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:57:15,298 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:57:15,800 - INFO - Read DYNAMIC_ATM metrics: P&L=181.38%, Win Rate=48.1%, Trades=52
+2026-01-18 10:57:15,800 - INFO - [OK] Combination - P&L: 181.38% (-342.07% vs baseline) | Win Rate: 48.1% (+0.5% vs baseline) | Trades: 52 (-53 vs baseline)
+2026-01-18 10:57:15,800 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:57:15,800 - INFO - 
+[PROGRESS 37/126 (29.4%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 10:57:15,800 - INFO - [TIME] Elapsed: 19.0min | Est. Remaining: 46.9min | Est. Total: 1hr 5min | ETA: 11:44:07
+2026-01-18 10:57:15,800 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:57:15,803 - INFO - Running run_indicators.py...
+2026-01-18 10:57:18,984 - INFO - run_indicators.py completed successfully
+2026-01-18 10:57:18,984 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:57:45,395 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:57:45,897 - INFO - Read DYNAMIC_ATM metrics: P&L=164.82%, Win Rate=50.0%, Trades=42
+2026-01-18 10:57:45,898 - INFO - [OK] Combination - P&L: 164.82% (-358.63% vs baseline) | Win Rate: 50.0% (+2.4% vs baseline) | Trades: 42 (-63 vs baseline)
+2026-01-18 10:57:45,898 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:57:45,898 - INFO - 
+[PROGRESS 38/126 (30.2%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 10:57:45,898 - INFO - [TIME] Elapsed: 19.5min | Est. Remaining: 46.3min | Est. Total: 1hr 5min | ETA: 11:44:02
+2026-01-18 10:57:45,898 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:57:45,901 - INFO - Running run_indicators.py...
+2026-01-18 10:57:49,142 - INFO - run_indicators.py completed successfully
+2026-01-18 10:57:49,142 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:58:26,315 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:58:26,816 - INFO - Read DYNAMIC_ATM metrics: P&L=138.92%, Win Rate=47.5%, Trades=40
+2026-01-18 10:58:26,817 - INFO - [OK] Combination - P&L: 138.92% (-384.53% vs baseline) | Win Rate: 47.5% (-0.1% vs baseline) | Trades: 40 (-65 vs baseline)
+2026-01-18 10:58:26,817 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:58:26,817 - INFO - 
+[PROGRESS 39/126 (31.0%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 10:58:26,817 - INFO - [TIME] Elapsed: 20.1min | Est. Remaining: 46.1min | Est. Total: 1hr 6min | ETA: 11:44:33
+2026-01-18 10:58:26,817 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:58:26,820 - INFO - Running run_indicators.py...
+2026-01-18 10:58:30,009 - INFO - run_indicators.py completed successfully
+2026-01-18 10:58:30,009 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:58:55,626 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:58:56,128 - INFO - Read DYNAMIC_ATM metrics: P&L=178.30%, Win Rate=54.0%, Trades=37
+2026-01-18 10:58:56,128 - INFO - [OK] Combination - P&L: 178.30% (-345.15% vs baseline) | Win Rate: 54.0% (+6.4% vs baseline) | Trades: 37 (-68 vs baseline)
+2026-01-18 10:58:56,128 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:58:56,128 - INFO - 
+[PROGRESS 40/126 (31.7%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 10:58:56,128 - INFO - [TIME] Elapsed: 20.6min | Est. Remaining: 45.5min | Est. Total: 1hr 6min | ETA: 11:44:25
+2026-01-18 10:58:56,129 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:58:56,132 - INFO - Running run_indicators.py...
+2026-01-18 10:58:59,310 - INFO - run_indicators.py completed successfully
+2026-01-18 10:58:59,310 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:59:25,941 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:59:26,443 - INFO - Read DYNAMIC_ATM metrics: P&L=154.09%, Win Rate=48.9%, Trades=45
+2026-01-18 10:59:26,444 - INFO - [OK] Combination - P&L: 154.09% (-369.36% vs baseline) | Win Rate: 48.9% (+1.3% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 10:59:26,444 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:59:26,444 - INFO - 
+[PROGRESS 41/126 (32.5%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 10:59:26,444 - INFO - [TIME] Elapsed: 21.1min | Est. Remaining: 44.9min | Est. Total: 1hr 6min | ETA: 11:44:20
+2026-01-18 10:59:26,444 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:59:26,447 - INFO - Running run_indicators.py...
+2026-01-18 10:59:29,625 - INFO - run_indicators.py completed successfully
+2026-01-18 10:59:29,625 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 10:59:56,003 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 10:59:56,505 - INFO - Read DYNAMIC_ATM metrics: P&L=128.19%, Win Rate=46.5%, Trades=43
+2026-01-18 10:59:56,505 - INFO - [OK] Combination - P&L: 128.19% (-395.26% vs baseline) | Win Rate: 46.5% (-1.1% vs baseline) | Trades: 43 (-62 vs baseline)
+2026-01-18 10:59:56,505 - INFO - --------------------------------------------------------------------------------
+2026-01-18 10:59:56,505 - INFO - 
+[PROGRESS 42/126 (33.3%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 10:59:56,505 - INFO - [TIME] Elapsed: 21.6min | Est. Remaining: 44.3min | Est. Total: 1hr 5min | ETA: 11:44:15
+2026-01-18 10:59:56,505 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 10:59:56,508 - INFO - Running run_indicators.py...
+2026-01-18 10:59:59,721 - INFO - run_indicators.py completed successfully
+2026-01-18 10:59:59,721 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:00:26,176 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:00:26,678 - INFO - Read DYNAMIC_ATM metrics: P&L=167.57%, Win Rate=52.5%, Trades=40
+2026-01-18 11:00:26,678 - INFO - [OK] Combination - P&L: 167.57% (-355.88% vs baseline) | Win Rate: 52.5% (+4.9% vs baseline) | Trades: 40 (-65 vs baseline)
+2026-01-18 11:00:26,678 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:00:26,679 - INFO - 
+[PROGRESS 43/126 (34.1%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:00:26,679 - INFO - [TIME] Elapsed: 22.1min | Est. Remaining: 43.7min | Est. Total: 1hr 5min | ETA: 11:44:11
+2026-01-18 11:00:26,679 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:00:26,682 - INFO - Running run_indicators.py...
+2026-01-18 11:00:29,918 - INFO - run_indicators.py completed successfully
+2026-01-18 11:00:29,918 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:00:57,210 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:00:57,712 - INFO - Read DYNAMIC_ATM metrics: P&L=154.09%, Win Rate=48.9%, Trades=45
+2026-01-18 11:00:57,712 - INFO - [OK] Combination - P&L: 154.09% (-369.36% vs baseline) | Win Rate: 48.9% (+1.3% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 11:00:57,712 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:00:57,712 - INFO - 
+[PROGRESS 44/126 (34.9%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:00:57,713 - INFO - [TIME] Elapsed: 22.7min | Est. Remaining: 43.2min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:00:57,713 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:00:57,717 - INFO - Running run_indicators.py...
+2026-01-18 11:01:00,996 - INFO - run_indicators.py completed successfully
+2026-01-18 11:01:00,996 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:01:26,755 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:01:27,257 - INFO - Read DYNAMIC_ATM metrics: P&L=128.19%, Win Rate=46.5%, Trades=43
+2026-01-18 11:01:27,257 - INFO - [OK] Combination - P&L: 128.19% (-395.26% vs baseline) | Win Rate: 46.5% (-1.1% vs baseline) | Trades: 43 (-62 vs baseline)
+2026-01-18 11:01:27,257 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:01:27,257 - INFO - 
+[PROGRESS 45/126 (35.7%)] WPR_Fast=9, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:01:27,257 - INFO - [TIME] Elapsed: 23.1min | Est. Remaining: 42.6min | Est. Total: 1hr 5min | ETA: 11:44:03
+2026-01-18 11:01:27,257 - INFO - Testing combination: WPR_Fast=9, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:01:27,260 - INFO - Running run_indicators.py...
+2026-01-18 11:01:30,429 - INFO - run_indicators.py completed successfully
+2026-01-18 11:01:30,429 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:01:56,483 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:01:56,984 - INFO - Read DYNAMIC_ATM metrics: P&L=167.57%, Win Rate=52.5%, Trades=40
+2026-01-18 11:01:56,984 - INFO - [OK] Combination - P&L: 167.57% (-355.88% vs baseline) | Win Rate: 52.5% (+4.9% vs baseline) | Trades: 40 (-65 vs baseline)
+2026-01-18 11:01:56,984 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:01:56,984 - INFO - 
+[PROGRESS 46/126 (36.5%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:01:56,985 - INFO - [TIME] Elapsed: 23.6min | Est. Remaining: 42.0min | Est. Total: 1hr 5min | ETA: 11:43:58
+2026-01-18 11:01:56,985 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:01:56,987 - INFO - Running run_indicators.py...
+2026-01-18 11:02:00,196 - INFO - run_indicators.py completed successfully
+2026-01-18 11:02:00,196 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:02:29,686 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:02:30,189 - INFO - Read DYNAMIC_ATM metrics: P&L=390.82%, Win Rate=43.3%, Trades=120
+2026-01-18 11:02:30,189 - INFO - [OK] Combination - P&L: 390.82% (-132.63% vs baseline) | Win Rate: 43.3% (-4.3% vs baseline) | Trades: 120 (+15 vs baseline)
+2026-01-18 11:02:30,189 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:02:30,189 - INFO - 
+[PROGRESS 47/126 (37.3%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:02:30,189 - INFO - [TIME] Elapsed: 24.2min | Est. Remaining: 41.6min | Est. Total: 1hr 5min | ETA: 11:44:03
+2026-01-18 11:02:30,189 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:02:30,192 - INFO - Running run_indicators.py...
+2026-01-18 11:02:33,374 - INFO - run_indicators.py completed successfully
+2026-01-18 11:02:33,374 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:03:02,027 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:03:02,529 - INFO - Read DYNAMIC_ATM metrics: P&L=404.04%, Win Rate=43.2%, Trades=118
+2026-01-18 11:03:02,529 - INFO - [OK] Combination - P&L: 404.04% (-119.41% vs baseline) | Win Rate: 43.2% (-4.4% vs baseline) | Trades: 118 (+13 vs baseline)
+2026-01-18 11:03:02,529 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:03:02,529 - INFO - 
+[PROGRESS 48/126 (38.1%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:03:02,529 - INFO - [TIME] Elapsed: 24.7min | Est. Remaining: 41.0min | Est. Total: 1hr 5min | ETA: 11:44:05
+2026-01-18 11:03:02,529 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:03:02,533 - INFO - Running run_indicators.py...
+2026-01-18 11:03:05,758 - INFO - run_indicators.py completed successfully
+2026-01-18 11:03:05,759 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:03:34,293 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:03:34,795 - INFO - Read DYNAMIC_ATM metrics: P&L=477.76%, Win Rate=45.6%, Trades=114
+2026-01-18 11:03:34,795 - INFO - [OK] Combination - P&L: 477.76% (-45.69% vs baseline) | Win Rate: 45.6% (-2.0% vs baseline) | Trades: 114 (+9 vs baseline)
+2026-01-18 11:03:34,796 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:03:34,796 - INFO - 
+[PROGRESS 49/126 (38.9%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:03:34,796 - INFO - [TIME] Elapsed: 25.3min | Est. Remaining: 40.5min | Est. Total: 1hr 5min | ETA: 11:44:07
+2026-01-18 11:03:34,796 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:03:34,799 - INFO - Running run_indicators.py...
+2026-01-18 11:03:38,064 - INFO - run_indicators.py completed successfully
+2026-01-18 11:03:38,064 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:04:07,037 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:04:07,539 - INFO - Read DYNAMIC_ATM metrics: P&L=384.47%, Win Rate=42.6%, Trades=122
+2026-01-18 11:04:07,539 - INFO - [OK] Combination - P&L: 384.47% (-138.98% vs baseline) | Win Rate: 42.6% (-5.0% vs baseline) | Trades: 122 (+17 vs baseline)
+2026-01-18 11:04:07,539 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:04:07,539 - INFO - 
+[PROGRESS 50/126 (39.7%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:04:07,539 - INFO - [TIME] Elapsed: 25.8min | Est. Remaining: 40.0min | Est. Total: 1hr 5min | ETA: 11:44:10
+2026-01-18 11:04:07,539 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:04:07,542 - INFO - Running run_indicators.py...
+2026-01-18 11:04:10,847 - INFO - run_indicators.py completed successfully
+2026-01-18 11:04:10,847 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:04:39,831 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:04:40,333 - INFO - Read DYNAMIC_ATM metrics: P&L=405.67%, Win Rate=42.6%, Trades=122
+2026-01-18 11:04:40,333 - INFO - [OK] Combination - P&L: 405.67% (-117.78% vs baseline) | Win Rate: 42.6% (-5.0% vs baseline) | Trades: 122 (+17 vs baseline)
+2026-01-18 11:04:40,333 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:04:40,333 - INFO - 
+[PROGRESS 51/126 (40.5%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:04:40,333 - INFO - [TIME] Elapsed: 26.4min | Est. Remaining: 39.5min | Est. Total: 1hr 5min | ETA: 11:44:13
+2026-01-18 11:04:40,334 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:04:40,336 - INFO - Running run_indicators.py...
+2026-01-18 11:04:43,478 - INFO - run_indicators.py completed successfully
+2026-01-18 11:04:43,478 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:05:12,420 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:05:12,922 - INFO - Read DYNAMIC_ATM metrics: P&L=479.39%, Win Rate=44.9%, Trades=118
+2026-01-18 11:05:12,922 - INFO - [OK] Combination - P&L: 479.39% (-44.06% vs baseline) | Win Rate: 44.9% (-2.7% vs baseline) | Trades: 118 (+13 vs baseline)
+2026-01-18 11:05:12,922 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:05:12,923 - INFO - 
+[PROGRESS 52/126 (41.3%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:05:12,923 - INFO - [TIME] Elapsed: 26.9min | Est. Remaining: 39.0min | Est. Total: 1hr 5min | ETA: 11:44:15
+2026-01-18 11:05:12,923 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:05:12,926 - INFO - Running run_indicators.py...
+2026-01-18 11:05:16,107 - INFO - run_indicators.py completed successfully
+2026-01-18 11:05:16,107 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:05:45,047 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:05:45,549 - INFO - Read DYNAMIC_ATM metrics: P&L=374.46%, Win Rate=41.9%, Trades=124
+2026-01-18 11:05:45,549 - INFO - [OK] Combination - P&L: 374.46% (-148.99% vs baseline) | Win Rate: 41.9% (-5.7% vs baseline) | Trades: 124 (+19 vs baseline)
+2026-01-18 11:05:45,549 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:05:45,549 - INFO - 
+[PROGRESS 53/126 (42.1%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:05:45,550 - INFO - [TIME] Elapsed: 27.5min | Est. Remaining: 38.5min | Est. Total: 1hr 5min | ETA: 11:44:17
+2026-01-18 11:05:45,550 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:05:45,553 - INFO - Running run_indicators.py...
+2026-01-18 11:05:48,789 - INFO - run_indicators.py completed successfully
+2026-01-18 11:05:48,790 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:06:18,880 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:06:19,382 - INFO - Read DYNAMIC_ATM metrics: P&L=395.66%, Win Rate=41.9%, Trades=124
+2026-01-18 11:06:19,382 - INFO - [OK] Combination - P&L: 395.66% (-127.79% vs baseline) | Win Rate: 41.9% (-5.7% vs baseline) | Trades: 124 (+19 vs baseline)
+2026-01-18 11:06:19,382 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:06:19,382 - INFO - 
+[PROGRESS 54/126 (42.9%)] WPR_Fast=19, WPR_Slow=28, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:06:19,383 - INFO - [TIME] Elapsed: 28.0min | Est. Remaining: 38.1min | Est. Total: 1hr 6min | ETA: 11:44:22
+2026-01-18 11:06:19,383 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=28, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:06:19,386 - INFO - Running run_indicators.py...
+2026-01-18 11:06:22,611 - INFO - run_indicators.py completed successfully
+2026-01-18 11:06:22,612 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:06:51,507 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:06:52,009 - INFO - Read DYNAMIC_ATM metrics: P&L=469.38%, Win Rate=44.2%, Trades=120
+2026-01-18 11:06:52,009 - INFO - [OK] Combination - P&L: 469.38% (-54.07% vs baseline) | Win Rate: 44.2% (-3.4% vs baseline) | Trades: 120 (+15 vs baseline)
+2026-01-18 11:06:52,009 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:06:52,010 - INFO - 
+[PROGRESS 55/126 (43.7%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:06:52,010 - INFO - [TIME] Elapsed: 28.6min | Est. Remaining: 37.6min | Est. Total: 1hr 6min | ETA: 11:44:25
+2026-01-18 11:06:52,010 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:06:52,013 - INFO - Running run_indicators.py...
+2026-01-18 11:06:55,271 - INFO - run_indicators.py completed successfully
+2026-01-18 11:06:55,271 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:07:23,663 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:07:24,165 - INFO - Read DYNAMIC_ATM metrics: P&L=255.04%, Win Rate=44.0%, Trades=91
+2026-01-18 11:07:24,165 - INFO - [OK] Combination - P&L: 255.04% (-268.41% vs baseline) | Win Rate: 44.0% (-3.7% vs baseline) | Trades: 91 (-14 vs baseline)
+2026-01-18 11:07:24,165 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:07:24,165 - INFO - 
+[PROGRESS 56/126 (44.4%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:07:24,165 - INFO - [TIME] Elapsed: 29.1min | Est. Remaining: 37.0min | Est. Total: 1hr 6min | ETA: 11:44:25
+2026-01-18 11:07:24,166 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:07:24,169 - INFO - Running run_indicators.py...
+2026-01-18 11:07:27,340 - INFO - run_indicators.py completed successfully
+2026-01-18 11:07:27,340 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:07:56,115 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:07:56,616 - INFO - Read DYNAMIC_ATM metrics: P&L=298.58%, Win Rate=44.6%, Trades=92
+2026-01-18 11:07:56,616 - INFO - [OK] Combination - P&L: 298.58% (-224.87% vs baseline) | Win Rate: 44.6% (-3.0% vs baseline) | Trades: 92 (-13 vs baseline)
+2026-01-18 11:07:56,617 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:07:56,617 - INFO - 
+[PROGRESS 57/126 (45.2%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:07:56,617 - INFO - [TIME] Elapsed: 29.6min | Est. Remaining: 36.5min | Est. Total: 1hr 6min | ETA: 11:44:27
+2026-01-18 11:07:56,617 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:07:56,621 - INFO - Running run_indicators.py...
+2026-01-18 11:07:59,828 - INFO - run_indicators.py completed successfully
+2026-01-18 11:07:59,828 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:08:28,490 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:08:28,992 - INFO - Read DYNAMIC_ATM metrics: P&L=358.74%, Win Rate=46.1%, Trades=91
+2026-01-18 11:08:28,992 - INFO - [OK] Combination - P&L: 358.74% (-164.71% vs baseline) | Win Rate: 46.1% (-1.5% vs baseline) | Trades: 91 (-14 vs baseline)
+2026-01-18 11:08:28,992 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:08:28,993 - INFO - 
+[PROGRESS 58/126 (46.0%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:08:28,993 - INFO - [TIME] Elapsed: 30.2min | Est. Remaining: 36.0min | Est. Total: 1hr 6min | ETA: 11:44:28
+2026-01-18 11:08:28,993 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:08:28,996 - INFO - Running run_indicators.py...
+2026-01-18 11:08:32,173 - INFO - run_indicators.py completed successfully
+2026-01-18 11:08:32,174 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:09:00,659 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:09:01,161 - INFO - Read DYNAMIC_ATM metrics: P&L=248.85%, Win Rate=43.5%, Trades=92
+2026-01-18 11:09:01,161 - INFO - [OK] Combination - P&L: 248.85% (-274.60% vs baseline) | Win Rate: 43.5% (-4.1% vs baseline) | Trades: 92 (-13 vs baseline)
+2026-01-18 11:09:01,161 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:09:01,161 - INFO - 
+[PROGRESS 59/126 (46.8%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:09:01,162 - INFO - [TIME] Elapsed: 30.7min | Est. Remaining: 35.5min | Est. Total: 1hr 6min | ETA: 11:44:29
+2026-01-18 11:09:01,162 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:09:01,165 - INFO - Running run_indicators.py...
+2026-01-18 11:09:04,431 - INFO - run_indicators.py completed successfully
+2026-01-18 11:09:04,431 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:09:32,698 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:09:33,200 - INFO - Read DYNAMIC_ATM metrics: P&L=306.56%, Win Rate=44.7%, Trades=94
+2026-01-18 11:09:33,200 - INFO - [OK] Combination - P&L: 306.56% (-216.89% vs baseline) | Win Rate: 44.7% (-2.9% vs baseline) | Trades: 94 (-11 vs baseline)
+2026-01-18 11:09:33,200 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:09:33,200 - INFO - 
+[PROGRESS 60/126 (47.6%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:09:33,200 - INFO - [TIME] Elapsed: 31.2min | Est. Remaining: 35.0min | Est. Total: 1hr 6min | ETA: 11:44:30
+2026-01-18 11:09:33,200 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:09:33,204 - INFO - Running run_indicators.py...
+2026-01-18 11:09:36,470 - INFO - run_indicators.py completed successfully
+2026-01-18 11:09:36,470 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:10:04,963 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:10:05,465 - INFO - Read DYNAMIC_ATM metrics: P&L=360.72%, Win Rate=45.7%, Trades=94
+2026-01-18 11:10:05,465 - INFO - [OK] Combination - P&L: 360.72% (-162.73% vs baseline) | Win Rate: 45.7% (-1.9% vs baseline) | Trades: 94 (-11 vs baseline)
+2026-01-18 11:10:05,465 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:10:05,466 - INFO - 
+[PROGRESS 61/126 (48.4%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:10:05,466 - INFO - [TIME] Elapsed: 31.8min | Est. Remaining: 34.4min | Est. Total: 1hr 6min | ETA: 11:44:31
+2026-01-18 11:10:05,466 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:10:05,469 - INFO - Running run_indicators.py...
+2026-01-18 11:10:08,703 - INFO - run_indicators.py completed successfully
+2026-01-18 11:10:08,703 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:10:37,511 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:10:38,014 - INFO - Read DYNAMIC_ATM metrics: P&L=238.84%, Win Rate=42.5%, Trades=94
+2026-01-18 11:10:38,014 - INFO - [OK] Combination - P&L: 238.84% (-284.61% vs baseline) | Win Rate: 42.5% (-5.1% vs baseline) | Trades: 94 (-11 vs baseline)
+2026-01-18 11:10:38,014 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:10:38,014 - INFO - 
+[PROGRESS 62/126 (49.2%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:10:38,014 - INFO - [TIME] Elapsed: 32.3min | Est. Remaining: 33.9min | Est. Total: 1hr 6min | ETA: 11:44:32
+2026-01-18 11:10:38,014 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:10:38,018 - INFO - Running run_indicators.py...
+2026-01-18 11:10:41,211 - INFO - run_indicators.py completed successfully
+2026-01-18 11:10:41,211 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:11:09,500 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:11:10,002 - INFO - Read DYNAMIC_ATM metrics: P&L=296.55%, Win Rate=43.8%, Trades=96
+2026-01-18 11:11:10,002 - INFO - [OK] Combination - P&L: 296.55% (-226.90% vs baseline) | Win Rate: 43.8% (-3.9% vs baseline) | Trades: 96 (-9 vs baseline)
+2026-01-18 11:11:10,002 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:11:10,002 - INFO - 
+[PROGRESS 63/126 (50.0%)] WPR_Fast=19, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:11:10,002 - INFO - [TIME] Elapsed: 32.9min | Est. Remaining: 33.4min | Est. Total: 1hr 6min | ETA: 11:44:33
+2026-01-18 11:11:10,002 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:11:10,005 - INFO - Running run_indicators.py...
+2026-01-18 11:11:13,149 - INFO - run_indicators.py completed successfully
+2026-01-18 11:11:13,149 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:11:41,644 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:11:42,146 - INFO - Read DYNAMIC_ATM metrics: P&L=350.71%, Win Rate=44.8%, Trades=96
+2026-01-18 11:11:42,146 - INFO - [OK] Combination - P&L: 350.71% (-172.74% vs baseline) | Win Rate: 44.8% (-2.8% vs baseline) | Trades: 96 (-9 vs baseline)
+2026-01-18 11:11:42,146 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:11:42,147 - INFO - 
+[PROGRESS 64/126 (50.8%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:11:42,147 - INFO - [TIME] Elapsed: 33.4min | Est. Remaining: 32.9min | Est. Total: 1hr 6min | ETA: 11:44:34
+2026-01-18 11:11:42,147 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:11:42,150 - INFO - Running run_indicators.py...
+2026-01-18 11:11:45,448 - INFO - run_indicators.py completed successfully
+2026-01-18 11:11:45,449 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:12:13,296 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:12:13,798 - INFO - Read DYNAMIC_ATM metrics: P&L=325.70%, Win Rate=49.3%, Trades=71
+2026-01-18 11:12:13,798 - INFO - [OK] Combination - P&L: 325.70% (-197.75% vs baseline) | Win Rate: 49.3% (+1.7% vs baseline) | Trades: 71 (-34 vs baseline)
+2026-01-18 11:12:13,798 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:12:13,798 - INFO - 
+[PROGRESS 65/126 (51.6%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:12:13,798 - INFO - [TIME] Elapsed: 33.9min | Est. Remaining: 32.3min | Est. Total: 1hr 6min | ETA: 11:44:33
+2026-01-18 11:12:13,798 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:12:13,801 - INFO - Running run_indicators.py...
+2026-01-18 11:12:17,006 - INFO - run_indicators.py completed successfully
+2026-01-18 11:12:17,006 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:12:44,738 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:12:45,241 - INFO - Read DYNAMIC_ATM metrics: P&L=310.76%, Win Rate=47.8%, Trades=67
+2026-01-18 11:12:45,241 - INFO - [OK] Combination - P&L: 310.76% (-212.69% vs baseline) | Win Rate: 47.8% (+0.1% vs baseline) | Trades: 67 (-38 vs baseline)
+2026-01-18 11:12:45,241 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:12:45,241 - INFO - 
+[PROGRESS 66/126 (52.4%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:12:45,241 - INFO - [TIME] Elapsed: 34.4min | Est. Remaining: 31.8min | Est. Total: 1hr 6min | ETA: 11:44:33
+2026-01-18 11:12:45,241 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:12:45,244 - INFO - Running run_indicators.py...
+2026-01-18 11:12:48,494 - INFO - run_indicators.py completed successfully
+2026-01-18 11:12:48,494 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:13:16,302 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:13:16,804 - INFO - Read DYNAMIC_ATM metrics: P&L=361.45%, Win Rate=48.6%, Trades=70
+2026-01-18 11:13:16,804 - INFO - [OK] Combination - P&L: 361.45% (-162.00% vs baseline) | Win Rate: 48.6% (+1.0% vs baseline) | Trades: 70 (-35 vs baseline)
+2026-01-18 11:13:16,805 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:13:16,805 - INFO - 
+[PROGRESS 67/126 (53.2%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:13:16,805 - INFO - [TIME] Elapsed: 35.0min | Est. Remaining: 31.3min | Est. Total: 1hr 6min | ETA: 11:44:32
+2026-01-18 11:13:16,805 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:13:16,808 - INFO - Running run_indicators.py...
+2026-01-18 11:13:20,089 - INFO - run_indicators.py completed successfully
+2026-01-18 11:13:20,090 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:13:47,797 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:13:48,298 - INFO - Read DYNAMIC_ATM metrics: P&L=333.68%, Win Rate=49.3%, Trades=73
+2026-01-18 11:13:48,299 - INFO - [OK] Combination - P&L: 333.68% (-189.77% vs baseline) | Win Rate: 49.3% (+1.7% vs baseline) | Trades: 73 (-32 vs baseline)
+2026-01-18 11:13:48,299 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:13:48,299 - INFO - 
+[PROGRESS 68/126 (54.0%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:13:48,299 - INFO - [TIME] Elapsed: 35.5min | Est. Remaining: 30.7min | Est. Total: 1hr 6min | ETA: 11:44:32
+2026-01-18 11:13:48,299 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:13:48,302 - INFO - Running run_indicators.py...
+2026-01-18 11:13:51,528 - INFO - run_indicators.py completed successfully
+2026-01-18 11:13:51,528 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:14:19,394 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:14:19,896 - INFO - Read DYNAMIC_ATM metrics: P&L=318.74%, Win Rate=47.8%, Trades=69
+2026-01-18 11:14:19,897 - INFO - [OK] Combination - P&L: 318.74% (-204.71% vs baseline) | Win Rate: 47.8% (+0.2% vs baseline) | Trades: 69 (-36 vs baseline)
+2026-01-18 11:14:19,897 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:14:19,897 - INFO - 
+[PROGRESS 69/126 (54.8%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:14:19,897 - INFO - [TIME] Elapsed: 36.0min | Est. Remaining: 30.2min | Est. Total: 1hr 6min | ETA: 11:44:31
+2026-01-18 11:14:19,897 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:14:19,900 - INFO - Running run_indicators.py...
+2026-01-18 11:14:23,022 - INFO - run_indicators.py completed successfully
+2026-01-18 11:14:23,022 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:14:50,529 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:14:51,030 - INFO - Read DYNAMIC_ATM metrics: P&L=363.43%, Win Rate=48.0%, Trades=73
+2026-01-18 11:14:51,031 - INFO - [OK] Combination - P&L: 363.43% (-160.02% vs baseline) | Win Rate: 48.0% (+0.3% vs baseline) | Trades: 73 (-32 vs baseline)
+2026-01-18 11:14:51,031 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:14:51,031 - INFO - 
+[PROGRESS 70/126 (55.6%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:14:51,031 - INFO - [TIME] Elapsed: 36.5min | Est. Remaining: 29.7min | Est. Total: 1hr 6min | ETA: 11:44:30
+2026-01-18 11:14:51,031 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:14:51,035 - INFO - Running run_indicators.py...
+2026-01-18 11:14:54,212 - INFO - run_indicators.py completed successfully
+2026-01-18 11:14:54,212 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:15:21,937 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:15:22,439 - INFO - Read DYNAMIC_ATM metrics: P&L=326.18%, Win Rate=48.6%, Trades=74
+2026-01-18 11:15:22,439 - INFO - [OK] Combination - P&L: 326.18% (-197.27% vs baseline) | Win Rate: 48.6% (+1.0% vs baseline) | Trades: 74 (-31 vs baseline)
+2026-01-18 11:15:22,439 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:15:22,439 - INFO - 
+[PROGRESS 71/126 (56.3%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:15:22,439 - INFO - [TIME] Elapsed: 37.1min | Est. Remaining: 29.1min | Est. Total: 1hr 6min | ETA: 11:44:29
+2026-01-18 11:15:22,439 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:15:22,442 - INFO - Running run_indicators.py...
+2026-01-18 11:15:25,649 - INFO - run_indicators.py completed successfully
+2026-01-18 11:15:25,649 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:15:52,824 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:15:53,326 - INFO - Read DYNAMIC_ATM metrics: P&L=311.24%, Win Rate=47.1%, Trades=70
+2026-01-18 11:15:53,326 - INFO - [OK] Combination - P&L: 311.24% (-212.21% vs baseline) | Win Rate: 47.1% (-0.5% vs baseline) | Trades: 70 (-35 vs baseline)
+2026-01-18 11:15:53,326 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:15:53,326 - INFO - 
+[PROGRESS 72/126 (57.1%)] WPR_Fast=19, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:15:53,326 - INFO - [TIME] Elapsed: 37.6min | Est. Remaining: 28.6min | Est. Total: 1hr 6min | ETA: 11:44:28
+2026-01-18 11:15:53,326 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:15:53,330 - INFO - Running run_indicators.py...
+2026-01-18 11:15:56,594 - INFO - run_indicators.py completed successfully
+2026-01-18 11:15:56,594 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:16:24,238 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:16:24,741 - INFO - Read DYNAMIC_ATM metrics: P&L=355.93%, Win Rate=47.3%, Trades=74
+2026-01-18 11:16:24,741 - INFO - [OK] Combination - P&L: 355.93% (-167.52% vs baseline) | Win Rate: 47.3% (-0.3% vs baseline) | Trades: 74 (-31 vs baseline)
+2026-01-18 11:16:24,741 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:16:24,741 - INFO - 
+[PROGRESS 73/126 (57.9%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:16:24,741 - INFO - [TIME] Elapsed: 38.1min | Est. Remaining: 28.0min | Est. Total: 1hr 6min | ETA: 11:44:27
+2026-01-18 11:16:24,741 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:16:24,744 - INFO - Running run_indicators.py...
+2026-01-18 11:16:27,964 - INFO - run_indicators.py completed successfully
+2026-01-18 11:16:27,965 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:16:55,550 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:16:56,052 - INFO - Read DYNAMIC_ATM metrics: P&L=96.78%, Win Rate=47.3%, Trades=55
+2026-01-18 11:16:56,052 - INFO - [OK] Combination - P&L: 96.78% (-426.67% vs baseline) | Win Rate: 47.3% (-0.3% vs baseline) | Trades: 55 (-50 vs baseline)
+2026-01-18 11:16:56,052 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:16:56,052 - INFO - 
+[PROGRESS 74/126 (58.7%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:16:56,052 - INFO - [TIME] Elapsed: 38.6min | Est. Remaining: 27.5min | Est. Total: 1hr 6min | ETA: 11:44:26
+2026-01-18 11:16:56,052 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:16:56,055 - INFO - Running run_indicators.py...
+2026-01-18 11:16:59,260 - INFO - run_indicators.py completed successfully
+2026-01-18 11:16:59,260 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:17:26,068 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:17:26,570 - INFO - Read DYNAMIC_ATM metrics: P&L=87.10%, Win Rate=47.2%, Trades=53
+2026-01-18 11:17:26,571 - INFO - [OK] Combination - P&L: 87.10% (-436.35% vs baseline) | Win Rate: 47.2% (-0.4% vs baseline) | Trades: 53 (-52 vs baseline)
+2026-01-18 11:17:26,571 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:17:26,571 - INFO - 
+[PROGRESS 75/126 (59.5%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:17:26,571 - INFO - [TIME] Elapsed: 39.1min | Est. Remaining: 27.0min | Est. Total: 1hr 6min | ETA: 11:44:24
+2026-01-18 11:17:26,571 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:17:26,574 - INFO - Running run_indicators.py...
+2026-01-18 11:17:29,760 - INFO - run_indicators.py completed successfully
+2026-01-18 11:17:29,760 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:17:57,138 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:17:57,640 - INFO - Read DYNAMIC_ATM metrics: P&L=158.69%, Win Rate=49.1%, Trades=53
+2026-01-18 11:17:57,640 - INFO - [OK] Combination - P&L: 158.69% (-364.76% vs baseline) | Win Rate: 49.1% (+1.4% vs baseline) | Trades: 53 (-52 vs baseline)
+2026-01-18 11:17:57,640 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:17:57,640 - INFO - 
+[PROGRESS 76/126 (60.3%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:17:57,641 - INFO - [TIME] Elapsed: 39.7min | Est. Remaining: 26.4min | Est. Total: 1hr 6min | ETA: 11:44:23
+2026-01-18 11:17:57,641 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:17:57,644 - INFO - Running run_indicators.py...
+2026-01-18 11:18:00,962 - INFO - run_indicators.py completed successfully
+2026-01-18 11:18:00,962 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:18:28,224 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:18:28,725 - INFO - Read DYNAMIC_ATM metrics: P&L=104.76%, Win Rate=47.4%, Trades=57
+2026-01-18 11:18:28,726 - INFO - [OK] Combination - P&L: 104.76% (-418.69% vs baseline) | Win Rate: 47.4% (-0.2% vs baseline) | Trades: 57 (-48 vs baseline)
+2026-01-18 11:18:28,726 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:18:28,726 - INFO - 
+[PROGRESS 77/126 (61.1%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:18:28,726 - INFO - [TIME] Elapsed: 40.2min | Est. Remaining: 25.9min | Est. Total: 1hr 6min | ETA: 11:44:22
+2026-01-18 11:18:28,726 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:18:28,729 - INFO - Running run_indicators.py...
+2026-01-18 11:18:31,999 - INFO - run_indicators.py completed successfully
+2026-01-18 11:18:32,000 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:18:59,012 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:18:59,514 - INFO - Read DYNAMIC_ATM metrics: P&L=95.08%, Win Rate=47.3%, Trades=55
+2026-01-18 11:18:59,514 - INFO - [OK] Combination - P&L: 95.08% (-428.37% vs baseline) | Win Rate: 47.3% (-0.3% vs baseline) | Trades: 55 (-50 vs baseline)
+2026-01-18 11:18:59,514 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:18:59,514 - INFO - 
+[PROGRESS 78/126 (61.9%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:18:59,514 - INFO - [TIME] Elapsed: 40.7min | Est. Remaining: 25.4min | Est. Total: 1hr 6min | ETA: 11:44:21
+2026-01-18 11:18:59,514 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:18:59,518 - INFO - Running run_indicators.py...
+2026-01-18 11:19:02,715 - INFO - run_indicators.py completed successfully
+2026-01-18 11:19:02,715 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:19:29,539 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:19:30,041 - INFO - Read DYNAMIC_ATM metrics: P&L=160.67%, Win Rate=48.2%, Trades=56
+2026-01-18 11:19:30,041 - INFO - [OK] Combination - P&L: 160.67% (-362.78% vs baseline) | Win Rate: 48.2% (+0.6% vs baseline) | Trades: 56 (-49 vs baseline)
+2026-01-18 11:19:30,041 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:19:30,041 - INFO - 
+[PROGRESS 79/126 (62.7%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:19:30,041 - INFO - [TIME] Elapsed: 41.2min | Est. Remaining: 24.8min | Est. Total: 1hr 6min | ETA: 11:44:19
+2026-01-18 11:19:30,041 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:19:30,044 - INFO - Running run_indicators.py...
+2026-01-18 11:19:33,320 - INFO - run_indicators.py completed successfully
+2026-01-18 11:19:33,321 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:20:00,748 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:20:01,250 - INFO - Read DYNAMIC_ATM metrics: P&L=99.44%, Win Rate=46.5%, Trades=58
+2026-01-18 11:20:01,250 - INFO - [OK] Combination - P&L: 99.44% (-424.01% vs baseline) | Win Rate: 46.5% (-1.1% vs baseline) | Trades: 58 (-47 vs baseline)
+2026-01-18 11:20:01,250 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:20:01,250 - INFO - 
+[PROGRESS 80/126 (63.5%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:20:01,250 - INFO - [TIME] Elapsed: 41.7min | Est. Remaining: 24.3min | Est. Total: 1hr 6min | ETA: 11:44:18
+2026-01-18 11:20:01,250 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:20:01,253 - INFO - Running run_indicators.py...
+2026-01-18 11:20:04,459 - INFO - run_indicators.py completed successfully
+2026-01-18 11:20:04,459 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:20:31,745 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:20:32,247 - INFO - Read DYNAMIC_ATM metrics: P&L=89.76%, Win Rate=46.4%, Trades=56
+2026-01-18 11:20:32,247 - INFO - [OK] Combination - P&L: 89.76% (-433.69% vs baseline) | Win Rate: 46.4% (-1.2% vs baseline) | Trades: 56 (-49 vs baseline)
+2026-01-18 11:20:32,247 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:20:32,247 - INFO - 
+[PROGRESS 81/126 (64.3%)] WPR_Fast=19, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:20:32,247 - INFO - [TIME] Elapsed: 42.2min | Est. Remaining: 23.8min | Est. Total: 1hr 5min | ETA: 11:44:17
+2026-01-18 11:20:32,248 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:20:32,250 - INFO - Running run_indicators.py...
+2026-01-18 11:20:35,458 - INFO - run_indicators.py completed successfully
+2026-01-18 11:20:35,458 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:21:02,509 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:21:03,012 - INFO - Read DYNAMIC_ATM metrics: P&L=155.35%, Win Rate=47.4%, Trades=57
+2026-01-18 11:21:03,012 - INFO - [OK] Combination - P&L: 155.35% (-368.10% vs baseline) | Win Rate: 47.4% (-0.2% vs baseline) | Trades: 57 (-48 vs baseline)
+2026-01-18 11:21:03,012 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:21:03,012 - INFO - 
+[PROGRESS 82/126 (65.1%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:21:03,012 - INFO - [TIME] Elapsed: 42.7min | Est. Remaining: 23.2min | Est. Total: 1hr 5min | ETA: 11:44:16
+2026-01-18 11:21:03,012 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:21:03,015 - INFO - Running run_indicators.py...
+2026-01-18 11:21:06,287 - INFO - run_indicators.py completed successfully
+2026-01-18 11:21:06,287 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:21:32,273 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:21:32,775 - INFO - Read DYNAMIC_ATM metrics: P&L=123.87%, Win Rate=48.9%, Trades=45
+2026-01-18 11:21:32,775 - INFO - [OK] Combination - P&L: 123.87% (-399.58% vs baseline) | Win Rate: 48.9% (+1.3% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 11:21:32,775 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:21:32,775 - INFO - 
+[PROGRESS 83/126 (65.9%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:21:32,775 - INFO - [TIME] Elapsed: 43.2min | Est. Remaining: 22.7min | Est. Total: 1hr 5min | ETA: 11:44:13
+2026-01-18 11:21:32,775 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:21:32,779 - INFO - Running run_indicators.py...
+2026-01-18 11:21:36,003 - INFO - run_indicators.py completed successfully
+2026-01-18 11:21:36,003 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:22:03,880 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:22:04,382 - INFO - Read DYNAMIC_ATM metrics: P&L=98.00%, Win Rate=46.7%, Trades=45
+2026-01-18 11:22:04,382 - INFO - [OK] Combination - P&L: 98.00% (-425.45% vs baseline) | Win Rate: 46.7% (-0.9% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 11:22:04,382 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:22:04,382 - INFO - 
+[PROGRESS 84/126 (66.7%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:22:04,383 - INFO - [TIME] Elapsed: 43.8min | Est. Remaining: 22.1min | Est. Total: 1hr 5min | ETA: 11:44:13
+2026-01-18 11:22:04,383 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:22:04,386 - INFO - Running run_indicators.py...
+2026-01-18 11:22:07,698 - INFO - run_indicators.py completed successfully
+2026-01-18 11:22:07,699 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:22:34,286 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:22:34,788 - INFO - Read DYNAMIC_ATM metrics: P&L=137.38%, Win Rate=52.4%, Trades=42
+2026-01-18 11:22:34,788 - INFO - [OK] Combination - P&L: 137.38% (-386.07% vs baseline) | Win Rate: 52.4% (+4.8% vs baseline) | Trades: 42 (-63 vs baseline)
+2026-01-18 11:22:34,789 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:22:34,789 - INFO - 
+[PROGRESS 85/126 (67.5%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:22:34,789 - INFO - [TIME] Elapsed: 44.3min | Est. Remaining: 21.6min | Est. Total: 1hr 5min | ETA: 11:44:11
+2026-01-18 11:22:34,789 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:22:34,792 - INFO - Running run_indicators.py...
+2026-01-18 11:22:38,078 - INFO - run_indicators.py completed successfully
+2026-01-18 11:22:38,078 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:23:04,687 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:23:05,190 - INFO - Read DYNAMIC_ATM metrics: P&L=131.85%, Win Rate=48.9%, Trades=47
+2026-01-18 11:23:05,190 - INFO - [OK] Combination - P&L: 131.85% (-391.60% vs baseline) | Win Rate: 48.9% (+1.3% vs baseline) | Trades: 47 (-58 vs baseline)
+2026-01-18 11:23:05,190 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:23:05,190 - INFO - 
+[PROGRESS 86/126 (68.3%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:23:05,190 - INFO - [TIME] Elapsed: 44.8min | Est. Remaining: 21.1min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:23:05,190 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:23:05,193 - INFO - Running run_indicators.py...
+2026-01-18 11:23:08,475 - INFO - run_indicators.py completed successfully
+2026-01-18 11:23:08,476 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:23:34,872 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:23:35,374 - INFO - Read DYNAMIC_ATM metrics: P&L=105.98%, Win Rate=46.8%, Trades=47
+2026-01-18 11:23:35,374 - INFO - [OK] Combination - P&L: 105.98% (-417.47% vs baseline) | Win Rate: 46.8% (-0.8% vs baseline) | Trades: 47 (-58 vs baseline)
+2026-01-18 11:23:35,375 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:23:35,375 - INFO - 
+[PROGRESS 87/126 (69.0%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:23:35,375 - INFO - [TIME] Elapsed: 45.3min | Est. Remaining: 20.5min | Est. Total: 1hr 5min | ETA: 11:44:07
+2026-01-18 11:23:35,375 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:23:35,378 - INFO - Running run_indicators.py...
+2026-01-18 11:23:38,808 - INFO - run_indicators.py completed successfully
+2026-01-18 11:23:38,809 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:24:05,711 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:24:06,213 - INFO - Read DYNAMIC_ATM metrics: P&L=139.36%, Win Rate=51.1%, Trades=45
+2026-01-18 11:24:06,213 - INFO - [OK] Combination - P&L: 139.36% (-384.09% vs baseline) | Win Rate: 51.1% (+3.5% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 11:24:06,213 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:24:06,213 - INFO - 
+[PROGRESS 88/126 (69.8%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:24:06,214 - INFO - [TIME] Elapsed: 45.8min | Est. Remaining: 20.0min | Est. Total: 1hr 5min | ETA: 11:44:06
+2026-01-18 11:24:06,214 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:24:06,217 - INFO - Running run_indicators.py...
+2026-01-18 11:24:09,538 - INFO - run_indicators.py completed successfully
+2026-01-18 11:24:09,538 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:24:36,082 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:24:36,584 - INFO - Read DYNAMIC_ATM metrics: P&L=131.85%, Win Rate=48.9%, Trades=47
+2026-01-18 11:24:36,584 - INFO - [OK] Combination - P&L: 131.85% (-391.60% vs baseline) | Win Rate: 48.9% (+1.3% vs baseline) | Trades: 47 (-58 vs baseline)
+2026-01-18 11:24:36,584 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:24:36,584 - INFO - 
+[PROGRESS 89/126 (70.6%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:24:36,585 - INFO - [TIME] Elapsed: 46.3min | Est. Remaining: 19.5min | Est. Total: 1hr 5min | ETA: 11:44:04
+2026-01-18 11:24:36,585 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:24:36,588 - INFO - Running run_indicators.py...
+2026-01-18 11:24:39,822 - INFO - run_indicators.py completed successfully
+2026-01-18 11:24:39,822 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:25:06,477 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:25:06,979 - INFO - Read DYNAMIC_ATM metrics: P&L=105.98%, Win Rate=46.8%, Trades=47
+2026-01-18 11:25:06,979 - INFO - [OK] Combination - P&L: 105.98% (-417.47% vs baseline) | Win Rate: 46.8% (-0.8% vs baseline) | Trades: 47 (-58 vs baseline)
+2026-01-18 11:25:06,979 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:25:06,979 - INFO - 
+[PROGRESS 90/126 (71.4%)] WPR_Fast=19, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:25:06,979 - INFO - [TIME] Elapsed: 46.8min | Est. Remaining: 18.9min | Est. Total: 1hr 5min | ETA: 11:44:03
+2026-01-18 11:25:06,980 - INFO - Testing combination: WPR_Fast=19, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:25:06,982 - INFO - Running run_indicators.py...
+2026-01-18 11:25:10,206 - INFO - run_indicators.py completed successfully
+2026-01-18 11:25:10,206 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:25:36,632 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:25:37,133 - INFO - Read DYNAMIC_ATM metrics: P&L=139.36%, Win Rate=51.1%, Trades=45
+2026-01-18 11:25:37,134 - INFO - [OK] Combination - P&L: 139.36% (-384.09% vs baseline) | Win Rate: 51.1% (+3.5% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 11:25:37,134 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:25:37,134 - INFO - 
+[PROGRESS 91/126 (72.2%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:25:37,134 - INFO - [TIME] Elapsed: 47.3min | Est. Remaining: 18.4min | Est. Total: 1hr 5min | ETA: 11:44:01
+2026-01-18 11:25:37,134 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:25:37,137 - INFO - Running run_indicators.py...
+2026-01-18 11:25:40,300 - INFO - run_indicators.py completed successfully
+2026-01-18 11:25:40,300 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:26:08,438 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:26:08,940 - INFO - Read DYNAMIC_ATM metrics: P&L=285.99%, Win Rate=44.5%, Trades=101
+2026-01-18 11:26:08,940 - INFO - [OK] Combination - P&L: 285.99% (-237.46% vs baseline) | Win Rate: 44.5% (-3.1% vs baseline) | Trades: 101 (-4 vs baseline)
+2026-01-18 11:26:08,940 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:26:08,941 - INFO - 
+[PROGRESS 92/126 (73.0%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:26:08,941 - INFO - [TIME] Elapsed: 47.8min | Est. Remaining: 17.9min | Est. Total: 1hr 5min | ETA: 11:44:01
+2026-01-18 11:26:08,941 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:26:08,944 - INFO - Running run_indicators.py...
+2026-01-18 11:26:12,144 - INFO - run_indicators.py completed successfully
+2026-01-18 11:26:12,144 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:26:40,657 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:26:41,159 - INFO - Read DYNAMIC_ATM metrics: P&L=304.89%, Win Rate=43.0%, Trades=100
+2026-01-18 11:26:41,159 - INFO - [OK] Combination - P&L: 304.89% (-218.56% vs baseline) | Win Rate: 43.0% (-4.6% vs baseline) | Trades: 100 (-5 vs baseline)
+2026-01-18 11:26:41,160 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:26:41,160 - INFO - 
+[PROGRESS 93/126 (73.8%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:26:41,160 - INFO - [TIME] Elapsed: 48.4min | Est. Remaining: 17.4min | Est. Total: 1hr 5min | ETA: 11:44:02
+2026-01-18 11:26:41,160 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:26:41,164 - INFO - Running run_indicators.py...
+2026-01-18 11:26:44,381 - INFO - run_indicators.py completed successfully
+2026-01-18 11:26:44,382 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:27:13,200 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:27:13,702 - INFO - Read DYNAMIC_ATM metrics: P&L=313.79%, Win Rate=43.4%, Trades=99
+2026-01-18 11:27:13,702 - INFO - [OK] Combination - P&L: 313.79% (-209.66% vs baseline) | Win Rate: 43.4% (-4.2% vs baseline) | Trades: 99 (-6 vs baseline)
+2026-01-18 11:27:13,702 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:27:13,702 - INFO - 
+[PROGRESS 94/126 (74.6%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:27:13,703 - INFO - [TIME] Elapsed: 48.9min | Est. Remaining: 16.8min | Est. Total: 1hr 5min | ETA: 11:44:03
+2026-01-18 11:27:13,703 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:27:13,706 - INFO - Running run_indicators.py...
+2026-01-18 11:27:16,913 - INFO - run_indicators.py completed successfully
+2026-01-18 11:27:16,914 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:27:45,091 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:27:45,593 - INFO - Read DYNAMIC_ATM metrics: P&L=279.80%, Win Rate=44.1%, Trades=102
+2026-01-18 11:27:45,593 - INFO - [OK] Combination - P&L: 279.80% (-243.65% vs baseline) | Win Rate: 44.1% (-3.5% vs baseline) | Trades: 102 (-3 vs baseline)
+2026-01-18 11:27:45,594 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:27:45,594 - INFO - 
+[PROGRESS 95/126 (75.4%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:27:45,594 - INFO - [TIME] Elapsed: 49.5min | Est. Remaining: 16.3min | Est. Total: 1hr 5min | ETA: 11:44:04
+2026-01-18 11:27:45,594 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:27:45,598 - INFO - Running run_indicators.py...
+2026-01-18 11:27:48,770 - INFO - run_indicators.py completed successfully
+2026-01-18 11:27:48,770 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:28:17,298 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:28:17,800 - INFO - Read DYNAMIC_ATM metrics: P&L=321.36%, Win Rate=43.7%, Trades=103
+2026-01-18 11:28:17,800 - INFO - [OK] Combination - P&L: 321.36% (-202.09% vs baseline) | Win Rate: 43.7% (-3.9% vs baseline) | Trades: 103 (-2 vs baseline)
+2026-01-18 11:28:17,800 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:28:17,801 - INFO - 
+[PROGRESS 96/126 (76.2%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:28:17,801 - INFO - [TIME] Elapsed: 50.0min | Est. Remaining: 15.8min | Est. Total: 1hr 5min | ETA: 11:44:04
+2026-01-18 11:28:17,801 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:28:17,804 - INFO - Running run_indicators.py...
+2026-01-18 11:28:20,970 - INFO - run_indicators.py completed successfully
+2026-01-18 11:28:20,970 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:28:50,277 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:28:50,779 - INFO - Read DYNAMIC_ATM metrics: P&L=330.26%, Win Rate=44.1%, Trades=102
+2026-01-18 11:28:50,780 - INFO - [OK] Combination - P&L: 330.26% (-193.19% vs baseline) | Win Rate: 44.1% (-3.5% vs baseline) | Trades: 102 (-3 vs baseline)
+2026-01-18 11:28:50,780 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:28:50,780 - INFO - 
+[PROGRESS 97/126 (77.0%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:28:50,780 - INFO - [TIME] Elapsed: 50.5min | Est. Remaining: 15.3min | Est. Total: 1hr 5min | ETA: 11:44:06
+2026-01-18 11:28:50,780 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:28:50,783 - INFO - Running run_indicators.py...
+2026-01-18 11:28:53,998 - INFO - run_indicators.py completed successfully
+2026-01-18 11:28:53,998 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:29:22,823 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:29:23,325 - INFO - Read DYNAMIC_ATM metrics: P&L=272.29%, Win Rate=43.7%, Trades=103
+2026-01-18 11:29:23,326 - INFO - [OK] Combination - P&L: 272.29% (-251.16% vs baseline) | Win Rate: 43.7% (-3.9% vs baseline) | Trades: 103 (-2 vs baseline)
+2026-01-18 11:29:23,326 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:29:23,326 - INFO - 
+[PROGRESS 98/126 (77.8%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:29:23,326 - INFO - [TIME] Elapsed: 51.1min | Est. Remaining: 14.7min | Est. Total: 1hr 5min | ETA: 11:44:08
+2026-01-18 11:29:23,326 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:29:23,330 - INFO - Running run_indicators.py...
+2026-01-18 11:29:26,509 - INFO - run_indicators.py completed successfully
+2026-01-18 11:29:26,509 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:29:55,268 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:29:55,769 - INFO - Read DYNAMIC_ATM metrics: P&L=313.85%, Win Rate=43.3%, Trades=104
+2026-01-18 11:29:55,769 - INFO - [OK] Combination - P&L: 313.85% (-209.60% vs baseline) | Win Rate: 43.3% (-4.3% vs baseline) | Trades: 104 (-1 vs baseline)
+2026-01-18 11:29:55,770 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:29:55,770 - INFO - 
+[PROGRESS 99/126 (78.6%)] WPR_Fast=29, WPR_Slow=38, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:29:55,770 - INFO - [TIME] Elapsed: 51.6min | Est. Remaining: 14.2min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:29:55,770 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=38, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:29:55,773 - INFO - Running run_indicators.py...
+2026-01-18 11:29:58,893 - INFO - run_indicators.py completed successfully
+2026-01-18 11:29:58,894 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:30:27,559 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:30:28,062 - INFO - Read DYNAMIC_ATM metrics: P&L=373.92%, Win Rate=44.8%, Trades=105
+2026-01-18 11:30:28,062 - INFO - [OK] Combination - P&L: 373.92% (-149.53% vs baseline) | Win Rate: 44.8% (-2.9% vs baseline) | Trades: 105 (+0 vs baseline)
+2026-01-18 11:30:28,062 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:30:28,062 - INFO - 
+[PROGRESS 100/126 (79.4%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:30:28,062 - INFO - [TIME] Elapsed: 52.2min | Est. Remaining: 13.7min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:30:28,062 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:30:28,066 - INFO - Running run_indicators.py...
+2026-01-18 11:30:31,317 - INFO - run_indicators.py completed successfully
+2026-01-18 11:30:31,317 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:30:59,128 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:30:59,630 - INFO - Read DYNAMIC_ATM metrics: P&L=336.76%, Win Rate=48.0%, Trades=75
+2026-01-18 11:30:59,630 - INFO - [OK] Combination - P&L: 336.76% (-186.69% vs baseline) | Win Rate: 48.0% (+0.4% vs baseline) | Trades: 75 (-30 vs baseline)
+2026-01-18 11:30:59,631 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:30:59,631 - INFO - 
+[PROGRESS 101/126 (80.2%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:30:59,631 - INFO - [TIME] Elapsed: 52.7min | Est. Remaining: 13.2min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:30:59,631 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:30:59,634 - INFO - Running run_indicators.py...
+2026-01-18 11:31:02,816 - INFO - run_indicators.py completed successfully
+2026-01-18 11:31:02,816 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:31:30,558 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:31:31,060 - INFO - Read DYNAMIC_ATM metrics: P&L=323.44%, Win Rate=47.1%, Trades=70
+2026-01-18 11:31:31,061 - INFO - [OK] Combination - P&L: 323.44% (-200.01% vs baseline) | Win Rate: 47.1% (-0.5% vs baseline) | Trades: 70 (-35 vs baseline)
+2026-01-18 11:31:31,061 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:31:31,061 - INFO - 
+[PROGRESS 102/126 (81.0%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:31:31,061 - INFO - [TIME] Elapsed: 53.2min | Est. Remaining: 12.6min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:31:31,061 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:31:31,064 - INFO - Running run_indicators.py...
+2026-01-18 11:31:34,230 - INFO - run_indicators.py completed successfully
+2026-01-18 11:31:34,230 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:32:02,069 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:32:02,571 - INFO - Read DYNAMIC_ATM metrics: P&L=314.81%, Win Rate=45.8%, Trades=72
+2026-01-18 11:32:02,571 - INFO - [OK] Combination - P&L: 314.81% (-208.64% vs baseline) | Win Rate: 45.8% (-1.8% vs baseline) | Trades: 72 (-33 vs baseline)
+2026-01-18 11:32:02,572 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:32:02,572 - INFO - 
+[PROGRESS 103/126 (81.7%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:32:02,572 - INFO - [TIME] Elapsed: 53.7min | Est. Remaining: 12.1min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:32:02,572 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:32:02,575 - INFO - Running run_indicators.py...
+2026-01-18 11:32:05,788 - INFO - run_indicators.py completed successfully
+2026-01-18 11:32:05,788 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:32:34,166 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:32:34,668 - INFO - Read DYNAMIC_ATM metrics: P&L=353.23%, Win Rate=48.7%, Trades=78
+2026-01-18 11:32:34,668 - INFO - [OK] Combination - P&L: 353.23% (-170.22% vs baseline) | Win Rate: 48.7% (+1.1% vs baseline) | Trades: 78 (-27 vs baseline)
+2026-01-18 11:32:34,669 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:32:34,669 - INFO - 
+[PROGRESS 104/126 (82.5%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:32:34,669 - INFO - [TIME] Elapsed: 54.3min | Est. Remaining: 11.6min | Est. Total: 1hr 5min | ETA: 11:44:10
+2026-01-18 11:32:34,669 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:32:34,672 - INFO - Running run_indicators.py...
+2026-01-18 11:32:38,129 - INFO - run_indicators.py completed successfully
+2026-01-18 11:32:38,129 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:33:06,089 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:33:06,591 - INFO - Read DYNAMIC_ATM metrics: P&L=339.91%, Win Rate=48.0%, Trades=73
+2026-01-18 11:33:06,591 - INFO - [OK] Combination - P&L: 339.91% (-183.54% vs baseline) | Win Rate: 48.0% (+0.3% vs baseline) | Trades: 73 (-32 vs baseline)
+2026-01-18 11:33:06,591 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:33:06,591 - INFO - 
+[PROGRESS 105/126 (83.3%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:33:06,591 - INFO - [TIME] Elapsed: 54.8min | Est. Remaining: 11.1min | Est. Total: 1hr 5min | ETA: 11:44:10
+2026-01-18 11:33:06,591 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:33:06,595 - INFO - Running run_indicators.py...
+2026-01-18 11:33:09,990 - INFO - run_indicators.py completed successfully
+2026-01-18 11:33:09,990 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:33:37,348 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:33:37,850 - INFO - Read DYNAMIC_ATM metrics: P&L=331.28%, Win Rate=46.7%, Trades=75
+2026-01-18 11:33:37,850 - INFO - [OK] Combination - P&L: 331.28% (-192.17% vs baseline) | Win Rate: 46.7% (-0.9% vs baseline) | Trades: 75 (-30 vs baseline)
+2026-01-18 11:33:37,850 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:33:37,850 - INFO - 
+[PROGRESS 106/126 (84.1%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:33:37,850 - INFO - [TIME] Elapsed: 55.3min | Est. Remaining: 10.5min | Est. Total: 1hr 5min | ETA: 11:44:10
+2026-01-18 11:33:37,851 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:33:37,853 - INFO - Running run_indicators.py...
+2026-01-18 11:33:41,025 - INFO - run_indicators.py completed successfully
+2026-01-18 11:33:41,025 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:34:08,882 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:34:09,384 - INFO - Read DYNAMIC_ATM metrics: P&L=353.23%, Win Rate=48.7%, Trades=78
+2026-01-18 11:34:09,384 - INFO - [OK] Combination - P&L: 353.23% (-170.22% vs baseline) | Win Rate: 48.7% (+1.1% vs baseline) | Trades: 78 (-27 vs baseline)
+2026-01-18 11:34:09,384 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:34:09,384 - INFO - 
+[PROGRESS 107/126 (84.9%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:34:09,384 - INFO - [TIME] Elapsed: 55.8min | Est. Remaining: 10.0min | Est. Total: 1hr 5min | ETA: 11:44:10
+2026-01-18 11:34:09,384 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:34:09,387 - INFO - Running run_indicators.py...
+2026-01-18 11:34:12,569 - INFO - run_indicators.py completed successfully
+2026-01-18 11:34:12,569 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:34:39,998 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:34:40,500 - INFO - Read DYNAMIC_ATM metrics: P&L=339.91%, Win Rate=48.0%, Trades=73
+2026-01-18 11:34:40,500 - INFO - [OK] Combination - P&L: 339.91% (-183.54% vs baseline) | Win Rate: 48.0% (+0.3% vs baseline) | Trades: 73 (-32 vs baseline)
+2026-01-18 11:34:40,500 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:34:40,500 - INFO - 
+[PROGRESS 108/126 (85.7%)] WPR_Fast=29, WPR_Slow=48, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:34:40,500 - INFO - [TIME] Elapsed: 56.4min | Est. Remaining: 9.5min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:34:40,501 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=48, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:34:40,505 - INFO - Running run_indicators.py...
+2026-01-18 11:34:43,722 - INFO - run_indicators.py completed successfully
+2026-01-18 11:34:43,722 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:35:11,384 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:35:11,886 - INFO - Read DYNAMIC_ATM metrics: P&L=377.07%, Win Rate=47.4%, Trades=76
+2026-01-18 11:35:11,886 - INFO - [OK] Combination - P&L: 377.07% (-146.38% vs baseline) | Win Rate: 47.4% (-0.2% vs baseline) | Trades: 76 (-29 vs baseline)
+2026-01-18 11:35:11,887 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:35:11,887 - INFO - 
+[PROGRESS 109/126 (86.5%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:35:11,887 - INFO - [TIME] Elapsed: 56.9min | Est. Remaining: 9.0min | Est. Total: 1hr 5min | ETA: 11:44:09
+2026-01-18 11:35:11,887 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:35:11,890 - INFO - Running run_indicators.py...
+2026-01-18 11:35:15,149 - INFO - run_indicators.py completed successfully
+2026-01-18 11:35:15,149 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:35:42,492 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:35:42,994 - INFO - Read DYNAMIC_ATM metrics: P&L=101.28%, Win Rate=44.8%, Trades=58
+2026-01-18 11:35:42,994 - INFO - [OK] Combination - P&L: 101.28% (-422.17% vs baseline) | Win Rate: 44.8% (-2.8% vs baseline) | Trades: 58 (-47 vs baseline)
+2026-01-18 11:35:42,994 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:35:42,995 - INFO - 
+[PROGRESS 110/126 (87.3%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:35:42,995 - INFO - [TIME] Elapsed: 57.4min | Est. Remaining: 8.4min | Est. Total: 1hr 5min | ETA: 11:44:08
+2026-01-18 11:35:42,995 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:35:42,998 - INFO - Running run_indicators.py...
+2026-01-18 11:35:46,205 - INFO - run_indicators.py completed successfully
+2026-01-18 11:35:46,205 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:36:13,302 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:36:13,803 - INFO - Read DYNAMIC_ATM metrics: P&L=93.22%, Win Rate=45.5%, Trades=55
+2026-01-18 11:36:13,804 - INFO - [OK] Combination - P&L: 93.22% (-430.23% vs baseline) | Win Rate: 45.5% (-2.2% vs baseline) | Trades: 55 (-50 vs baseline)
+2026-01-18 11:36:13,804 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:36:13,804 - INFO - 
+[PROGRESS 111/126 (88.1%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:36:13,804 - INFO - [TIME] Elapsed: 57.9min | Est. Remaining: 7.9min | Est. Total: 1hr 5min | ETA: 11:44:07
+2026-01-18 11:36:13,804 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:36:13,807 - INFO - Running run_indicators.py...
+2026-01-18 11:36:17,045 - INFO - run_indicators.py completed successfully
+2026-01-18 11:36:17,045 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:36:44,271 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:36:44,772 - INFO - Read DYNAMIC_ATM metrics: P&L=113.83%, Win Rate=46.3%, Trades=54
+2026-01-18 11:36:44,773 - INFO - [OK] Combination - P&L: 113.83% (-409.62% vs baseline) | Win Rate: 46.3% (-1.3% vs baseline) | Trades: 54 (-51 vs baseline)
+2026-01-18 11:36:44,773 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:36:44,773 - INFO - 
+[PROGRESS 112/126 (88.9%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:36:44,773 - INFO - [TIME] Elapsed: 58.4min | Est. Remaining: 7.4min | Est. Total: 1hr 5min | ETA: 11:44:07
+2026-01-18 11:36:44,773 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:36:44,777 - INFO - Running run_indicators.py...
+2026-01-18 11:36:47,975 - INFO - run_indicators.py completed successfully
+2026-01-18 11:36:47,975 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:37:15,274 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:37:15,776 - INFO - Read DYNAMIC_ATM metrics: P&L=112.43%, Win Rate=45.2%, Trades=62
+2026-01-18 11:37:15,776 - INFO - [OK] Combination - P&L: 112.43% (-411.02% vs baseline) | Win Rate: 45.2% (-2.5% vs baseline) | Trades: 62 (-43 vs baseline)
+2026-01-18 11:37:15,776 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:37:15,777 - INFO - 
+[PROGRESS 113/126 (89.7%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:37:15,777 - INFO - [TIME] Elapsed: 59.0min | Est. Remaining: 6.8min | Est. Total: 1hr 5min | ETA: 11:44:06
+2026-01-18 11:37:15,777 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:37:15,780 - INFO - Running run_indicators.py...
+2026-01-18 11:37:19,023 - INFO - run_indicators.py completed successfully
+2026-01-18 11:37:19,023 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:37:46,258 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:37:46,760 - INFO - Read DYNAMIC_ATM metrics: P&L=104.37%, Win Rate=45.8%, Trades=59
+2026-01-18 11:37:46,760 - INFO - [OK] Combination - P&L: 104.37% (-419.08% vs baseline) | Win Rate: 45.8% (-1.9% vs baseline) | Trades: 59 (-46 vs baseline)
+2026-01-18 11:37:46,760 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:37:46,761 - INFO - 
+[PROGRESS 114/126 (90.5%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:37:46,761 - INFO - [TIME] Elapsed: 59.5min | Est. Remaining: 6.3min | Est. Total: 1hr 5min | ETA: 11:44:05
+2026-01-18 11:37:46,761 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:37:46,764 - INFO - Running run_indicators.py...
+2026-01-18 11:37:50,021 - INFO - run_indicators.py completed successfully
+2026-01-18 11:37:50,021 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:38:17,671 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:38:18,173 - INFO - Read DYNAMIC_ATM metrics: P&L=124.98%, Win Rate=46.5%, Trades=58
+2026-01-18 11:38:18,173 - INFO - [OK] Combination - P&L: 124.98% (-398.47% vs baseline) | Win Rate: 46.5% (-1.1% vs baseline) | Trades: 58 (-47 vs baseline)
+2026-01-18 11:38:18,173 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:38:18,174 - INFO - 
+[PROGRESS 115/126 (91.3%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:38:18,174 - INFO - [TIME] Elapsed: 60.0min | Est. Remaining: 5.8min | Est. Total: 1hr 5min | ETA: 11:44:05
+2026-01-18 11:38:18,174 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:38:18,177 - INFO - Running run_indicators.py...
+2026-01-18 11:38:21,431 - INFO - run_indicators.py completed successfully
+2026-01-18 11:38:21,431 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:38:48,558 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:38:49,060 - INFO - Read DYNAMIC_ATM metrics: P&L=112.43%, Win Rate=45.2%, Trades=62
+2026-01-18 11:38:49,060 - INFO - [OK] Combination - P&L: 112.43% (-411.02% vs baseline) | Win Rate: 45.2% (-2.5% vs baseline) | Trades: 62 (-43 vs baseline)
+2026-01-18 11:38:49,061 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:38:49,061 - INFO - 
+[PROGRESS 116/126 (92.1%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:38:49,061 - INFO - [TIME] Elapsed: 1hr 0min | Est. Remaining: 5.3min | Est. Total: 1hr 5min | ETA: 11:44:04
+2026-01-18 11:38:49,061 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:38:49,065 - INFO - Running run_indicators.py...
+2026-01-18 11:38:52,298 - INFO - run_indicators.py completed successfully
+2026-01-18 11:38:52,298 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:39:19,766 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:39:20,268 - INFO - Read DYNAMIC_ATM metrics: P&L=104.37%, Win Rate=45.8%, Trades=59
+2026-01-18 11:39:20,269 - INFO - [OK] Combination - P&L: 104.37% (-419.08% vs baseline) | Win Rate: 45.8% (-1.9% vs baseline) | Trades: 59 (-46 vs baseline)
+2026-01-18 11:39:20,269 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:39:20,269 - INFO - 
+[PROGRESS 117/126 (92.9%)] WPR_Fast=29, WPR_Slow=58, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:39:20,269 - INFO - [TIME] Elapsed: 1hr 1min | Est. Remaining: 4.7min | Est. Total: 1hr 5min | ETA: 11:44:04
+2026-01-18 11:39:20,269 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=58, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:39:20,272 - INFO - Running run_indicators.py...
+2026-01-18 11:39:23,539 - INFO - run_indicators.py completed successfully
+2026-01-18 11:39:23,539 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:39:50,505 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:39:51,007 - INFO - Read DYNAMIC_ATM metrics: P&L=170.77%, Win Rate=47.5%, Trades=59
+2026-01-18 11:39:51,007 - INFO - [OK] Combination - P&L: 170.77% (-352.68% vs baseline) | Win Rate: 47.5% (-0.2% vs baseline) | Trades: 59 (-46 vs baseline)
+2026-01-18 11:39:51,007 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:39:51,007 - INFO - 
+[PROGRESS 118/126 (93.7%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-79
+2026-01-18 11:39:51,007 - INFO - [TIME] Elapsed: 1hr 1min | Est. Remaining: 4.2min | Est. Total: 1hr 5min | ETA: 11:44:03
+2026-01-18 11:39:51,007 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:39:51,010 - INFO - Running run_indicators.py...
+2026-01-18 11:39:54,285 - INFO - run_indicators.py completed successfully
+2026-01-18 11:39:54,285 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:40:20,557 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:40:21,058 - INFO - Read DYNAMIC_ATM metrics: P&L=127.97%, Win Rate=46.8%, Trades=47
+2026-01-18 11:40:21,059 - INFO - [OK] Combination - P&L: 127.97% (-395.48% vs baseline) | Win Rate: 46.8% (-0.8% vs baseline) | Trades: 47 (-58 vs baseline)
+2026-01-18 11:40:21,059 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:40:21,059 - INFO - 
+[PROGRESS 119/126 (94.4%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-78
+2026-01-18 11:40:21,059 - INFO - [TIME] Elapsed: 1hr 2min | Est. Remaining: 3.7min | Est. Total: 1hr 5min | ETA: 11:44:01
+2026-01-18 11:40:21,059 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:40:21,063 - INFO - Running run_indicators.py...
+2026-01-18 11:40:24,419 - INFO - run_indicators.py completed successfully
+2026-01-18 11:40:24,419 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:40:50,547 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:40:51,050 - INFO - Read DYNAMIC_ATM metrics: P&L=109.72%, Win Rate=46.7%, Trades=45
+2026-01-18 11:40:51,050 - INFO - [OK] Combination - P&L: 109.72% (-413.73% vs baseline) | Win Rate: 46.7% (-0.9% vs baseline) | Trades: 45 (-60 vs baseline)
+2026-01-18 11:40:51,050 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:40:51,050 - INFO - 
+[PROGRESS 120/126 (95.2%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:40:51,050 - INFO - [TIME] Elapsed: 1hr 2min | Est. Remaining: 3.2min | Est. Total: 1hr 5min | ETA: 11:44:00
+2026-01-18 11:40:51,050 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-79, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:40:51,054 - INFO - Running run_indicators.py...
+2026-01-18 11:40:54,307 - INFO - run_indicators.py completed successfully
+2026-01-18 11:40:54,307 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:41:20,460 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:41:20,962 - INFO - Read DYNAMIC_ATM metrics: P&L=145.81%, Win Rate=51.2%, Trades=43
+2026-01-18 11:41:20,962 - INFO - [OK] Combination - P&L: 145.81% (-377.64% vs baseline) | Win Rate: 51.2% (+3.5% vs baseline) | Trades: 43 (-62 vs baseline)
+2026-01-18 11:41:20,962 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:41:20,962 - INFO - 
+[PROGRESS 121/126 (96.0%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-79
+2026-01-18 11:41:20,962 - INFO - [TIME] Elapsed: 1hr 3min | Est. Remaining: 2.6min | Est. Total: 1hr 5min | ETA: 11:43:58
+2026-01-18 11:41:20,962 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:41:20,965 - INFO - Running run_indicators.py...
+2026-01-18 11:41:24,148 - INFO - run_indicators.py completed successfully
+2026-01-18 11:41:24,148 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:41:51,222 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:41:51,724 - INFO - Read DYNAMIC_ATM metrics: P&L=144.44%, Win Rate=48.0%, Trades=50
+2026-01-18 11:41:51,724 - INFO - [OK] Combination - P&L: 144.44% (-379.01% vs baseline) | Win Rate: 48.0% (+0.4% vs baseline) | Trades: 50 (-55 vs baseline)
+2026-01-18 11:41:51,724 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:41:51,724 - INFO - 
+[PROGRESS 122/126 (96.8%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-78
+2026-01-18 11:41:51,725 - INFO - [TIME] Elapsed: 1hr 3min | Est. Remaining: 2.1min | Est. Total: 1hr 5min | ETA: 11:43:57
+2026-01-18 11:41:51,725 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:41:51,727 - INFO - Running run_indicators.py...
+2026-01-18 11:41:54,964 - INFO - run_indicators.py completed successfully
+2026-01-18 11:41:54,965 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:42:21,260 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:42:21,762 - INFO - Read DYNAMIC_ATM metrics: P&L=126.19%, Win Rate=47.9%, Trades=48
+2026-01-18 11:42:21,762 - INFO - [OK] Combination - P&L: 126.19% (-397.26% vs baseline) | Win Rate: 47.9% (+0.3% vs baseline) | Trades: 48 (-57 vs baseline)
+2026-01-18 11:42:21,762 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:42:21,762 - INFO - 
+[PROGRESS 123/126 (97.6%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-78, WPR_Slow_OV=-77
+2026-01-18 11:42:21,762 - INFO - [TIME] Elapsed: 1hr 4min | Est. Remaining: 1.6min | Est. Total: 1hr 5min | ETA: 11:43:56
+2026-01-18 11:42:21,762 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-78, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:42:21,765 - INFO - Running run_indicators.py...
+2026-01-18 11:42:25,060 - INFO - run_indicators.py completed successfully
+2026-01-18 11:42:25,061 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:42:51,303 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:42:51,805 - INFO - Read DYNAMIC_ATM metrics: P&L=162.28%, Win Rate=52.2%, Trades=46
+2026-01-18 11:42:51,806 - INFO - [OK] Combination - P&L: 162.28% (-361.17% vs baseline) | Win Rate: 52.2% (+4.6% vs baseline) | Trades: 46 (-59 vs baseline)
+2026-01-18 11:42:51,806 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:42:51,806 - INFO - 
+[PROGRESS 124/126 (98.4%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-79
+2026-01-18 11:42:51,806 - INFO - [TIME] Elapsed: 1hr 4min | Est. Remaining: 1.0min | Est. Total: 1hr 5min | ETA: 11:43:54
+2026-01-18 11:42:51,806 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-79, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:42:51,809 - INFO - Running run_indicators.py...
+2026-01-18 11:42:55,124 - INFO - run_indicators.py completed successfully
+2026-01-18 11:42:55,124 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:43:21,017 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:43:21,520 - INFO - Read DYNAMIC_ATM metrics: P&L=144.44%, Win Rate=48.0%, Trades=50
+2026-01-18 11:43:21,520 - INFO - [OK] Combination - P&L: 144.44% (-379.01% vs baseline) | Win Rate: 48.0% (+0.4% vs baseline) | Trades: 50 (-55 vs baseline)
+2026-01-18 11:43:21,520 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:43:21,520 - INFO - 
+[PROGRESS 125/126 (99.2%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-78
+2026-01-18 11:43:21,520 - INFO - [TIME] Elapsed: 1hr 5min | Est. Remaining: 31s | Est. Total: 1hr 5min | ETA: 11:43:52
+2026-01-18 11:43:21,520 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-78, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:43:21,523 - INFO - Running run_indicators.py...
+2026-01-18 11:43:24,729 - INFO - run_indicators.py completed successfully
+2026-01-18 11:43:24,729 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:43:50,879 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:43:51,381 - INFO - Read DYNAMIC_ATM metrics: P&L=126.19%, Win Rate=47.9%, Trades=48
+2026-01-18 11:43:51,381 - INFO - [OK] Combination - P&L: 126.19% (-397.26% vs baseline) | Win Rate: 47.9% (+0.3% vs baseline) | Trades: 48 (-57 vs baseline)
+2026-01-18 11:43:51,381 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:43:51,381 - INFO - 
+[PROGRESS 126/126 (100.0%)] WPR_Fast=29, WPR_Slow=68, WPR_Fast_OV=-77, WPR_Slow_OV=-77
+2026-01-18 11:43:51,381 - INFO - [TIME] Elapsed: 1hr 5min | Est. Remaining: 0s | Est. Total: 1hr 5min | ETA: 11:43:51
+2026-01-18 11:43:51,381 - INFO - Testing combination: WPR_Fast=29, WPR_Slow=68, WPR_Fast_Oversold=-77, WPR_Slow_Oversold=-77, StochRSI_Oversold=20 (fixed)
+2026-01-18 11:43:51,384 - INFO - Running run_indicators.py...
+2026-01-18 11:43:54,671 - INFO - run_indicators.py completed successfully
+2026-01-18 11:43:54,671 - INFO - Running run_weekly_workflow_parallel.py...
+2026-01-18 11:44:21,326 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-01-18 11:44:21,828 - INFO - Read DYNAMIC_ATM metrics: P&L=162.28%, Win Rate=52.2%, Trades=46
+2026-01-18 11:44:21,829 - INFO - [OK] Combination - P&L: 162.28% (-361.17% vs baseline) | Win Rate: 52.2% (+4.6% vs baseline) | Trades: 46 (-59 vs baseline)
+2026-01-18 11:44:21,829 - INFO - --------------------------------------------------------------------------------
+2026-01-18 11:44:21,829 - INFO - 
+[COMPLETE] GRID SEARCH COMPLETE!
+2026-01-18 11:44:21,829 - INFO - [STATS] Total combinations tested: 126
+2026-01-18 11:44:21,829 - INFO - [STATS] Successful tests: 126
+2026-01-18 11:44:21,829 - INFO - [STATS] Failed tests: 0
+2026-01-18 11:44:21,829 - INFO - [TIME] Total time: 1hr 6min
+2026-01-18 11:44:21,829 - INFO - [STATS] Average time per iteration: 31s
+2026-01-18 11:44:21,829 - INFO - [BEST] BEST COMBINATION: WPR_Fast=9, WPR_Slow=28, WPR_Fast_OV=-79, WPR_Slow_OV=-77
+2026-01-18 11:44:21,832 - INFO - Results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\grid_search_results.json
+2026-01-18 11:44:21,833 - INFO - ========================================================================================================================
+2026-01-18 11:44:21,833 - INFO - GRID SEARCH RESULTS SUMMARY (Top 10)
+2026-01-18 11:44:21,833 - INFO - ========================================================================================================================
+2026-01-18 11:44:21,833 - INFO - WPR_Fast WPR_Slow WPR_F_OV WPR_S_OV P&L        Win Rate   Trades   Score     
+2026-01-18 11:44:21,833 - INFO - ------------------------------------------------------------------------------------------------------------------------
+2026-01-18 11:44:21,833 - INFO - 9        28       -79      -77      523.45% (+0.00%)   47.6      % 105      0.8600    
+2026-01-18 11:44:21,833 - INFO - 9        28       -78      -77      502.22% (-21.23%)  46.4      % 110      0.8300    
+2026-01-18 11:44:21,833 - INFO - 9        28       -77      -77      501.14% (-22.31%)  46.4      % 112      0.8300    
+2026-01-18 11:44:21,833 - INFO - 9        48       -79      -77      395.15% (-128.30%) 50.0      % 64       0.8200    
+2026-01-18 11:44:21,833 - INFO - 19       28       -79      -77      477.76% (-45.69%)  45.6      % 114      0.8100    
+2026-01-18 11:44:21,834 - INFO - 9        38       -79      -77      420.16% (-103.29%) 48.2      % 83       0.8000    
+2026-01-18 11:44:21,834 - INFO - 9        48       -79      -79      366.93% (-156.52%) 51.5      % 66       0.8000    
+2026-01-18 11:44:21,834 - INFO - 9        48       -78      -77      385.92% (-137.53%) 49.2      % 67       0.8000    
+2026-01-18 11:44:21,834 - INFO - 9        48       -77      -77      384.35% (-139.10%) 48.5      % 68       0.8000    
+2026-01-18 11:44:21,834 - INFO - 19       28       -78      -77      479.39% (-44.06%)  44.9      % 118      0.8000    
+2026-01-18 11:44:21,834 - INFO - ========================================================================================================================
+2026-01-18 11:44:21,834 - INFO - BEST COMBINATION:
+2026-01-18 11:44:21,834 - INFO -   WPR_Fast: 9 | WPR_Slow: 28
+2026-01-18 11:44:21,834 - INFO -   WPR_Fast_Oversold: -79 | WPR_Slow_Oversold: -77 | StochRSI_Oversold: 20 (fixed)
+2026-01-18 11:44:21,834 - INFO - Filtered P&L: 523.45%
+2026-01-18 11:44:21,834 - INFO - P&L Improvement: +0.00%
+2026-01-18 11:44:21,834 - INFO - Win Rate: 47.6%
+2026-01-18 11:44:21,834 - INFO - Win Rate Improvement: +0.0%
+2026-01-18 11:44:21,835 - INFO - Total Trades: 107
+2026-01-18 11:44:21,835 - INFO - Filtered Trades: 105
+2026-01-18 11:44:21,835 - INFO - Trade Change: +0 vs baseline
+2026-01-18 11:44:21,835 - INFO - 
+[OK] Results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\grid_search_results.json
+2026-01-18 11:44:21,836 - INFO - Top 15 results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\grid_search_top_results.json
+2026-01-18 11:44:21,836 - INFO - [OK] Top 15 results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\grid_search_top_results.json
+2026-01-18 11:44:21,836 - INFO - Restoring original indicators config...
+2026-01-18 11:44:21,839 - INFO - Indicators config restored from: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app\backtesting\grid_search_tools\entry2_hyperparameters\indicators_config_backup_20260118_103745.yaml
+2026-01-18 11:44:21,839 - INFO - Cleaning up backup files...
+2026-01-18 11:44:21,840 - INFO - Deleted current backup file: indicators_config_backup_20260118_103745.yaml
+2026-01-18 11:44:21,840 - INFO - Cleaned up 1 backup file(s)

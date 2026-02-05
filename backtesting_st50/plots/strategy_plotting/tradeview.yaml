@@ -1,0 +1,68 @@
+stoch_rsi:
+  middle_band:
+    price: 50
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 0 # 0 for Solid
+    axisLabelVisible: true
+    title: '50'
+  upper_band:
+    price: 80
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 1 # 1 for Dotted
+    axisLabelVisible: true
+    title: '80'
+  lower_band:
+    price: 20
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 1 # 1 for Dotted
+    axisLabelVisible: true
+    title: '20'
+
+williams_r9:
+  middle_band:
+    price: -50
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 0 # 0 for Solid
+    axisLabelVisible: true
+    title: '-50'
+  upper_band:
+    price: -20
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 1 # 1 for Dotted
+    axisLabelVisible: true
+    title: '-20'
+  lower_band:
+    price: -80
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 1 # 1 for Dotted
+    axisLabelVisible: true
+    title: '-80'
+
+williams_r28:
+  middle_band:
+    price: -50
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 0 # 0 for Solid
+    axisLabelVisible: true
+    title: '-50'
+  upper_band:
+    price: -20
+    color: 'gray'
+    lineWidth: 1
+    lineStyle: 1 # 1 for Dotted
+    axisLabelVisible: true
+    title: '-20'
+  lower_band:
+    price: -80
+    color: 'grey'
+    lineWidth: 1
+    lineStyle: 1 # 1 for Dotted
+    axisLabelVisible: true
+    title: '-80'

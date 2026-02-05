@@ -1,0 +1,23 @@
+# Grid Search Configuration for Trailing MA Parameters
+# This config controls the range of MA periods to test in the grid search
+
+GRID_SEARCH:
+  # MA period range (integers only - pandas_ta requires integer lengths)
+  FAST_MA:
+    MIN_PERIOD: 3
+    MAX_PERIOD: 15
+    STEP: 1  # Step size (must be 1 for integers)
+  
+  SLOW_MA:
+    MIN_PERIOD: 3
+    MAX_PERIOD: 15
+    STEP: 1  # Step size (must be 1 for integers)
+  
+  # MA types to test
+  MA_TYPES:
+    - ema
+    - sma
+  
+  # Constraints
+  REQUIRE_FAST_LESS_THAN_SLOW: true  # Fast MA period must be less than Slow MA period
+

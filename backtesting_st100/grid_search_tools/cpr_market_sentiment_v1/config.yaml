@@ -1,0 +1,72 @@
+# CPR Market Sentiment Analysis Configuration
+
+# Date mappings: day_label -> expiry_week
+# Format: day_label (lowercase, e.g., nov21) -> expiry_week (uppercase, e.g., NOV25)
+# Used for finding input files in respective dynamic/static folders
+DATE_MAPPINGS:
+  oct15: OCT20
+  oct16: OCT20
+  oct17: OCT20
+  oct23: OCT28
+  oct24: OCT28
+  oct27: OCT28
+  oct29: NOV04
+  oct30: NOV04
+  oct31: NOV04
+  nov03: NOV04
+  nov06: NOV11
+  nov07: NOV11
+  nov10: NOV11
+  nov12: NOV18
+  nov13: NOV18
+  nov14: NOV18
+  nov17: NOV18
+  nov19: NOV25
+  nov20: NOV25
+  nov21: NOV25
+  nov24: NOV25
+  nov25: NOV25
+  nov26: DEC02
+  nov27: DEC02
+  nov28: DEC02
+  dec01: DEC02
+  dec03: DEC09
+  dec04: DEC09
+  dec05: DEC09
+  dec08: DEC09
+  dec09: DEC09
+  dec10: DEC16
+  dec11: DEC16
+  dec12: DEC16
+  dec15: DEC16
+  dec17: DEC23
+  dec18: DEC23
+  
+# CPR Pivot Width Filter (TC - BC)
+# Dynamic CPR_BAND_WIDTH adjustment based on CPR_PIVOT_WIDTH
+CPR_PIVOT_WIDTH_FILTER:
+  ENABLED: true
+  RANGES:
+    - MAX_WIDTH: 20.0
+      CPR_BAND_WIDTH: 10.0
+    - MAX_WIDTH: 50.0
+      CPR_BAND_WIDTH: 10.0
+    - MAX_WIDTH: null  # null means no upper limit
+      CPR_BAND_WIDTH: 15.0
+
+HORIZONTAL_BAND_WIDTH: 2.5
+
+# Swing Detection / Dynamic Horizontal Bands
+ENABLE_DYNAMIC_HORIZONTAL_BANDS: true  # Enable/disable dynamic horizontal S/R from swings
+SWING_CONFIRMATION_CANDLES: 15         # N candles lookback/lookforward
+CPR_IGNORE_BUFFER: 0                   # Buffer to ignore swings near CPR (unless inside zone)
+MERGE_TOLERANCE: 12.5                  # Tolerance for merging horizontal bands
+
+# CPR Logic
+CPR_PAIR_WIDTH_THRESHOLD: 80.0  # Width to create default 50% band
+
+# Visualization
+PLOT_ENABLED: true
+
+# Logging
+VERBOSE_SWING_LOGGING: true  # Set to true for detailed swing detection logs

@@ -1,0 +1,202 @@
+graph TD
+    %% =================================================================
+    %% == SECTION: THE TRIGGER (EVENT-DRIVEN)
+    %% =================================================================
+    subgraph "The Trigger: Event-Driven Architecture"
+        subgraph "Real-Time Event Sources"
+            WebSocket_Ticks["Live WebSocket Ticks<br/>(Event-Driven)"]
+            API_Commands["API Commands<br/>(async_api_server.py)"]
+            Control_Panel["Human Commands<br/>(async_control_panel.py)"]
+        end
+
+        Event_Dispatcher["🎯 Event Dispatcher<br/>(event_system.py)"]
+        WebSocket_Ticks --> Event_Dispatcher
+        API_Commands --> Event_Dispatcher
+        Control_Panel --> Event_Dispatcher
+    end
+
+    %% =================================================================
+    %% == SECTION: THE ENGINE (ASYNC)
+    %% =================================================================
+    subgraph "The Engine: Async Parallel Processing"
+        subgraph "Async WebSocket Handler"
+            Async_Ticker["AsyncLiveTickerHandler<br/>(async_live_ticker_handler.py)"]
+            Event_Dispatcher --> Async_Ticker
+
+            subgraph "Real-Time Candle Construction"
+                CE_Candle_Update["Update CE 1-min Candle"]
+                PE_Candle_Update["Update PE 1-min Candle"]
+                Async_Ticker --> CE_Candle_Update
+                Async_Ticker --> PE_Candle_Update
+            end
+
+            subgraph "Async Indicator Calculation"
+                CE_Indicators["Calculate CE Indicators<br/>(StochRSI, WPR, Supertrend, EMA, SMA)"]
+                PE_Indicators["Calculate PE Indicators<br/>(StochRSI, WPR, Supertrend, EMA, SMA)"]
+                CE_Candle_Update --> CE_Indicators
+                PE_Candle_Update --> PE_Indicators
+            end
+        end
+
+        subgraph "Async Event Handlers"
+            Event_Handlers["AsyncEventHandlers<br/>(async_event_handlers.py)"]
+
+            subgraph "Parallel Event Processing"
+                Tick_Handler["Handle TICK_UPDATE Events"]
+                Candle_Handler["Handle CANDLE_FORMED Events"]
+                Indicator_Handler["Handle INDICATOR_UPDATE Events"]
+                Command_Handler["Handle USER_COMMAND Events"]
+                Config_Handler["Handle CONFIG_UPDATE Events"]
+            end
+
+            Event_Dispatcher --> Event_Handlers
+            Event_Handlers --> Tick_Handler
+            Event_Handlers --> Candle_Handler
+            Event_Handlers --> Indicator_Handler
+            Event_Handlers --> Command_Handler
+            Event_Handlers --> Config_Handler
+        end
+    end
+
+    %% =================================================================
+    %% == SECTION: THE BRAIN (ASYNC)
+    %% =================================================================
+    subgraph "The Brain: Async State-Based Decision Hub"
+        subgraph "Async Entry Condition Manager"
+            Entry_Manager["AsyncEntryConditionManager<br/>(async_entry_conditions.py)"]
+            Indicator_Handler --> Entry_Manager
+
+            subgraph "Parallel Signal Evaluation"
+                CE_Signal_Check["Check CE Entry Conditions<br/>(Fast Reversal, Same-Bar Crossover)"]
+                PE_Signal_Check["Check PE Entry Conditions<br/>(Fast Reversal, Same-Bar Crossover)"]
+                Entry_Manager --> CE_Signal_Check
+                Entry_Manager --> PE_Signal_Check
+            end
+
+            Signal_Detected{"Signal Detected?"}
+            CE_Signal_Check --> Signal_Detected
+            PE_Signal_Check --> Signal_Detected
+        end
+
+        subgraph "Async Strategy Executor"
+            Strategy_Executor["AsyncStrategyExecutor<br/>(async_strategy_executor.py)"]
+            Signal_Detected -- Yes --> Strategy_Executor
+
+            subgraph "Trade State Management"
+                State_Manager["TradeStateManager<br/>(Async Integration)"]
+                Active_Trade_Check{"Is Trade Active?"}
+                Strategy_Executor --> State_Manager
+                State_Manager --> Active_Trade_Check
+            end
+        end
+    end
+
+    %% =================================================================
+    %% == SECTION: THE ACTION (ASYNC)
+    %% =================================================================
+    subgraph "The Action: Async Trade Execution"
+        subgraph "Async Order Management"
+            Order_Placement["Place Orders<br/>(GTT OCO / GTT Single)"]
+            Position_Mgmt["Position Management<br/>(Trailing SL, Exit Conditions)"]
+            Strategy_Executor --> Order_Placement
+            Strategy_Executor --> Position_Mgmt
+        end
+
+        subgraph "Dynamic Configuration"
+            Config_Manager["Dynamic Config Updates<br/>(TRAILING_FLAG, QUANTITY, etc.)"]
+            Config_Handler --> Config_Manager
+            Config_Manager --> Strategy_Executor
+        end
+    end
+
+    %% =================================================================
+    %% == HUMAN-IN-THE-LOOP CONTROL
+    %% =================================================================
+    subgraph "Human-in-the-Loop Control"
+        subgraph "Interactive Control Panel"
+            Control_Menu["🎮 Control Panel Menu<br/>(async_control_panel.py)"]
+            Manual_Commands["Manual Commands<br/>(BUY_CE, BUY_PE, FORCE_EXIT)"]
+            Sentiment_Control["Sentiment Control<br/>(BULLISH, BEARISH, NEUTRAL, DISABLE)"]
+            Status_Monitoring["Real-time Status<br/>(Health Checks, Queue Size)"]
+
+            Control_Panel --> Manual_Commands
+            Control_Panel --> Sentiment_Control
+            Control_Panel --> Status_Monitoring
+        end
+
+        subgraph "API Server Endpoints"
+            API_Server["🌐 Async API Server<br/>(async_api_server.py)"]
+            HTTP_Commands["HTTP Commands<br/>(POST /command, /update_config)"]
+            Health_Status["Health & Status<br/>(GET /health, /status)"]
+
+            API_Server --> HTTP_Commands
+            API_Server --> Health_Status
+        end
+
+        Manual_Commands --> Event_Dispatcher
+        HTTP_Commands --> Event_Dispatcher
+        Sentiment_Control --> Event_Dispatcher
+    end
+
+    %% =================================================================
+    %% == THE CONNECTIONS (EVENT FLOW)
+    %% =================================================================
+
+    %% Event Flow from Sources to Processing
+    WebSocket_Ticks --> Async_Ticker
+    Async_Ticker --> Event_Dispatcher
+    Event_Dispatcher --> Event_Handlers
+
+    %% Signal Processing Flow
+    CE_Indicators --> Indicator_Handler
+    PE_Indicators --> Indicator_Handler
+    Indicator_Handler --> Entry_Manager
+    Entry_Manager --> Signal_Detected
+    Signal_Detected --> Strategy_Executor
+
+    %% Human Control Flow
+    Control_Panel --> Event_Dispatcher
+    API_Server --> Event_Dispatcher
+    Command_Handler --> Strategy_Executor
+    Config_Handler --> Config_Manager
+
+    %% State Management Flow
+    State_Manager --> Active_Trade_Check
+    Active_Trade_Check --> Strategy_Executor
+
+    %% Trade Execution Flow
+    Strategy_Executor --> Order_Placement
+    Strategy_Executor --> Position_Mgmt
+
+    %% Configuration Flow
+    Config_Manager --> Strategy_Executor
+
+    %% =================================================================
+    %% == STYLING
+    %% =================================================================
+    classDef triggerClass fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef engineClass fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef brainClass fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef actionClass fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef controlClass fill:#fce4ec,stroke:#880e4f,stroke-width:2px
+
+    class Event_Dispatcher,WebSocket_Ticks,API_Commands,Control_Panel triggerClass
+    class Async_Ticker,Event_Handlers,CE_Indicators,PE_Indicators,Entry_Manager,Strategy_Executor engineClass
+    class State_Manager,Active_Trade_Check,Signal_Detected brainClass
+    class Order_Placement,Position_Mgmt,Config_Manager actionClass
+    class Control_Menu,API_Server,Manual_Commands,Sentiment_Control,Status_Monitoring controlClass
+
+    %% =================================================================
+    %% == LEGEND
+    %% =================================================================
+    subgraph "📋 Architecture Legend"
+        direction TB
+        Replaced_Polling["❌ OLD: Polling Loop<br/>(LOOP_DELAY_SECONDS: 0.1)"]
+        Event_Driven["✅ NEW: Event-Driven<br/>(Immediate Processing)"]
+        Async_Processing["⚡ Async Processing<br/>(Concurrent & Non-blocking)"]
+        Human_Control["🎮 Human-in-the-Loop<br/>(Preserved Control Panel)"]
+
+        Replaced_Polling -.-> Event_Driven
+        Event_Driven -.-> Async_Processing
+        Async_Processing -.-> Human_Control
+    end

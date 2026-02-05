@@ -1,0 +1,308 @@
+//@version=5
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║ NIFTY Options Trading Strategy                                               ║
+// ║ Strategy combines Williams %R, Supertrend, and StochRSI                      ║
+// ║ With a selectable Take Profit and optional Technical Exit                    ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+strategy(
+  "Triple Reversal with Correct Manual Exit",
+  overlay=true,
+  initial_capital=100000,
+  pyramiding=1,
+  default_qty_type=strategy.fixed,
+  default_qty_value=1,
+  commission_value=0.04,
+  calc_on_every_tick=false,
+  process_orders_on_close=false,
+  close_entries_rule="ANY",
+  max_bars_back=50,
+  max_labels_count=50
+  )
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Cooldown Logic to Prevent Same-Bar Re-entry
+// ═══════════════════════════════════════════════════════════════════════════════
+var bool tradeClosedThisBar = false
+if barstate.isnew
+    tradeClosedThisBar := false
+if strategy.closedtrades > strategy.closedtrades[1]
+    tradeClosedThisBar := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Option and Position Parameters
+// ═══════════════════════════════════════════════════════════════════════════════
+var strike_price = 22600
+var option_expiry = "2025-04-09"
+var option_type = "PE"
+
+FIXED_CAPITAL = 100000.0
+NIFTY_LOT_SIZE = 75
+calculatedLotSize = close * NIFTY_LOT_SIZE
+maxLotsAllowed = math.floor(FIXED_CAPITAL / calculatedLotSize)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Strategy Configuration Parameters
+// ═══════════════════════════════════════════════════════════════════════════════
+string G1 = "Take Profit Settings"
+takeProfitPercent = input.float(7.5, "Take Profit %", minval=1.0, maxval=50.0, step=0.5, group=G1)
+DYNAMIC_TRAILING = input.bool(true, "Enable Dynamic Trailing?", group=G1, tooltip="If enabled, will attempt to switch to a trailing stop (EMA 3/7 cross) on strong signals when the fixed TP is about to be hit.")
+
+string G2 = "Exit Conditions"
+slMode = input.string("Fixed Percentage", "Stop Loss Mode", options=["Fixed Percentage", "Swing Low"], group=G2)
+stopLossPercent = input.float(6.0, "Stop Loss % (for Fixed Percentage Mode)", group=G2)
+validateSwingLowSL = input.bool(false, "Validate Swing Low SL (<12%)?", group=G2, tooltip="If enabled, trades will be skipped if the Swing Low Stop Loss is more than 12% away from the entry price.")
+maxSLThreshold = input.float(10.0, "Max SL % for Entry 3", group=G2, tooltip="Skips Entry 3 if the initial Supertrend stop loss is more than this % away from the entry price.")
+
+useInvalidationExit = input.bool(false, "Use Reversal Invalidation Exit?", group=G2, tooltip="Exits if W%R crosses back under -80 after entry, suggesting a false signal.")
+useStandardExit = input.bool(false, "Use Standard Technical Exit?", group=G2, tooltip="Exits on momentum fade (W%R > -20 then StochK < 80) for early profit taking.")
+useMoveSLToEntry = input.bool(false, "Move SL to Entry Price Near Target?", group=G2, tooltip="If the price reaches within 1% of the Take Profit target, the Stop Loss will be moved to the entry price.")
+useWeakEntryExit = input.bool(false, "Use Weak Entry Exit?", group=G2, tooltip="If the entry candle closes red, exit on the next bar's open.")
+
+string G3 = "Entry Signal Toggles"
+useEntry1 = input.bool(false, "Enable Entry 1 (Fast Reversal)", group=G3, inline="entry1")
+useEntry2 = input.bool(true, "Enable Entry 2 (Triple Confirmation)", group=G3, inline="entry2") 
+useEntry3 = input.bool(false, "Enable Entry 3 (Bullish ST Trend)", group=G3, inline="entry3") 
+
+string G4 = "Plotting Settings"
+plotSLTP = input.bool(true, "Plot SL & TP Lines?", group=G4)
+plotSupertrend = input.bool(true, "Plot Supertrend?", group=G4)
+plotEntrySignals = input.bool(true, "Plot Entry Signal Shapes?", group=G4)
+plotMA = input.bool(false, "Plot MA Lines?", group=G4)
+plotExitSignals = input.bool(false, "Plot Exit Signal Shapes?", group=G4)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Time Management Parameters
+// ═══════════════════════════════════════════════════════════════════════════════
+startDateTime = timestamp("2025-10-23T00:09:15+0530")
+endDateTime = timestamp("2025-10-23T15:25+0530")
+isWithinDateRange = time >= startDateTime and time <= endDateTime
+
+isWithinTradingHours = na(time_close) ? false : (
+  hour == 9 ? minute >= 15 :
+  hour == 15 ? minute <= 14 :
+  hour > 9 and hour < 15)
+
+isForceCloseTime = hour == 15 and minute >= 14
+inTradeWindow = isWithinTradingHours and isWithinDateRange and not isForceCloseTime
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Supertrend Calculations
+// ═══════════════════════════════════════════════════════════════════════════════
+[supertrend, direction] = ta.supertrend(2.0, 10) 
+isBullish = direction < 0
+isBearish = direction > 0
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Technical Indicators
+// ═══════════════════════════════════════════════════════════════════════════════
+rsiValue = ta.rsi(close, 14)
+stochK = ta.sma(ta.stoch(rsiValue, rsiValue, rsiValue, 14), 3)
+stochD = ta.sma(stochK, 3)
+stochOversoldCrossover = ta.crossover(stochK, 20)
+
+sma9 = ta.sma(close, 9)
+ema5 = ta.ema(close, 5)
+isMaBullish = sma9 < ema5
+
+ema3 = ta.ema(close, 3) 
+sma7 = ta.sma(close, 7) 
+
+williamsRSlow = ta.wpr(28)
+williamsRFast = ta.wpr(9)
+isFastCrossoverAbove80 = ta.crossover(williamsRFast, -80)
+isFastCrossunderBelow80 = ta.crossunder(williamsRFast, -80)
+isSlowCrossoverAbove80 = ta.crossover(williamsRSlow, -80)
+swingLow = ta.lowest(low, 5)
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║ REVISED: Fast Reversal Logic (for Entry 1) - Less Strict                     ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+int stochLookback = 2 
+bool recentFastCross = ta.barssince(isFastCrossoverAbove80) <= stochLookback
+bool stochFastReversal = stochOversoldCrossover and recentFastCross
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Alert Message Generator
+// ═══════════════════════════════════════════════════════════════════════════════
+generate_alert_message(action, qty, option_type, strike_price, expiry_date) =>
+    '{"secret":"IVpyR","alertType":"multi_leg_order","order_legs":[{"transactionType":"' +
+     action + '","orderType":"MKT","quantity":"' + str.tostring(qty) +
+     '","exchange":"NSE","symbol":"NIFTY","instrument":"OPT","productType":"I","sort_order":"1","price":"0","option_type":"' +
+     option_type + '","strike_price":"' + str.tostring(strike_price) +
+     '","expiry_date":"' + expiry_date + '"}]}'
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║ Entry Conditions with Risk Filter                                            ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+bool isSwingSLValid = true
+if validateSwingLowSL and slMode == "Swing Low"
+    float swingSLPercent = (close - swingLow[1]) / close * 100
+    isSwingSLValid := swingSLPercent <= 12.0
+
+bool commonBearishConditions = inTradeWindow and isBearish and strategy.position_size == 0 and not tradeClosedThisBar and isSwingSLValid
+entryCondition1 = useEntry1 and commonBearishConditions and stochFastReversal and williamsRSlow > -80
+
+// Entry 2 Logic
+var int triggerBarIndex = na, var bool slowConfirmed = false, var bool stochConfirmed = false   
+if isFastCrossoverAbove80
+    triggerBarIndex := bar_index, slowConfirmed := isSlowCrossoverAbove80, stochConfirmed := (stochK > stochD and stochK > 20)
+else if not na(triggerBarIndex)
+    if bar_index > triggerBarIndex + 2 or (isFastCrossunderBelow80 and bar_index > triggerBarIndex)
+        triggerBarIndex := na 
+    if not na(triggerBarIndex)
+        if isSlowCrossoverAbove80
+            slowConfirmed := true
+        if (stochK > stochD and stochK > 20)
+            stochConfirmed := true
+bool triggerEntry = false
+if not na(triggerBarIndex) and slowConfirmed and stochConfirmed
+    triggerEntry := true, triggerBarIndex := na     
+entryCondition2 = useEntry2 and commonBearishConditions and triggerEntry
+
+// Entry 3 Logic
+bool commonBullishConditions = inTradeWindow and isBullish and strategy.position_size == 0 and not tradeClosedThisBar and isSwingSLValid
+bool entryCondition3 = false 
+if (useEntry3 and commonBullishConditions and stochOversoldCrossover)
+    float riskPercent = (close - supertrend) / close * 100
+    if (riskPercent <= maxSLThreshold)
+        entryCondition3 := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Position Management Variables
+// ═══════════════════════════════════════════════════════════════════════════════
+var float stopLossPrice = na, var float takeProfitPrice = na
+var bool needsReset = false, var bool exitArmed = false
+var float tradeEntryPrice = na
+var bool isSLMovedToEntry = false
+var int entryBarIndex = na
+var bool isDynamicTrailingActive = false 
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║ Strategy Execution & Position Management                                     ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+// --- 1. Signal Detection and Entry Order Placement ---
+if strategy.position_size == 0 and not needsReset
+    if entryCondition1
+        strategy.entry("Long1", strategy.long, qty=maxLotsAllowed, comment="Long1")
+        alert(generate_alert_message("BUY", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar_close)
+    else if entryCondition2
+        strategy.entry("Long2", strategy.long, qty=maxLotsAllowed, comment="Long2")
+        alert(generate_alert_message("BUY", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar_close)
+    else if entryCondition3
+        strategy.entry("Long3", strategy.long, qty=maxLotsAllowed, comment="Long3")
+        alert(generate_alert_message("BUY", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar_close)
+
+// --- 2. Position and Exit Management ---
+if strategy.position_size > 0
+    string currentEntryId = strategy.opentrades.entry_id(0)
+
+    // --- This block runs ONCE on the first bar of a new trade ---
+    if strategy.position_size[1] == 0
+        tradeEntryPrice := strategy.position_avg_price
+        entryBarIndex := bar_index 
+        takeProfitPrice := tradeEntryPrice * (1 + takeProfitPercent / 100)
+
+        if strategy.opentrades.entry_comment(0) == "Long3"
+            stopLossPrice := supertrend[1]
+        else
+            if slMode == "Fixed Percentage"
+                stopLossPrice := tradeEntryPrice * (1 - stopLossPercent / 100)
+            else 
+                stopLossPrice := swingLow[1]
+        
+        // CORRECTED APPROACH: Only place the STOP order. TP is handled manually.
+        strategy.exit("SL_Exit", from_entry=currentEntryId, stop=stopLossPrice)
+
+    // --- This block runs on EVERY bar while a trade is active ---
+    
+    // --- Weak Entry Exit Logic ---
+    bool isEntryCandleRed = close[1] < open[1]
+    bool isNextBarAfterEntry = bar_index == entryBarIndex + 1
+    if useWeakEntryExit and not na(entryBarIndex) and isNextBarAfterEntry and isEntryCandleRed
+        strategy.close_all(comment="Weak Entry Exit")
+        alert(generate_alert_message("SELL", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar)
+        needsReset := true
+    
+    // --- Stop Loss Adjustment Logic ---
+    float currentStopLoss = stopLossPrice 
+    if strategy.opentrades.entry_comment(0) == "Long3"
+        currentStopLoss := math.max(stopLossPrice, supertrend[1])
+    else if useMoveSLToEntry and not isSLMovedToEntry
+        float moveSLTriggerPrice = tradeEntryPrice * (1 + (takeProfitPercent - 1.0) / 100)
+        if high >= moveSLTriggerPrice
+            currentStopLoss := tradeEntryPrice
+            isSLMovedToEntry := true
+    if currentStopLoss != stopLossPrice
+        stopLossPrice := currentStopLoss
+        // Modify the existing exit order with the new stop loss
+        strategy.exit("SL_Exit", stop=stopLossPrice)
+
+    // --- FINAL CORRECTED LOGIC: Manual Take Profit & Dynamic Trailing ---
+    if not isDynamicTrailingActive and not na(takeProfitPrice)
+        if high >= takeProfitPrice
+            bool isStrongSignal = williamsRFast[1] > -20
+            if DYNAMIC_TRAILING and isStrongSignal
+                // Strong signal, so activate trailing instead of exiting
+                isDynamicTrailingActive := true
+                alert("Dynamic Trailing Activated", alert.freq_once_per_bar)
+            else
+                // Trailing is off OR signal is weak, so exit at market price
+                strategy.close(currentEntryId, comment="Fixed TP Exit")
+                alert(generate_alert_message("SELL", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar)
+                needsReset := true
+
+    // --- Technical and Trailing Exit Conditions ---
+    bool invalidationSignal = ta.crossunder(williamsRFast, -80) 
+    if ta.crossover(williamsRSlow, -20)
+        exitArmed := true
+    bool standardTechnicalExit = false
+    if exitArmed and ta.crossunder(stochK, 80)
+        standardTechnicalExit := true
+        
+    bool dynamicTrailingExitSignal = isDynamicTrailingActive and ta.crossunder(ema3, sma7)
+    bool triggerInvalidation = useInvalidationExit and invalidationSignal
+    bool triggerStandard = useStandardExit and standardTechnicalExit
+
+    if triggerInvalidation or triggerStandard or dynamicTrailingExitSignal
+        string exitComment = triggerInvalidation ? "Reversal Invalidated" : triggerStandard ? "Technical Exit" : "Dynamic Trail Exit"
+        strategy.close_all(comment=exitComment)
+        alert(generate_alert_message("SELL", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar)
+        needsReset := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Reset Logic
+// ═══════════════════════════════════════════════════════════════════════════════
+if needsReset or (strategy.closedtrades != strategy.closedtrades[1])
+    stopLossPrice := na, takeProfitPrice := na, needsReset := false, exitArmed := false
+    tradeEntryPrice := na, isSLMovedToEntry := false, isDynamicTrailingActive := false 
+    entryBarIndex := na 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Force Close at End of Day
+// ═══════════════════════════════════════════════════════════════════════════════
+if strategy.position_size > 0 and isForceCloseTime
+    alert(generate_alert_message("SELL", maxLotsAllowed, option_type, strike_price, option_expiry), alert.freq_once_per_bar)
+    strategy.close_all(comment="EOD Square Off", immediately=true)
+    needsReset := true
+
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║ PLOTTING                                                                     ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+plot(plotSLTP and strategy.position_size > 0 ? stopLossPrice : na, title="Stop Loss", color=color.red, style=plot.style_linebr)
+plot(plotSLTP and strategy.position_size > 0 and not isDynamicTrailingActive ? takeProfitPrice : na, title="Take Profit", color=color.green, style=plot.style_linebr)
+
+plot(plotSupertrend and isBullish ? supertrend : na, title="Up Trend", color=color.green, style=plot.style_linebr)
+plot(plotSupertrend and isBearish ? supertrend : na, title="Down Trend", color=color.red, style=plot.style_linebr)
+
+plotshape(plotEntrySignals and entryCondition1, "E1", shape.triangleup, location.belowbar, color.aqua, size=size.tiny)
+plotshape(plotEntrySignals and entryCondition2, "E2", shape.triangleup, location.belowbar, color.orange, size=size.tiny)
+plotshape(plotEntrySignals and entryCondition3, "E3", shape.triangleup, location.belowbar, color.blue, size=size.tiny)
+
+color maColor = isMaBullish ? color.green : color.red
+plot(plotMA ? sma9 : na, title="SMA 9", color=maColor, linewidth=2)
+plot(plotMA ? ema3 : na, title="EMA 3", color=color.blue, linewidth=1)
+plot(plotMA ? sma7 : na, title="SMA 7", color=color.orange, linewidth=1)
+
+plotshape(plotExitSignals and isDynamicTrailingActive and not isDynamicTrailingActive[1], "Trailing Activated", shape.arrowdown, location.abovebar, color.purple, size=size.small, text="T")

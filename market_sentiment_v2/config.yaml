@@ -1,0 +1,58 @@
+# Trading Sentiment Analyzer Configuration (v2 - Improved)
+# Based on improved backtesting implementation from cpr_market_sentiment_v2
+
+# Width to create bullish/bearish zones around a CPR level
+# CPR_BAND_WIDTH is dynamically adjusted based on CPR_PIVOT_WIDTH (TC - BC)
+# The ranges below define the logic:
+#   - If CPR_PIVOT_WIDTH < 20: CPR_BAND_WIDTH = 10.0
+#   - If 20 <= CPR_PIVOT_WIDTH < 50: CPR_BAND_WIDTH = 10.0
+#   - If CPR_PIVOT_WIDTH >= 50: CPR_BAND_WIDTH = 15.0
+# This value is overridden by dynamic calculation if CPR_PIVOT_WIDTH_FILTER is enabled
+CPR_BAND_WIDTH: 10
+
+# CPR Pivot Width Filter (TC - BC)
+# Dynamic CPR_BAND_WIDTH adjustment based on CPR_PIVOT_WIDTH
+CPR_PIVOT_WIDTH_FILTER:
+  ENABLED: true
+  RANGES:
+    - MAX_WIDTH: 20.0
+      CPR_BAND_WIDTH: 10.0
+    - MAX_WIDTH: 50.0
+      CPR_BAND_WIDTH: 10.0
+    - MAX_WIDTH: null  # null means no upper limit
+      CPR_BAND_WIDTH: 15.0
+
+# Width to create a band around a horizontal level (default or swing)
+HORIZONTAL_BAND_WIDTH: 2.5
+
+# Buffer around CPR bands where swing points should be ignored
+# Set to 0 to allow swings near CPR (backtesting v2 behavior)
+CPR_IGNORE_BUFFER: 0
+
+# Minimum width between two CPR levels to create a default 50% horizontal band
+CPR_PAIR_WIDTH_THRESHOLD: 80.0
+
+# Number of candles to confirm a swing high/low (N candles before, N after)
+# A value of 15 means 15 before and 15 after, for a total of 31 candles.
+# Updated to match backtesting v2 behavior (stricter swing detection)
+SWING_CONFIRMATION_CANDLES: 15
+
+# Tolerance for merging new swings with existing horizontal bands.
+# Formula: 2 * HORIZONTAL_BAND_WIDTH
+MERGE_TOLERANCE: 12.5
+
+# Swing Midpoint Validation
+# Enable/disable percentage-based swing validation from CPR pair boundaries
+# When enabled:
+#   - If CPR pair size < CPR_PAIR_WIDTH_THRESHOLD: 
+#     * Swing high must be above (upper_level - 50% of pair_size)
+#     * Swing low must be below (lower_level + 50% of pair_size)
+#   - If CPR pair size >= CPR_PAIR_WIDTH_THRESHOLD:
+#     * Swing high must be above (upper_level - 25% of pair_size)
+#     * Swing low must be below (lower_level + 25% of pair_size)
+# When disabled: All valid swings (not within CPR_IGNORE_BUFFER) are considered
+ENABLE_SWING_MIDPOINT_VALIDATION: false
+
+# Logging
+VERBOSE_SWING_LOGGING: true  # Set to true for detailed swing detection logs
+
