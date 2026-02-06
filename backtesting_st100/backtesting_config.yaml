@@ -151,16 +151,14 @@ ENTRY2:
     ABOVE_THRESHOLD: 13
     BETWEEN_THRESHOLD: 13
     BELOW_THRESHOLD: 40
-  SKIP_FIRST: false
-  EXIT_WEAK_SIGNAL: false
-  DYNAMIC_TRAILING_WPR9: false
-  DYNAMIC_TRAILING_MA: true
-  DYNAMIC_TRAILING_MA_THRESH: 7
-  WPR9_INVALIDATION: false
-  ST_STOP_LOSS_PERCENT: true
-  ST_SL_WHEN_TRAILING_TP: true
-  SL_TO_PRICE: false
-  HIGH_PRICE_THRESHOLD: 120
+  SKIP_FIRST: false          # If true: skip first entry after SuperTrend switch to bearish (uses 9:30 Nifty + pivot sentiment)
+  DYNAMIC_TRAILING_MA: true  # If true: after price reaches DYNAMIC_TRAILING_MA_THRESH% above entry, trail exit on Fast MA crossunder Slow MA
+  DYNAMIC_TRAILING_MA_THRESH: 7  # % above entry to activate MA-based trailing (used when DYNAMIC_TRAILING_MA is true)
+  WPR9_INVALIDATION: false    # If true: during confirmation window, if both WPR fast and slow below oversold thresholds, invalidate trigger and reset
+  ST_STOP_LOSS_PERCENT: true  # If true: use SuperTrend as dynamic stop (exit when price hits/crosses below ST level after ST turns bullish)
+  ST_SL_WHEN_TRAILING_TP: true   # If true: still apply SuperTrend SL when MA trailing is active; if false, exit only on MA crossunder during trailing
+  SL_TO_PRICE: false         # If true: move SL to breakeven (entry price) after price reaches HIGH_PRICE_PERCENT% above entry
+  HIGH_PRICE_THRESHOLD: 120   # Price threshold for HIGH_PRICE_PERCENT (above/below use different % for SL_TO_PRICE and high-price logic)
   HIGH_PRICE_PERCENT:
     ABOVE_THRESHOLD: 6.0
     BELOW_THRESHOLD: 7.0
