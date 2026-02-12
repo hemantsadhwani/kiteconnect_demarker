@@ -345,10 +345,10 @@ class Entry2BacktestStrategyFixed:
         default_invalidation_thresh = thresholds.get('WPR_FAST_OVERSOLD', -80)
         self.wpr9_invalidation_thresh = entry2_config.get('WPR9_INVALIDATION_THRESH', default_invalidation_thresh)
         
-        # Load Entry2 confirmation window (from ENTRY2 section, with backward compatibility)
-        self.entry2_confirmation_window = entry2_config.get('CONFIRMATION_WINDOW', 
-                                                              strategy_config.get('ENTRY2_CONFIRMATION_WINDOW', 3))
-        logger.info(f"Entry2 confirmation window: {self.entry2_confirmation_window} candles (from entry2_config: {entry2_config.get('CONFIRMATION_WINDOW', 'NOT_FOUND')}, strategy_config: {strategy_config.get('ENTRY2_CONFIRMATION_WINDOW', 'NOT_FOUND')})")
+        # Load Entry2 confirmation window: DEMARKER uses DEMARKER_CONFIRMATION_WINDOW (3), WPR uses WPR_CONFIRMATION_WINDOW (4)
+        # Set after entry2_trigger is loaded below; placeholder here for backward compatibility
+        _demarker_window = entry2_config.get('DEMARKER_CONFIRMATION_WINDOW', entry2_config.get('CONFIRMATION_WINDOW', strategy_config.get('ENTRY2_CONFIRMATION_WINDOW', 3)))
+        _wpr_window = entry2_config.get('WPR_CONFIRMATION_WINDOW', 4)
         
         # Load Entry2 flexible StochRSI confirmation flag
         # true = Flexible mode: StochRSI can confirm even if SuperTrend turns bullish during confirmation window
@@ -398,6 +398,19 @@ class Entry2BacktestStrategyFixed:
         raw_reversal_max_swing_low_config = entry2_config.get('REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT',
                                                                strategy_config.get('REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT', 12))
         self.reversal_max_swing_low_distance_percent_config = self._normalize_stop_loss_config(raw_reversal_max_swing_low_config)
+        
+        # Entry2 trigger mode: DEMARKER (DeMarker cross + StochRSI K>min) or WPR (legacy W%R-based)
+        self.entry2_trigger = (entry2_config.get('TRIGGER') or 'WPR').upper()
+        if self.entry2_trigger not in ('DEMARKER', 'WPR'):
+            self.entry2_trigger = 'WPR'
+        # Use trigger-specific confirmation window: WPR needs 4 bars (W%R28 + StochRSI), DeMarker uses 3
+        self.entry2_confirmation_window = _wpr_window if self.entry2_trigger == 'WPR' else _demarker_window
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles")
+        # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
+        self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
+        self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
+        logger.info(f"Entry2 (DeMarker): DEMARKER_OVERSOLD={self.demarker_oversold}, STOCH_K_MIN={self.stoch_k_min} (from indicators_config THRESHOLDS)")
+        # Risk at entry uses REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT (slab-wise) above; no separate MAX_RISK_REVERSAL
         
         # Trading hours
         trading_hours = self.config.get('TRADING_HOURS', {})
@@ -802,6 +815,108 @@ class Entry2BacktestStrategyFixed:
         logger.debug(f"Entry1: Confirmation passed at bar {entry_bar_index} - "
                     f"SuperTrend1 bearish (dir={supertrend1_dir}), SuperTrend2 bullish (dir={supertrend2_dir})")
         return True
+
+    def _check_entry2_signal_demarker(self, df: pd.DataFrame, current_index: int, symbol: str) -> bool:
+        """Entry2 - Reversal with Window: DeMarker(14) crosses above oversold (0.30), then StochRSI(K) > 20 within 3-bar window.
+        Trend must be bearish at trigger and at execution; risk uses REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT (slab-wise).
+        """
+        entry_conditions = self._get_entry_conditions_for_symbol(symbol)
+        if not entry_conditions.get('useEntry2', False):
+            return False
+        if current_index < 1:
+            return False
+        if 'demarker' not in df.columns or 'k' not in df.columns:
+            logger.debug("Entry2 (DeMarker): missing 'demarker' or 'k' column")
+            return False
+
+        current_row = df.iloc[current_index]
+        prev_row = df.iloc[current_index - 1]
+        current_timestamp = current_row.get('date', None)
+        if not self._is_within_trading_hours(current_timestamp) or not self._is_time_zone_enabled(current_timestamp):
+            return False
+
+        dem_prev = prev_row.get('demarker', None)
+        dem_curr = current_row.get('demarker', None)
+        stoch_k = current_row.get('k', None)
+        supertrend_dir = current_row.get('supertrend1_dir', None)
+        is_bearish = supertrend_dir == -1
+
+        if pd.isna(dem_prev) or pd.isna(dem_curr) or pd.isna(stoch_k):
+            return False
+
+        # State machine (reuse entry2_state_machine; for DeMarker we only need trigger_bar and stoch confirmation)
+        if not hasattr(self, 'entry2_state_machine'):
+            self.entry2_state_machine = {}
+        if not hasattr(self, 'entry2_last_signal_index'):
+            self.entry2_last_signal_index = {}
+        if symbol not in self.entry2_state_machine:
+            self.entry2_state_machine[symbol] = {
+                'state': 'AWAITING_TRIGGER',
+                'trigger_bar_index': None,
+                'stoch_rsi_confirmed_in_window': False,
+            }
+        sm = self.entry2_state_machine[symbol]
+
+        # Window expiration: 3 bars = trigger bar + next 2
+        if sm['state'] == 'AWAITING_CONFIRMATION':
+            trigger_bar_index = sm.get('trigger_bar_index')
+            if trigger_bar_index is not None and current_index >= trigger_bar_index + self.entry2_confirmation_window:
+                logger.debug(f"Entry2 (DeMarker): Window expired at index {current_index} (trigger at {trigger_bar_index})")
+                self._reset_entry2_state_machine(symbol)
+                sm = self.entry2_state_machine[symbol]
+
+        # Confirmation state: check StochRSI(K) > STOCH_K_MIN
+        if sm['state'] == 'AWAITING_CONFIRMATION':
+            trigger_bar_index = sm.get('trigger_bar_index')
+            if trigger_bar_index is None or current_index >= trigger_bar_index + self.entry2_confirmation_window:
+                return False
+            if stoch_k > self.stoch_k_min:
+                if not is_bearish:
+                    logger.debug(f"Entry2 (DeMarker): StochRSI K>{self.stoch_k_min} at {current_index} but SuperTrend not bearish")
+                    return False
+                if not self._check_entry_risk_validation(df, current_index, symbol, count_filtered=True):
+                    return False
+                if self.skip_first and self._should_skip_first_entry(current_row, current_index, symbol):
+                    self.first_entry_after_switch[symbol] = False
+                    self._reset_entry2_state_machine(symbol)
+                    return False
+                if self._maybe_defer_entry2_signal(current_index, symbol, trigger_bar_index):
+                    return False
+                self.entry2_last_signal_index[symbol] = current_index
+                logger.info(f"Entry2 (DeMarker): *** BUY SIGNAL *** at index {current_index} for {symbol} (K={stoch_k:.2f} > {self.stoch_k_min}, bearish, risk OK)")
+                self._reset_entry2_state_machine(symbol)
+                return True
+            return False
+
+        # New trigger: SuperTrend bearish, DeMarker crosses above oversold, cooldown
+        if not is_bearish:
+            return False
+        if current_index <= self.last_entry_bar:
+            return False
+        demarker_crosses_above = (dem_prev <= self.demarker_oversold) and (dem_curr > self.demarker_oversold)
+        if not demarker_crosses_above:
+            return False
+
+        logger.info(f"Entry2 (DeMarker): Trigger at index {current_index} for {symbol} - DeMarker {dem_prev:.4f} -> {dem_curr:.4f} (above {self.demarker_oversold}), bearish")
+        sm['state'] = 'AWAITING_CONFIRMATION'
+        sm['trigger_bar_index'] = current_index
+        sm['stoch_rsi_confirmed_in_window'] = False
+
+        # Same-bar confirmation: if K > stoch_k_min on trigger bar, validate and possibly signal
+        if stoch_k > self.stoch_k_min:
+            if not self._check_entry_risk_validation(df, current_index, symbol, count_filtered=True):
+                return False
+            if self.skip_first and self._should_skip_first_entry(current_row, current_index, symbol):
+                self.first_entry_after_switch[symbol] = False
+                self._reset_entry2_state_machine(symbol)
+                return False
+            if self._maybe_defer_entry2_signal(current_index, symbol, current_index):
+                return False
+            self.entry2_last_signal_index[symbol] = current_index
+            logger.info(f"Entry2 (DeMarker): *** BUY SIGNAL *** at index {current_index} (same bar as trigger) for {symbol}")
+            self._reset_entry2_state_machine(symbol)
+            return True
+        return False
 
     def _check_entry2_signal(self, df: pd.DataFrame, current_index: int, symbol: str) -> bool:
         """Check for Entry 2 (3-Window Confirmation) signal - STATE MACHINE IMPLEMENTATION"""
@@ -2012,6 +2127,7 @@ class Entry2BacktestStrategyFixed:
             swing_low_distance_percent = ((close_price - swing_low_price) / close_price) * 100
             
             # Determine the maximum allowed swing low distance based on entry price (close price is used as entry price)
+            # Uses REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT slab-wise (ABOVE_THRESHOLD, BETWEEN_THRESHOLD, BELOW_THRESHOLD)
             max_allowed_distance = self._determine_reversal_max_swing_low_distance_percent(close_price)
             
             if swing_low_distance_percent > max_allowed_distance:
@@ -2650,7 +2766,10 @@ class Entry2BacktestStrategyFixed:
                 # This matches live behavior where Entry2 trigger/confirmation logic
                 # keeps running, and trade execution is gated separately.
                 logger.debug(f"Calling _check_entry2_signal for index {i}")
-                entry2_result = self._check_entry2_signal(df, i, symbol)
+                if getattr(self, 'entry2_trigger', 'WPR') == 'DEMARKER':
+                    entry2_result = self._check_entry2_signal_demarker(df, i, symbol)
+                else:
+                    entry2_result = self._check_entry2_signal(df, i, symbol)
                 logger.debug(f"Entry2 result: {entry2_result}")
                 
                 # Check for exit conditions FIRST (only if in position)

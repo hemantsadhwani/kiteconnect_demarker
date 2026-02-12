@@ -2008,7 +2008,7 @@ class ConsolidatedDynamicATMAnalysis:
                     nifty_price_level = option_strike
                 
                 entry_period = None
-                # CRITICAL FIX: Initialize signal_candle_time_obj early for logging only (period matching uses execution time)
+                # Initialize signal_candle_time_obj for period matching and logging (uses signal candle time, not execution time)
                 signal_candle_time = entry_signal['date'] if isinstance(entry_signal, pd.Series) else entry_signal.get('date')
                 if isinstance(signal_candle_time, pd.Timestamp):
                     signal_candle_time_obj = signal_candle_time.time()
@@ -2018,17 +2018,18 @@ class ConsolidatedDynamicATMAnalysis:
                     signal_candle_time_obj = signal_candle_time.time()
                 else:
                     signal_candle_time_obj = entry_time_obj
-                # CRITICAL: Use EXECUTION time for period matching, not signal candle time.
-                # The trade is filled at entry_time (e.g. 09:42:01); the slab active at that moment (e.g. 09:42:00-09:54:00, CE=25700)
-                # determines which symbol we actually trade. Using signal time would wrongly match the previous slab
-                # (e.g. 09:41 signal -> 09:40-09:41 slab with CE=25650) and assign the wrong strike.
-                time_for_period_match = entry_time_obj
+                # CRITICAL: Use SIGNAL CANDLE time for period matching, not execution time.
+                # The trade is taken on the symbol that was ATM when the signal fired (signal candle).
+                # If we use execution time (signal + 1min + 1sec), a 9:59 signal executes at 10:00:01 and can
+                # match the next period (10:00+) which may have a different strike -> trade wrongly dropped.
+                # Matching on signal time ensures the 9:59 trade matches the period containing 9:59 (correct strike).
+                time_for_period_match = signal_candle_time_obj
                 
                 # Enhanced logging for period matching diagnosis
                 logger.debug(
                     f"Period matching for {symbol}: option_strike={option_strike}, "
                     f"is_monthly={is_monthly}, nifty_price_level={nifty_price_level}, "
-                    f"execution_time={time_for_period_match}, signal_time={signal_candle_time_obj}"
+                    f"signal_time={time_for_period_match}, execution_time={entry_time_obj}"
                 )
                 
                 # CRITICAL FIX: Find the period that matches BOTH time AND strike
@@ -2056,18 +2057,17 @@ class ConsolidatedDynamicATMAnalysis:
                         logger.debug(f"Skipping period with unparseable start/end: {period.get('start')}-{period.get('end')}")
                         continue
                     
-                    # CRITICAL: Match period by EXECUTION time (when the order is filled), not signal time.
-                    # Slab at execution time determines the traded symbol (e.g. 09:42:01 -> slab 09:42-09:54, CE=25700).
+                    # Match period by SIGNAL CANDLE time (when the signal fired); slab at that time has the correct ATM strike.
                     match_minute = time_for_period_match.minute
                     match_hour = time_for_period_match.hour
                     end_minute = end_time.minute
                     end_hour = end_time.hour
                     period_matches_time = False
                     if match_minute == end_minute and match_hour == end_hour:
-                        # Execution is in same minute AND hour as period end - include it
+                        # Signal is in same minute AND hour as period end - include it
                         period_matches_time = start_time <= time_for_period_match
                     else:
-                        # Use standard range: start <= execution_time < end
+                        # Use standard range: start <= signal_time < end
                         period_matches_time = start_time <= time_for_period_match < end_time
                     
                     if period_matches_time:
@@ -2295,10 +2295,10 @@ class ConsolidatedDynamicATMAnalysis:
                     # In ATM, only signals from the current ATM strike should be processed
                     # Signals from other strikes should be silently ignored (they're not valid ATM trades)
                     logger.debug(
-                        f"No matching period found for {symbol} at execution time {entry_time_obj} "
+                        f"No matching period found for {symbol} at signal time {time_for_period_match} "
                         f"(strike {nifty_price_level}, is_monthly={is_monthly}, "
                         f"option_strike={option_strike}). "
-                        f"This symbol is NOT the current ATM strike at execution - IGNORING signal."
+                        f"This symbol is NOT the current ATM strike at signal time - IGNORING signal."
                     )
                     # DO NOT add to skipped_trades - this signal is from a non-ATM strike and should be ignored
                     # Only signals that match periods but are blocked by active trades should be in skipped_trades
@@ -3159,9 +3159,17 @@ class ConsolidatedDynamicATMAnalysis:
         # STEP 1: Extract Entry2 confirmation windows FIRST (before collecting trades)
         # This allows us to apply Entry2 window blocking before trade collection,
         # which is critical because trades need to match the correct strikes (blocked strikes)
+        # Use same window as strategy: WPR -> WPR_CONFIRMATION_WINDOW (4), DEMARKER -> DEMARKER_CONFIRMATION_WINDOW (3)
         logger.info("STEP 1: Extracting Entry2 confirmation windows for slab change blocking...")
         nifty_file = dest_dir / f"nifty50_1min_data_{day_label.lower()}.csv"
-        entry2_confirmation_window = self.config.get('TRADE_SETTINGS', {}).get('ENTRY2_CONFIRMATION_WINDOW', 4)
+        entry2_config = self.config.get('ENTRY2', {})
+        entry2_trigger = (entry2_config.get('TRIGGER') or 'WPR').upper()
+        if entry2_trigger == 'WPR':
+            entry2_confirmation_window = entry2_config.get('WPR_CONFIRMATION_WINDOW',
+                self.config.get('TRADE_SETTINGS', {}).get('ENTRY2_CONFIRMATION_WINDOW', 4))
+        else:
+            entry2_confirmation_window = entry2_config.get('DEMARKER_CONFIRMATION_WINDOW', entry2_config.get('CONFIRMATION_WINDOW', 3))
+        logger.info(f"Entry2 trigger={entry2_trigger}, confirmation_window={entry2_confirmation_window}")
         entry2_windows = []
         if source_dir.exists():
             entry2_windows = self._extract_entry2_confirmation_windows(

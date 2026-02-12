@@ -1690,7 +1690,12 @@ class ConsolidatedDynamicOTMAnalysis:
         # which is critical because trades need to match the correct strikes (blocked strikes)
         logger.info("STEP 1: Extracting Entry2 confirmation windows for slab change blocking...")
         nifty_file = dest_dir / f"nifty50_1min_data_{day_label.lower()}.csv"
-        entry2_confirmation_window = self.config.get('ENTRY2', {}).get('CONFIRMATION_WINDOW', 4)
+        entry2_config = self.config.get('ENTRY2', {})
+        entry2_trigger = (entry2_config.get('TRIGGER') or 'WPR').upper()
+        if entry2_trigger == 'WPR':
+            entry2_confirmation_window = entry2_config.get('WPR_CONFIRMATION_WINDOW', 4)
+        else:
+            entry2_confirmation_window = entry2_config.get('DEMARKER_CONFIRMATION_WINDOW', entry2_config.get('CONFIRMATION_WINDOW', 3))
         entry2_windows = []
         if source_dir.exists():
             entry2_windows = self._extract_entry2_confirmation_windows(

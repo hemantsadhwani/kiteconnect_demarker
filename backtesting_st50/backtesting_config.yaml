@@ -29,62 +29,63 @@ BACKTESTING_EXPIRY:
     DYNAMIC_DATA: ENABLE
     STATIC_DATA: ENABLE
   BACKTESTING_DAYS:
-  # - '2025-10-15'
-  # - '2025-10-16'
-  # - '2025-10-17'
-  # - '2025-10-27'
-  # - '2025-10-31'
-  # - '2025-11-06'
-  # - '2025-11-07'
-  # - '2025-11-10'
-  # - '2025-11-14'
-  # - '2025-11-17'
-  # - '2025-11-19'
-  # - '2025-11-20'
-  # - '2025-11-21'
-  # - '2025-11-24'
-  # - '2025-11-26'
-  # - '2025-12-03'
-  # - '2025-12-11'
-  # - '2025-12-15'
+  - '2025-10-15'
+  - '2025-10-16'
+  - '2025-10-17'
+  - '2025-10-27'
+  - '2025-10-31'
+  - '2025-11-06'
+  - '2025-11-07'
+  - '2025-11-10'
+  - '2025-11-14'
+  - '2025-11-17'
+  - '2025-11-19'
+  - '2025-11-20'
+  - '2025-11-21'
+  - '2025-11-24'
+  - '2025-11-26'
+  - '2025-12-03'
+  - '2025-12-11'
+  - '2025-12-15'
 
-  # - '2026-01-16'
-  # - '2026-01-19'
-  # - '2026-01-22'
+  - '2026-01-16'
+  - '2026-01-19'
+  - '2026-01-22'
 
-  # - '2026-01-28'
-  # - '2026-01-29'
+  - '2026-01-28'
+  - '2026-01-29'
 
-  # - '2025-10-23'
-  # - '2025-10-29'
-  # - '2025-10-30'
-  # - '2025-11-13'
-  # - '2025-11-28'
-  # - '2025-12-01'
-  # - '2025-12-04'
-  # - '2025-12-05'
-  # - '2025-12-10'
-  # - '2026-01-07'
-  # - '2026-01-08'
-  # - '2026-01-14'
-  # - '2026-01-23'
-  # - '2026-02-01'
+  - '2025-10-23'
+  - '2025-10-29'
+  - '2025-10-30'
+  - '2025-11-13'
+  - '2025-11-28'
+  - '2025-12-01'
+  - '2025-12-04'
+  - '2025-12-05'
+  - '2025-12-10'
+  - '2026-01-07'
+  - '2026-01-08'
+  - '2026-01-14'
+  - '2026-01-23'
+  - '2026-02-01'
 
-  # - '2025-10-24'
-  # - '2025-11-03'
-  # - '2025-11-12'
-  # - '2025-11-27'
-  # - '2025-12-08'
-  # - '2025-12-12'
-  # - '2026-01-09'
-  # - '2026-01-12'
-  # - '2026-01-21'
-  # - '2026-01-30'
-  # - '2026-02-02'
-  # - '2026-02-04'
-  # - '2026-02-05'  
-  # - '2026-02-06'
-  # - '2026-02-09'
+  - '2025-10-24'
+  - '2025-11-03'
+  - '2025-11-12'
+  - '2025-11-27'
+  - '2025-12-08'
+  - '2025-12-12'
+  - '2026-01-09'
+  - '2026-01-12'
+  - '2026-01-21'
+  - '2026-01-30'
+  - '2026-02-02'
+
+  - '2026-02-04'
+  - '2026-02-05'  
+  - '2026-02-06'
+  - '2026-02-09'
   - '2026-02-11'
   BACKTESTING_STRIKE_TYPE:
   - ATM
@@ -145,7 +146,7 @@ ANALYTICS_OUTPUT:
   INCLUDE_SENTIMENT_COLUMNS: false
 MARKET_SENTIMENT_FILTER:
   ENABLED: true
-  MODE: AUTO  # AUTO: Use sentiment file from algorithm (v2, v3, etc.) | MANUAL: Use fixed sentiment (NEUTRAL, BULLISH, BEARISH)
+  MODE: MANUAL  # AUTO: Use sentiment file from algorithm (v2, v3, etc.) | MANUAL: Use fixed sentiment (NEUTRAL, BULLISH, BEARISH)
   SENTIMENT_VERSION: v5  # Used when MODE=AUTO (v2, v3, v4, v5)
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
   ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
@@ -180,7 +181,13 @@ TRADING:
 ENTRY1:
   TAKE_PROFIT_PERCENT: 6.0
 ENTRY2:
-  CONFIRMATION_WINDOW: 4
+  # New DeMarker-based reversal (Entry2 - Reversal with Window)
+  # DeMarker/StochRSI thresholds come from indicators_config.yaml (THRESHOLDS.DEMARKER_OVERSOLD, STOCH_RSI_OVERSOLD)
+  DEMARKER_CONFIRMATION_WINDOW: 3   # Used when TRIGGER=DEMARKER (current bar + next 2 bars)
+  WPR_CONFIRMATION_WINDOW: 4   # Used when TRIGGER=WPR (legacy 4-bar window for W%R + StochRSI confirmation)
+  SL_MODE: "Fixed Percentage"  # "Fixed Percentage" | "Swing Low"
+  # Legacy WPR-based trigger (set TRIGGER to "WPR" to use old logic)
+  TRIGGER: "WPR"       # "DEMARKER" | "WPR"
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
   TAKE_PROFIT_PERCENT: 8.0
   STOP_LOSS_PRICE_THRESHOLD:
