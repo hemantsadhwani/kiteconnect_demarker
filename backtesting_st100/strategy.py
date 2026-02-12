@@ -275,6 +275,10 @@ class Entry2BacktestStrategyFixed:
         self.current_stop_loss_percent = None
         self.take_profit_percent = entry2_config.get('TAKE_PROFIT_PERCENT', 6.0)
         
+        # Dynamic trailing stop loss (WPR9-based)
+        self.dynamic_trailing_wpr9 = entry2_config.get('DYNAMIC_TRAILING_WPR9', False)
+        logger.info(f"DYNAMIC_TRAILING_WPR9 setting loaded: {self.dynamic_trailing_wpr9} (from config: {entry2_config.get('DYNAMIC_TRAILING_WPR9', 'NOT_FOUND')})")
+        
         # Dynamic trailing stop loss (MA-based)
         self.dynamic_trailing_ma = entry2_config.get('DYNAMIC_TRAILING_MA', False)
         self.dynamic_trailing_ma_thresh = entry2_config.get('DYNAMIC_TRAILING_MA_THRESH', 7.0)
@@ -309,6 +313,9 @@ class Entry2BacktestStrategyFixed:
             trading_dates = self.config.get('BACKTESTING_EXPIRY', {}).get('BACKTESTING_DAYS', [])
             if trading_dates:
                 _preload_prev_day_ohlc_cache(trading_dates)
+        
+        # Weak signal exit management
+        self.exit_weak_signal = entry2_config.get('EXIT_WEAK_SIGNAL', False)
         
         # Define indicators_config_path for loading thresholds and indicators
         indicators_config_path = self.backtesting_dir / "indicators_config.yaml"
@@ -474,6 +481,7 @@ class Entry2BacktestStrategyFixed:
         # It will be reset per symbol when a switch happens or when entry is taken
         if not hasattr(self, 'first_entry_after_switch'):
             self.first_entry_after_switch = {}
+        self.is_dynamic_trailing_active = False
         self.is_dynamic_trailing_ma_active = False
         
         # Reset SuperTrend-based stop loss state
@@ -897,25 +905,27 @@ class Entry2BacktestStrategyFixed:
             
             # Check if we can enter (cooldown only)
             # COOLDOWN LOGIC EXPLANATION:
-            # This prevents entering a new trade immediately after the previous trade's entry bar.
-            # The cooldown requires at least 1 bar gap: current_index > last_entry_bar + 1
-            # Example: If last trade entered at bar 100, new trade can only enter at bar 102 or later.
-            # Purpose: Prevents rapid-fire entries and ensures proper state cleanup between trades.
-            can_enter = (current_index > self.last_entry_bar + 1)
+            # After an exit (e.g. SL at bar E), we allow trigger evaluation on the very next bar (E+1).
+            # This is critical: the candle where SL was hit (E) has WPR values; the next candle (E+1) is
+            # when we see the crossover (prev=E both WPR below, current=E+1 both above). If we required
+            # current_index > last_entry_bar + 1, we would block bar E+1 and miss that crossover.
+            # So: allow first bar after exit (current_index > last_entry_bar).
+            # Note: last_entry_bar is set to the EXIT bar in _exit_position (not the entry bar of the closed trade).
+            can_enter = (current_index > self.last_entry_bar)
             
             # Enhanced logging for missing trades investigation
             current_row = df.iloc[current_index]
             if hasattr(current_row, 'date'):
                 time_str = pd.to_datetime(current_row['date']).strftime('%H:%M')
                 if time_str in ['13:17', '13:18', '13:19', '13:20', '13:21']:
-                    logger.info(f"Entry2: [DEBUG] Cooldown check at index {current_index} ({time_str}): can_enter={can_enter}, last_entry_bar={self.last_entry_bar}, need > {self.last_entry_bar + 1}")
+                    logger.info(f"Entry2: [DEBUG] Cooldown check at index {current_index} ({time_str}): can_enter={can_enter}, last_entry_bar={self.last_entry_bar}, need > {self.last_entry_bar}")
             
             if not can_enter:
                 current_row = df.iloc[current_index]
                 if hasattr(current_row, 'date'):
                     time_str = pd.to_datetime(current_row['date']).strftime('%H:%M')
                     if time_str in ['13:17', '13:18', '13:19', '13:20', '13:21']:
-                        logger.warning(f"Entry2: [DEBUG] Cooldown BLOCKING entry at index {current_index} ({time_str}) for {symbol} (last_entry_bar={self.last_entry_bar}, need > {self.last_entry_bar + 1})")
+                        logger.warning(f"Entry2: [DEBUG] Cooldown BLOCKING entry at index {current_index} ({time_str}) for {symbol} (last_entry_bar={self.last_entry_bar}, need > {self.last_entry_bar})")
                 return False
         
         # Define signal conditions
@@ -2015,6 +2025,32 @@ class Entry2BacktestStrategyFixed:
         
         return True  # Validation passed
 
+    def _is_red_candle(self, df: pd.DataFrame, index: int) -> bool:
+        """Check if a candle is red (close < open)"""
+        if index >= len(df):
+            return False
+        
+        row = df.iloc[index]
+        open_price = row.get('open')
+        close_price = row.get('close')
+        
+        if pd.isna(open_price) or pd.isna(close_price):
+            return False
+        
+        return close_price < open_price
+
+    def _check_weak_signal_exit(self, df: pd.DataFrame, entry_bar_index: int) -> bool:
+        """Check if we should exit due to weak signal (entry bar closed red)"""
+        if not self.exit_weak_signal:
+            return False
+        
+        # Check if the entry bar (where we actually entered) closed red
+        if self._is_red_candle(df, entry_bar_index):
+            logger.info(f"Weak signal detected: Entry bar at index {entry_bar_index} closed red. Exiting immediately.")
+            return True
+        
+        return False
+
     def _check_wpr9_invalidation(self, df: pd.DataFrame, bar_index: int) -> bool:
         """Check if WPR_9 has gone below the invalidation threshold (invalidation exit)"""
         if not self.wpr9_invalidation:
@@ -2105,6 +2141,21 @@ class Entry2BacktestStrategyFixed:
                     return True, "ST_SL", current_low
         
         return False, "", 0.0
+
+    def _is_strong_signal(self, df: pd.DataFrame, bar_index: int) -> bool:
+        """Check if the signal is strong based on WPR_9 > -20 on previous candle"""
+        if bar_index <= 0:
+            return False
+        
+        # Check fast WPR on the previous candle (bar_index - 1)
+        # Support both new fast_wpr and legacy wpr_9 column names
+        prev_row = df.iloc[bar_index - 1]
+        prev_wpr_9 = prev_row.get('fast_wpr', prev_row.get('wpr_9'))
+        if pd.isna(prev_wpr_9):
+            return False
+        
+        # Strong signal if fast WPR > -20 (oversold region)
+        return prev_wpr_9 > -20
 
     def _check_ema_crossunder_sma(self, df: pd.DataFrame, bar_index: int) -> bool:
         """Check if Fast MA crosses under Slow MA (trailing stop exit condition)"""
@@ -2370,8 +2421,24 @@ class Entry2BacktestStrategyFixed:
         self.entry_bar_index = 0
         self.entry_signal = False
         self.entry_type = None
+        self.is_dynamic_trailing_active = False
         self.is_dynamic_trailing_ma_active = False
         self.current_stop_loss_percent = None
+        
+        # CRITICAL FIX: Update last_entry_bar to exit bar for cooldown period tracking
+        # This ensures the next bar (current_index + 1) can be evaluated for a new trigger.
+        # We use exit bar so that the candle where SL was hit (E) and the next candle (E+1) can
+        # correctly see the WPR crossover (prev=E, current=E+1) and allow entry at E+2.
+        self.last_entry_bar = current_index
+        
+        # CRITICAL FIX: Reset Entry2 state machine when trade exits
+        # This ensures state machine doesn't block new triggers after trade exit
+        # Note: Symbol should match the one used in process_single_file (csv_file_path.stem without replacement)
+        if hasattr(self, 'csv_file_path') and self.csv_file_path:
+            # Use same symbol format as process_single_file (csv_file_path.stem)
+            symbol = self.csv_file_path.stem
+            self._reset_entry2_state_machine(symbol)
+            logger.debug(f"Entry2: Reset state machine for {symbol} after trade exit at index {current_index}")
         
         # Reset SuperTrend-based stop loss state
         self.supertrend_switch_detected = False
@@ -2477,7 +2544,13 @@ class Entry2BacktestStrategyFixed:
             self.win_count = 0
             self.loss_count = 0
             self.filtered_entries_count = 0  # Reset filtered entries counter
+            # CRITICAL: Ensure is_dynamic_trailing_active is reset and respects config
+            self.is_dynamic_trailing_active = False
             self.is_dynamic_trailing_ma_active = False
+            if self.dynamic_trailing_wpr9:
+                logger.debug(f"DYNAMIC_TRAILING_WPR9 is enabled for {csv_file_path.name}")
+            else:
+                logger.debug(f"DYNAMIC_TRAILING_WPR9 is DISABLED for {csv_file_path.name} - will exit at fixed TP only")
             if self.dynamic_trailing_ma:
                 logger.debug(f"DYNAMIC_TRAILING_MA is enabled for {csv_file_path.name} (threshold: {self.dynamic_trailing_ma_thresh}%)")
             else:
@@ -2620,6 +2693,17 @@ class Entry2BacktestStrategyFixed:
                         elif pd.notna(current_low):
                             logger.debug(f"[SL DEBUG] {time_str} (bar {i}): Fixed SL check SKIPPED - SuperTrend SL is active (supertrend_stop_loss_active={self.supertrend_stop_loss_active})")
                     
+                    # Entry2-specific exit checks (only for Entry2 positions)
+                    if self.entry_type == 'Entry2':
+                        # Check for weak signal exit (check if signal bar closed red)
+                        # CRITICAL: Check signal_bar_index (signal candle), not entry_bar_index (execution candle)
+                        if i == self.entry_bar_index + 1 and hasattr(self, 'signal_bar_index') and self._check_weak_signal_exit(df, self.signal_bar_index):
+                            # Exit at current bar's open (next candle after entry)
+                            exit_price = df.iloc[i]['open']
+                            logger.info(f"Weak signal exit: Exited at {exit_price:.2f}")
+                            self._exit_position(df, i, "Weak Signal Exit", exit_price)
+                            continue  # Skip other exit checks and entry logic
+                    
                     # Update highest price seen in this trade (CRITICAL: Track across all candles, not just current bar)
                     # This must match backtest_reversal_strategy.py logic exactly: if high > self.highest_price
                     current_high = current_row.get('high', None)
@@ -2642,14 +2726,43 @@ class Entry2BacktestStrategyFixed:
                                 logger.info(f"DYNAMIC_TRAILING_MA: Highest price {self.highest_price_in_trade:.2f} reached {profit_from_high:.2f}% ({self.dynamic_trailing_ma_thresh}% threshold) above entry {self.entry_price:.2f} at bar {i}. MA-based trailing activated.")
                     
                     # Entry2-specific: Check for take profit hit
-                    # When DYNAMIC_TRAILING_MA is enabled, Fixed TP is disabled; otherwise check fixed TP when not in MA trailing
-                    if self.entry_type == 'Entry2' and not self.dynamic_trailing_ma and not self.is_dynamic_trailing_ma_active:
-                        take_profit_price = self.entry_price * (1 + self.take_profit_percent / 100)
-                        if current_row.get('high', 0) >= take_profit_price:
-                            exit_price = take_profit_price
-                            logger.info(f"[FIXED TP] Take profit hit at bar {i}. Exiting at TP price {exit_price:.2f}")
-                            self._exit_position(df, i, "Take Profit", exit_price)
-                            continue  # Skip other exit checks and entry logic
+                    # CRITICAL FIX: When DYNAMIC_TRAILING_MA is enabled, Fixed TP should be COMPLETELY DISABLED
+                    # This matches backtest_reversal_strategy.py which has NO Fixed TP check when trailing TP is enabled
+                    # Only check Fixed TP if:
+                    #   1. DYNAMIC_TRAILING_MA is disabled, OR
+                    #   2. DYNAMIC_TRAILING_WPR9 is enabled (but not DYNAMIC_TRAILING_MA)
+                    if self.entry_type == 'Entry2' and not self.dynamic_trailing_ma:
+                        # Only check Fixed TP if DYNAMIC_TRAILING_MA is disabled
+                        if not self.is_dynamic_trailing_active and not self.is_dynamic_trailing_ma_active:
+                            take_profit_price = self.entry_price * (1 + self.take_profit_percent / 100)
+                            if current_row.get('high', 0) >= take_profit_price:
+                                # Check if dynamic trailing WPR9 is enabled and signal is strong (WPR_9 > -20 on previous candle)
+                                if self.dynamic_trailing_wpr9 and self._is_strong_signal(df, i):
+                                    # Activate dynamic trailing instead of taking fixed profit
+                                    self.is_dynamic_trailing_active = True
+                                    logger.info(f"Dynamic trailing (WPR9) activated at bar {i}. Strong signal detected (WPR_9 > -20)")
+                                    continue  # Skip fixed TP exit, continue with trailing
+                                else:
+                                    # Take profit hit and dynamic trailing WPR9 is disabled or signal is weak - exit at TP
+                                    exit_price = take_profit_price
+                                    logger.info(f"[FIXED TP] Take profit hit at bar {i}. Exiting at TP price {exit_price:.2f}")
+                                    self._exit_position(df, i, "Take Profit", exit_price)
+                                    continue  # Skip other exit checks and entry logic
+                    
+                    # Entry2-specific: Check for dynamic trailing exit (WPR9-based: EMA crossunder SMA)
+                    if self.entry_type == 'Entry2' and self.is_dynamic_trailing_active and self._check_ema_crossunder_sma(df, i):
+                        # Exit at next bar's open (realistic timing for crossunder detection)
+                        if i + 1 < len(df):
+                            exit_price = df.iloc[i + 1]['open']
+                            exit_bar_index = i + 1
+                        else:
+                            # If we're at the last bar, use current bar's close
+                            exit_price = df.iloc[i]['close']
+                            exit_bar_index = i
+                        
+                        logger.info(f"[DYNAMIC TRAILING WPR9] Fast MA crossed under Slow MA at bar {i}. Exiting at next bar open {exit_price:.2f}")
+                        self._exit_position(df, exit_bar_index, "Dynamic Trailing WPR9 (EMA/SMA)", exit_price)
+                        continue  # Skip other exit checks and entry logic
                     
                     # Entry2-specific: Check for breakeven (SL_TO_PRICE) BEFORE SuperTrend stop loss
                     # This ensures breakeven is activated before other stop losses can trigger
@@ -2692,8 +2805,9 @@ class Entry2BacktestStrategyFixed:
                             continue  # Skip other exit checks and entry logic
                     
                     # Check fixed exit conditions (Entry1 or Entry2)
-                    # Entry2: Only check if MA trailing is not active; Entry1: Always check
-                    if self.entry_type == 'Entry1' or (self.entry_type == 'Entry2' and not self.is_dynamic_trailing_ma_active):
+                    # Entry2: Only check if neither dynamic trailing is active
+                    # Entry1: Always check (Entry1 doesn't use dynamic trailing)
+                    if self.entry_type == 'Entry1' or (self.entry_type == 'Entry2' and not self.is_dynamic_trailing_active and not self.is_dynamic_trailing_ma_active):
                         should_exit, exit_reason, exit_price = self._check_exit_conditions(df, i)
                     else:
                         should_exit, exit_reason, exit_price = False, "", 0.0

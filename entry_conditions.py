@@ -1328,9 +1328,10 @@ class EntryConditionManager:
                 self.strategy_executor.force_exit_by_option_type('PE')
                 return  # Action is complete
 
-            # --- CRITICAL: Handle DISABLE sentiment - Block ALL autonomous trades ---
-            # DISABLE mode blocks autonomous trades (AUTO and MANUAL sentiment-based trades)
-            # Manual commands (BUY_CE, BUY_PE) are handled above and always allowed
+            # --- CRITICAL: Handle DISABLE sentiment - Block sentiment-based trades only ---
+            # When DISABLE: do NOT trade on manual or auto sentiment (no autonomous/signal-based entries).
+            # Forced trades BUY_CE/BUY_PE are handled above (before this check) and are always allowed
+            # regardless of sentiment - they are explicit user commands, not sentiment-based.
             if sentiment == 'DISABLE':
                 current_mode = self.state_manager.get_sentiment_mode()
                 self.logger.info(f"DISABLE sentiment active (mode: {current_mode}) - All autonomous trades are PAUSED (AUTO and MANUAL sentiment-based trades blocked)")
@@ -1635,10 +1636,14 @@ class EntryConditionManager:
             # Rules (when sentiment filter is ENABLED):
             # - CE trades: Only allowed in BULLISH or NEUTRAL sentiment
             # - PE trades: Only allowed in BEARISH or NEUTRAL sentiment
-            # When sentiment filter is DISABLED: Allow both CE and PE regardless of sentiment
+            # When sentiment filter is DISABLED: Allow both CE and PE only when sentiment is NEUTRAL.
+            # CRITICAL: When user sets BULLISH or BEARISH (e.g. from control panel), always enforce:
+            #   BULLISH = CE only, BEARISH = PE only. Never bypass for explicit BULLISH/BEARISH.
             
-            # Check if sentiment filter should be bypassed
-            bypass_sentiment_filter = self.debug_entry2 or not self.sentiment_filter_enabled
+            sentiment_upper = (sentiment or '').upper()
+            bypass_sentiment_filter = self.debug_entry2 or (
+                not self.sentiment_filter_enabled and sentiment_upper == 'NEUTRAL'
+            )
             
             if sentiment == 'BULLISH':
                 # BULLISH: Only execute CE trades, invalidate PE trades (unless filter is disabled)

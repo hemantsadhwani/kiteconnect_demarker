@@ -177,19 +177,19 @@ def calculate_ma(df, ma_type='ema', length=14, column_name=None):
 def calculate_demarker(df, period=14, column_name='demarker'):
     """
     DeMarker indicator matching Pine Script (education purpose, © 2025 Pavel Medd).
-    
+
     Pine Script logic:
     - high_diff = high > high[1] ? high - high[1] : 0
     - low_diff = low < low[1] ? low[1] - low : 0
     - sum_high = math.sum(high_diff, period)
     - sum_low = math.sum(low_diff, period)
     - dem = (sum_high + sum_low != 0) ? sum_high / (sum_high + sum_low) : 0
-    
+
     Args:
         df: DataFrame with 'high' and 'low' columns
         period: Lookback period (default 14)
         column_name: Output column name (default 'demarker')
-    
+
     Returns:
         DataFrame with DeMarker column added (values 0 to 1).
     """

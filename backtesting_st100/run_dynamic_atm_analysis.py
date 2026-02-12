@@ -271,8 +271,19 @@ class TradeState:
             entry_close = entry_data.get('close', None)
             if entry_close and abs(entry_price - entry_close) > 0.01:
                 logger.debug(f"[PRICE CHECK] {symbol} entry_price={entry_price:.2f}, close={entry_close:.2f} (should use open, not close)")
-            # Extract exit_price from exit_data (should be 'close' column from strategy file)
-            exit_price = exit_data.get('close', exit_data.get('exit_price', 0.0))
+            # Extract exit_price: use strategy-recorded exit price (e.g. entry2_exit_price) when present.
+            # The strategy writes actual SL/TP exit price to entry2_exit_price; using bar 'close' would
+            # wrongly show -18% when SL was 7.5% (close was 52.8 but SL exit was at 59.66).
+            entry_type_lower = self.entry_type.lower()
+            exit_price_col = f'{entry_type_lower}_exit_price'
+            exit_price = exit_data.get(exit_price_col)
+            if exit_price is None or (isinstance(exit_price, (int, float)) and (pd.isna(exit_price) or exit_price == 0)):
+                exit_price = exit_data.get('close', exit_data.get('exit_price', 0.0))
+            if exit_price is not None and not isinstance(exit_price, (int, float)):
+                try:
+                    exit_price = float(exit_price)
+                except (TypeError, ValueError):
+                    exit_price = exit_data.get('close', exit_data.get('exit_price', 0.0))
             # Determine option_type from symbol
             option_type = 'CE' if symbol.endswith('CE') else 'PE'
             

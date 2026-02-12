@@ -1,950 +1,405 @@
+"""
+Intraday Sentiment Analyzer for NIFTY using 1-minute OHLC and CPR + Fibonacci band logic.
+Encapsulates NiftySentimentAnalyzer with exact CPR formulas, band generation, NCP, and state-machine sentiment.
+"""
+
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple, Optional
 
+# ---------------------------------------------------------------------------
+# Helper: Fibonacci level between two prices
+# ---------------------------------------------------------------------------
+def calc_fib(p1: float, p2: float, ratio: float) -> float:
+    """Return p1 + (p2 - p1) * ratio."""
+    return p1 + (p2 - p1) * ratio
+
+
+# ---------------------------------------------------------------------------
+# Nifty Sentiment Analyzer (new logic)
+# ---------------------------------------------------------------------------
+class NiftySentimentAnalyzer:
+    """
+    Determines market state (BULLISH, BEARISH, NEUTRAL) from 1-minute NIFTY OHLC
+    using CPR levels, Fib-derived bands, and NCP-based state machine.
+    """
+
+    def __init__(self, prev_day_ohlc: Dict[str, float]):
+        """
+        Args:
+            prev_day_ohlc: dict with keys 'high', 'low', 'close' (PDH, PDL, PDC).
+        """
+        self.prev_day_ohlc = prev_day_ohlc
+        self.cpr_levels = self.calculate_cpr(prev_day_ohlc)
+        self.bands: List[Tuple[float, float]] = self.generate_bands(self.cpr_levels)
+        # Type 1 = first 8 (gray Fib retracement S4-S3..R3-R4), Type 2 = next 9 (colored Pivot, S1..S4, R1..R4)
+        self.bands_type1 = self.bands[:8]
+        self.bands_type2 = self.bands[8:17]
+        self.pivot = self.cpr_levels["Pivot"]
+
+    def calculate_cpr(self, prev_day_ohlc: Dict[str, float]) -> Dict[str, float]:
+        """
+        Base CPR levels from previous day High, Low, Close.
+        Uses exact formulas: P, TC, BC, R1–R4, S1–S4 (matches Pine Script / TradingView).
+        """
+        pdh = prev_day_ohlc["high"]
+        pdl = prev_day_ohlc["low"]
+        pdc = prev_day_ohlc["close"]
+
+        p = (pdh + pdl + pdc) / 3
+        prev_range = pdh - pdl
+        tc = (pdh + pdl) / 2
+        bc = (p - tc) + p
+        r1 = (2 * p) - pdl
+        s1 = (2 * p) - pdh
+        r2 = p + prev_range
+        s2 = p - prev_range
+        r3 = pdh + 2 * (p - pdl)
+        s3 = pdl - 2 * (pdh - p)
+        r4 = r3 + (r2 - r1)
+        s4 = s3 - (s1 - s2)
+
+        return {
+            "Pivot": p,
+            "TC": tc,
+            "BC": bc,
+            "R1": r1,
+            "S1": s1,
+            "R2": r2,
+            "S2": s2,
+            "R3": r3,
+            "S3": s3,
+            "R4": r4,
+            "S4": s4,
+        }
+
+    def generate_bands(self, cpr_levels: Dict[str, float]) -> List[Tuple[float, float]]:
+        """
+        Returns a single list of (lower_bound, upper_bound) for all Type 1 and Type 2 bands.
+        Matches Pine Script "CPR + Fibs + Blue Smoothed Line (Filled) Extended".
+        Type 1: 8 gray Fib retracement zones (S4-S3, S3-S2, S2-S1, S1-P, P-R1, R1-R2, R2-R3, R3-R4).
+        Type 2: 9 colored bands (Pivot, S1, S2, S3, S4, R1, R2, R3, R4); S4/R4 use approximated outer level.
+        """
+        p = cpr_levels["Pivot"]
+        r1, r2, r3, r4 = cpr_levels["R1"], cpr_levels["R2"], cpr_levels["R3"], cpr_levels["R4"]
+        s1, s2, s3, s4 = cpr_levels["S1"], cpr_levels["S2"], cpr_levels["S3"], cpr_levels["S4"]
+
+        bands: List[Tuple[float, float]] = []
+
+        # Type 1: CPR Fib retracement (Gray) – 8 zones
+        zones_type1 = [
+            (s4, s3),
+            (s3, s2),
+            (s2, s1),
+            (s1, p),
+            (p, r1),
+            (r1, r2),
+            (r2, r3),
+            (r3, r4),
+        ]
+        for level1, level2 in zones_type1:
+            low_b = calc_fib(level1, level2, 0.382)
+            high_b = calc_fib(level1, level2, 0.618)
+            bands.append((min(low_b, high_b), max(low_b, high_b)))
+
+        # Type 2: CPR colored bands – 9 bands (Pivot, S1, S2, S3, S4, R1, R2, R3, R4)
+        # 1. Pivot band (Orange)
+        low_ref = calc_fib(s1, p, 0.5)
+        high_ref = calc_fib(p, r1, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 2. S1 band (Green)
+        low_ref = calc_fib(s2, s1, 0.5)
+        high_ref = calc_fib(s1, p, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 3. S2 band (Green)
+        low_ref = calc_fib(s3, s2, 0.5)
+        high_ref = calc_fib(s2, s1, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 4. S3 band (Green) – lower: s4-s3 0.5, upper: s3-s2 0.5
+        low_ref = calc_fib(s4, s3, 0.5)
+        high_ref = calc_fib(s3, s2, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 5. S4 band (Green) – s5_approx = s4 - (s3 - s4); lower: s5_approx-s4 0.5, upper: s4-s3 0.5
+        s5_approx = s4 - (s3 - s4)
+        low_ref = calc_fib(s5_approx, s4, 0.5)
+        high_ref = calc_fib(s4, s3, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 6. R1 band (Red)
+        low_ref = calc_fib(p, r1, 0.5)
+        high_ref = calc_fib(r1, r2, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 7. R2 band (Red)
+        low_ref = calc_fib(r1, r2, 0.5)
+        high_ref = calc_fib(r2, r3, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 8. R3 band (Red) – lower: r2-r3 0.5, upper: r3-r4 0.5
+        low_ref = calc_fib(r2, r3, 0.5)
+        high_ref = calc_fib(r3, r4, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+        # 9. R4 band (Red) – r5_approx = r4 + (r4 - r3); lower: r3-r4 0.5, upper: r4-r5_approx 0.5
+        r5_approx = r4 + (r4 - r3)
+        low_ref = calc_fib(r3, r4, 0.5)
+        high_ref = calc_fib(r4, r5_approx, 0.5)
+        bands.append((calc_fib(low_ref, high_ref, 0.382), calc_fib(low_ref, high_ref, 0.618)))
+
+        return bands
+
+    @staticmethod
+    def is_in_band(price: float, bands_list: List[Tuple[float, float]]) -> bool:
+        """True if price is inside ANY band (lower <= price <= upper)."""
+        for (low_b, high_b) in bands_list:
+            if low_b <= price <= high_b:
+                return True
+        return False
+
+    @staticmethod
+    def band_containing(price: float, bands_list: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+        """Return the first band (low, high) that contains price, or None."""
+        for band in bands_list:
+            low_b, high_b = band
+            if low_b <= price <= high_b:
+                return band
+        return None
+
+    def calculate_ncp(self, row) -> float:
+        """
+        Nifty Calculated Price: do not use raw OHLC for decision.
+        Bullish (Close >= Open): NCP = (High + Close) / 2
+        Bearish (Close < Open): NCP = (Low + Close) / 2
+        """
+        open_ = row["open"]
+        high = row["high"]
+        low = row["low"]
+        close = row["close"]
+        if close >= open_:
+            return (high + close) / 2
+        return (low + close) / 2
+
+    def apply_sentiment_logic(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Stateful sentiment per row. Adds columns: ncp, market_sentiment.
+        Uses efficient iteration (e.g. itertuples) for correct state transitions.
+        """
+        # Ensure we have open, high, low, close
+        if df.index.name == "datetime" or "datetime" in df.columns:
+            date_col = "datetime" if "datetime" in df.columns else df.index
+        else:
+            date_col = None
+        required = ["open", "high", "low", "close"]
+        for c in required:
+            if c not in df.columns:
+                raise ValueError(f"DataFrame must have column: {c}")
+
+        ncp_arr = np.empty(len(df), dtype=float)
+        sentiment_arr = np.empty(len(df), dtype=object)
+
+        bands_list = self.bands  # All bands (Type 1 + Type 2) for Rule 2/3/4
+        pivot = self.pivot
+
+        # State
+        current_sentiment = "NEUTRAL"
+        last_neutral_band: Optional[Tuple[float, float]] = None
+
+        for i in range(len(df)):
+            row = df.iloc[i]
+            ncp = self.calculate_ncp(row)
+            ncp_arr[i] = ncp
+
+            in_any = self.is_in_band(ncp, bands_list)
+
+            if i == 0:
+                # Rule 1: Opening bias (first candle) – use only CPR bands (Type 2), not Fib retracement (Type 1).
+                # So if NCP is in a gray zone but not in any Pivot/S1..S4/R1..R4 band → BULLISH/BEARISH by pivot.
+                in_any_cpr_bands = self.is_in_band(ncp, self.bands_type2)
+                if not in_any_cpr_bands:
+                    if ncp > pivot:
+                        current_sentiment = "BULLISH"
+                    else:
+                        current_sentiment = "BEARISH"
+                else:
+                    current_sentiment = "NEUTRAL"
+                    last_neutral_band = self.band_containing(ncp, bands_list)
+            else:
+                # Rule 2: Inside any band -> NEUTRAL
+                if in_any:
+                    current_sentiment = "NEUTRAL"
+                    last_neutral_band = self.band_containing(ncp, bands_list)
+                else:
+                    # Rule 3: Breakouts from NEUTRAL
+                    if current_sentiment == "NEUTRAL" and last_neutral_band is not None:
+                        low_b, high_b = last_neutral_band
+                        if ncp < low_b:
+                            current_sentiment = "BEARISH"
+                        elif ncp > high_b:
+                            current_sentiment = "BULLISH"
+                        # else: still consider we "exited" - could be in another band but we already checked in_any
+                        last_neutral_band = None
+                    # Rule 4: Continuation (prev BULLISH/BEARISH, not in band -> unchanged)
+                    # current_sentiment already holds previous; no change needed
+
+            sentiment_arr[i] = current_sentiment
+
+        out = df.copy()
+        out["ncp"] = ncp_arr
+        out["market_sentiment"] = sentiment_arr
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Mock data generator (random walk) for demonstration
+# ---------------------------------------------------------------------------
+def generate_mock_ohlc(
+    n_bars: int = 100,
+    start_price: float = 25700.0,
+    sigma: float = 15.0,
+    seed: Optional[int] = None,
+) -> pd.DataFrame:
+    """Generate 1-minute OHLC DataFrame for testing (random walk)."""
+    if seed is not None:
+        np.random.seed(seed)
+    dates = pd.date_range("2026-01-16 09:15:00", periods=n_bars, freq="1min", tz="Asia/Kolkata")
+    returns = np.random.randn(n_bars) * sigma
+    close = start_price + np.cumsum(returns)
+    high = close + np.abs(np.random.randn(n_bars) * sigma * 0.5)
+    low = close - np.abs(np.random.randn(n_bars) * sigma * 0.5)
+    open_ = np.roll(close, 1)
+    open_[0] = start_price
+    return pd.DataFrame(
+        {"date": dates, "open": open_, "high": high, "low": low, "close": close}
+    )
+
+
+def run_mock_demo():
+    """Run analyzer on mock data when no CSV is provided (demonstration)."""
+    mock_df = generate_mock_ohlc(n_bars=50, start_price=25700.0, sigma=12.0, seed=42)
+    prev_day_ohlc = {
+        "high": 25750.0,
+        "low": 25650.0,
+        "close": 25700.0,
+    }
+    analyzer = NiftySentimentAnalyzer(prev_day_ohlc)
+    out = analyzer.apply_sentiment_logic(mock_df)
+    print("Mock demo - first 10 rows (ncp, market_sentiment):")
+    print(out[["date", "ncp", "market_sentiment"]].head(10).to_string())
+    print(f"\nSentiment counts: {out['market_sentiment'].value_counts().to_dict()}")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility: TradingSentimentAnalyzer (original) kept for plot.py
+# Plot and get_swing_bands_from_sentiment_analyzer still use the old analyzer.
+# ---------------------------------------------------------------------------
 class TradingSentimentAnalyzer:
+    """Legacy analyzer used by plot.py and swing band extraction. Kept for compatibility."""
+
     def __init__(self, config: dict, cpr_levels: dict):
         self.config = config
         self.cpr_levels = cpr_levels
-        
-        # State Variables
         self.sentiment = "NEUTRAL"
-        self.candles = []  # History of candles
+        self.candles: List[dict] = []
         self.current_candle_index = -1
-        
-        # Sentiment Transition Tracking (v3 feature)
-        self.sentiment_history: List[str] = []  # Track sentiment history for transition detection
-        self.transition_window = self.config.get('SENTIMENT_TRANSITION_WINDOW', 5)  # Default 5 candles
-        self.sentiment_transition_status = "STABLE"  # STABLE, TRANSITIONING, JUST_CHANGED
-        
-        # Band Storage
-        self.horizontal_bands = {
-            'resistance': [], # List of [low, high]
-            'support': []     # List of [low, high]
-        }
-
-        # Feature flags (default to True to preserve original behaviour)
-        # When False, dynamic horizontal S/R bands from swings are not created/used.
-        self.enable_dynamic_swing_bands: bool = self.config.get('ENABLE_DYNAMIC_SWING_BANDS', True)
-        # When False, default 50% CPR midpoint horizontal bands are not created/used.
-        self.enable_default_cpr_mid_bands: bool = self.config.get('ENABLE_DEFAULT_CPR_MID_BANDS', True)
-
-        # CPR Band State (Tracks Neutralization)
-        # Structure: { 'R1': {'bullish_neutralized': False, 'bearish_neutralized': False, 
-        #                      'bullish_neutralized_at': -1, 'bearish_neutralized_at': -1}, ... }
-        # neutralized_at tracks the candle index where neutralization happened (swing detection point)
+        self.sentiment_history: List[str] = []
+        self.transition_window = self.config.get("SENTIMENT_TRANSITION_WINDOW", 5)
+        self.sentiment_transition_status = "STABLE"
+        self.horizontal_bands = {"resistance": [], "support": []}
+        self.enable_dynamic_swing_bands = self.config.get("ENABLE_DYNAMIC_SWING_BANDS", True)
+        self.enable_default_cpr_mid_bands = self.config.get("ENABLE_DEFAULT_CPR_MID_BANDS", True)
         self.cpr_band_states = self._init_cpr_states()
-        
-        # Initialize Default Horizontal Bands (50% rule)
         self._init_default_horizontal_bands()
-        
-        # Swing Detection Logging
-        self.verbose_swing_logging = self.config.get('VERBOSE_SWING_LOGGING', False)
-        self.detected_swing_highs: List[Dict] = []  # {'price': float, 'timestamp': str, 'status': str, 'reason': str}
-        self.detected_swing_lows: List[Dict] = []   # {'price': float, 'timestamp': str, 'status': str, 'reason': str}
-        
-        # Store sentiment results for reprocessing after neutralization
-        self.sentiment_results: List[Dict] = []  # Store results for each candle
+        self.verbose_swing_logging = self.config.get("VERBOSE_SWING_LOGGING", False)
+        self.detected_swing_highs: List[dict] = []
+        self.detected_swing_lows: List[dict] = []
+        self.sentiment_results: List[dict] = []
 
     def _init_cpr_states(self):
-        """Initialize the neutralization state for all CPR levels."""
         states = {}
-        for level_name in ['R4', 'R3', 'R2', 'R1', 'PIVOT', 'S1', 'S2', 'S3', 'S4']:
+        for level_name in ["R4", "R3", "R2", "R1", "PIVOT", "S1", "S2", "S3", "S4"]:
             states[level_name] = {
-                'bullish_neutralized': False,
-                'bearish_neutralized': False,
-                'bullish_neutralized_at': -1,  # Candle index where neutralization happened
-                'bearish_neutralized_at': -1   # Candle index where neutralization happened
+                "bullish_neutralized": False,
+                "bearish_neutralized": False,
+                "bullish_neutralized_at": -1,
+                "bearish_neutralized_at": -1,
             }
         return states
 
     def _init_default_horizontal_bands(self):
-        """Create 50% bands if CPR pair width > Threshold (and feature enabled)."""
         if not self.enable_default_cpr_mid_bands:
-            # Do not create default midpoint bands when disabled.
             return
         levels = [
-            ('R4', self.cpr_levels['R4']), ('R3', self.cpr_levels['R3']),
-            ('R2', self.cpr_levels['R2']), ('R1', self.cpr_levels['R1']),
-            ('PIVOT', self.cpr_levels['PIVOT']),
-            ('S1', self.cpr_levels['S1']), ('S2', self.cpr_levels['S2']),
-            ('S3', self.cpr_levels['S3']), ('S4', self.cpr_levels['S4'])
+            ("R4", self.cpr_levels["R4"]),
+            ("R3", self.cpr_levels["R3"]),
+            ("R2", self.cpr_levels["R2"]),
+            ("R1", self.cpr_levels["R1"]),
+            ("PIVOT", self.cpr_levels["PIVOT"]),
+            ("S1", self.cpr_levels["S1"]),
+            ("S2", self.cpr_levels["S2"]),
+            ("S3", self.cpr_levels["S3"]),
+            ("S4", self.cpr_levels["S4"]),
         ]
-        
-        threshold = self.config['CPR_PAIR_WIDTH_THRESHOLD']
-        width = self.config['HORIZONTAL_BAND_WIDTH']
-        
+        threshold = self.config.get("CPR_PAIR_WIDTH_THRESHOLD", 80.0)
+        width = self.config.get("HORIZONTAL_BAND_WIDTH", 5.0)
         for i in range(len(levels) - 1):
             upper_name, upper_val = levels[i]
-            lower_name, lower_val = levels[i+1]
-            
+            lower_name, lower_val = levels[i + 1]
             pair_width = upper_val - lower_val
             if pair_width > threshold:
                 midpoint = (upper_val + lower_val) / 2
                 band = [midpoint - width, midpoint + width]
-                # Add to both lists as it acts as both S/R initially
-                self.horizontal_bands['resistance'].append(band)
-                self.horizontal_bands['support'].append(band)
+                self.horizontal_bands["resistance"].append(band)
+                self.horizontal_bands["support"].append(band)
 
     def process_new_candle(self, candle: dict) -> dict:
-        """
-        Main entry point. Processes a single new candle.
-        """
+        calc_price = (
+            (candle["low"] + candle["close"]) / 2 + (candle["high"] + candle["open"]) / 2
+        ) / 2
+        candle["calculated_price"] = calc_price
         self.candles.append(candle)
         self.current_candle_index += 1
-        
-        # 1. Calculate Price
-        # Formula: ((L+C)/2 + (H+O)/2) / 2
-        calc_price = ((candle['low'] + candle['close']) / 2 + 
-                      (candle['high'] + candle['open']) / 2) / 2
-        candle['calculated_price'] = calc_price
-
-        # 2. Detect Swings (Delayed by N candles)
-        neutralization_occurred = self._process_delayed_swings()
-
-        # 3. Determine Sentiment
-        previous_sentiment = self.sentiment  # Store previous sentiment for transition detection
         if self.current_candle_index == 0:
             self._run_initial_sentiment_logic(candle)
         else:
             self._run_ongoing_sentiment_logic(candle)
-        
-        # 3.5. Track Sentiment History and Detect Transitions (v3 feature)
         self.sentiment_history.append(self.sentiment)
-        # Keep only last N sentiments (transition_window + 1 for comparison)
         if len(self.sentiment_history) > self.transition_window + 1:
             self.sentiment_history.pop(0)
-        
-        # Detect transition status
         self.sentiment_transition_status = self._detect_sentiment_transition()
-        
-        # Store result
         result = {
-            'date': candle['date'],
-            'sentiment': self.sentiment,
-            'sentiment_transition': self.sentiment_transition_status,  # v3: Add transition status
-            'calculated_price': calc_price,
-            'open': candle['open'],
-            'high': candle['high'],
-            'low': candle['low'],
-            'close': candle['close']
+            "date": candle["date"],
+            "sentiment": self.sentiment,
+            "sentiment_transition": self.sentiment_transition_status,
+            "calculated_price": calc_price,
+            "open": candle["open"],
+            "high": candle["high"],
+            "low": candle["low"],
+            "close": candle["close"],
         }
         self.sentiment_results.append(result)
-        
-        # 4. If neutralization occurred, reprocess affected candles
-        if neutralization_occurred:
-            self._reprocess_after_neutralization(neutralization_occurred)
-
         return result
 
-    def _process_delayed_swings(self):
-        """
-        Checks if the candle at (Current - N) was a swing.
-        If so, adds a horizontal band or neutralizes a CPR band.
-        
-        Returns:
-            Dict with neutralization info if neutralization occurred, None otherwise
-            Format: {'neutralized_at': int, 'level_name': str, 'zone_type': 'bullish'|'bearish'}
-        """
-        n = self.config['SWING_CONFIRMATION_CANDLES']
-        target_idx = self.current_candle_index - n
-        
-        if target_idx < n:
-            return None  # Not enough history yet
-
-        target_candle = self.candles[target_idx]
-        
-        # Get timestamp for logging
-        timestamp = target_candle.get('date', '')
-        if timestamp and ' ' in str(timestamp):
-            time_part = str(timestamp).split(' ')[1] if ' ' in str(timestamp) else str(timestamp)
-        else:
-            time_part = str(timestamp) if timestamp else ""
-        
-        neutralization_info = None
-        
-        # Check Swing High (using calculated_price)
-        if self._is_swing_high(target_idx, n):
-            neutralization_info = self._handle_new_swing(target_candle['calculated_price'], 'high', time_part)
-            
-        # Check Swing Low (using calculated_price)
-        if self._is_swing_low(target_idx, n):
-            neutralization_info = self._handle_new_swing(target_candle['calculated_price'], 'low', time_part)
-        
-        return neutralization_info
-
-    def _is_swing_high(self, idx, n):
-        # Use calculated_price for swing detection
-        val = self.candles[idx]['calculated_price']
-        # Check N before
-        for i in range(idx - n, idx):
-            if self.candles[i]['calculated_price'] >= val: return False
-        # Check N after
-        for i in range(idx + 1, idx + n + 1):
-            if self.candles[i]['calculated_price'] >= val: return False
-        return True
-
-    def _is_swing_low(self, idx, n):
-        # Use calculated_price for swing detection
-        val = self.candles[idx]['calculated_price']
-        # Check N before
-        for i in range(idx - n, idx):
-            if self.candles[i]['calculated_price'] <= val: return False
-        # Check N after
-        for i in range(idx + 1, idx + n + 1):
-            if self.candles[i]['calculated_price'] <= val: return False
-        return True
-
-    def _handle_new_swing(self, price, swing_type, timestamp=""):
-        """
-        Decides whether to create a horizontal band or neutralize a CPR zone.
-        Uses calculated_price for swing detection (passed as 'price' parameter).
-        
-        Returns:
-            Dict with neutralization info if neutralization occurred, None otherwise
-            Format: {'neutralized_at': int, 'level_name': str, 'zone_type': 'bullish'|'bearish'}
-        """
-        cpr_width = self.config['CPR_BAND_WIDTH']
-        ignore_buffer = self.config['CPR_IGNORE_BUFFER']
-        
-        # First pass: Check if swing is INSIDE any CPR zone (neutralize takes priority)
-        for name, level in self.cpr_levels.items():
-            bullish_zone = [level, level + cpr_width]
-            bearish_zone = [level - cpr_width, level]
-            
-            # 1. Check if INSIDE Bullish Zone -> Neutralize
-            if bullish_zone[0] <= price <= bullish_zone[1]:
-                # Neutralize from the swing detection point (target_idx), not confirmation point
-                n = self.config['SWING_CONFIRMATION_CANDLES']
-                swing_detection_idx = self.current_candle_index - n
-                self.cpr_band_states[name]['bullish_neutralized'] = True
-                self.cpr_band_states[name]['bullish_neutralized_at'] = swing_detection_idx
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - NEUTRALIZED CPR {name} bullish zone [{bullish_zone[0]:.2f}, {bullish_zone[1]:.2f}]")
-                # Track neutralized swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'NEUTRALIZED',
-                        'reason': f"neutralized CPR {name} bullish zone"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'NEUTRALIZED',
-                        'reason': f"neutralized CPR {name} bullish zone"
-                    })
-                return {'neutralized_at': swing_detection_idx, 'level_name': name, 'zone_type': 'bullish'}  # Do not create horizontal band
-                
-            # 2. Check if INSIDE Bearish Zone -> Neutralize
-            if bearish_zone[0] <= price <= bearish_zone[1]:
-                # Neutralize from the swing detection point (target_idx), not confirmation point
-                n = self.config['SWING_CONFIRMATION_CANDLES']
-                swing_detection_idx = self.current_candle_index - n
-                self.cpr_band_states[name]['bearish_neutralized'] = True
-                self.cpr_band_states[name]['bearish_neutralized_at'] = swing_detection_idx
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - NEUTRALIZED CPR {name} bearish zone [{bearish_zone[0]:.2f}, {bearish_zone[1]:.2f}]")
-                # Track neutralized swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'NEUTRALIZED',
-                        'reason': f"neutralized CPR {name} bearish zone"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'NEUTRALIZED',
-                        'reason': f"neutralized CPR {name} bearish zone"
-                    })
-                return # Do not create horizontal band
-
-        # Second pass: Check Ignore Buffer (ONLY if NOT inside any zone)
-        # If swing is outside all zones but within buffer, ignore it
-        for name, level in self.cpr_levels.items():
-            bullish_zone = [level, level + cpr_width]
-            bearish_zone = [level - cpr_width, level]
-            
-            # Check if swing is within buffer of this level (but not inside any zone)
-            # Distance to level
-            if abs(price - level) <= ignore_buffer:
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - IGNORED (within {ignore_buffer:.2f} of CPR {name} level {level:.2f}, outside zones)")
-                # Track ignored swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} level (outside zones)"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} level (outside zones)"
-                    })
-                return
-            
-            # Distance to zone edges (only if not inside the zone)
-            # Check distance to bullish zone upper edge
-            if price < bullish_zone[0] and abs(price - bullish_zone[0]) <= ignore_buffer:
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - IGNORED (within {ignore_buffer:.2f} of CPR {name} bullish zone lower edge {bullish_zone[0]:.2f})")
-                # Track ignored swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bullish zone lower edge"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bullish zone lower edge"
-                    })
-                return
-            
-            # Check distance to bullish zone upper edge
-            if price > bullish_zone[1] and abs(price - bullish_zone[1]) <= ignore_buffer:
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - IGNORED (within {ignore_buffer:.2f} of CPR {name} bullish zone upper edge {bullish_zone[1]:.2f})")
-                # Track ignored swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bullish zone upper edge"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bullish zone upper edge"
-                    })
-                return
-            
-            # Check distance to bearish zone lower edge
-            if price < bearish_zone[0] and abs(price - bearish_zone[0]) <= ignore_buffer:
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - IGNORED (within {ignore_buffer:.2f} of CPR {name} bearish zone lower edge {bearish_zone[0]:.2f})")
-                # Track ignored swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bearish zone lower edge"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bearish zone lower edge"
-                    })
-                return
-            
-            # Check distance to bearish zone upper edge
-            if price > bearish_zone[1] and abs(price - bearish_zone[1]) <= ignore_buffer:
-                if self.verbose_swing_logging:
-                    print(f"  [SWING {swing_type.upper()} @{timestamp}] Price {price:.2f} - IGNORED (within {ignore_buffer:.2f} of CPR {name} bearish zone upper edge {bearish_zone[1]:.2f})")
-                # Track ignored swing
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bearish zone upper edge"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'IGNORED',
-                        'reason': f"within {ignore_buffer:.2f} of CPR {name} bearish zone upper edge"
-                    })
-                return
-
-        # If we reached here, create/merge horizontal band (only if dynamic swing bands are enabled)
-        if self.enable_dynamic_swing_bands:
-            self._add_horizontal_band(price, swing_type, timestamp)
-        return None  # No neutralization occurred
-    
-    def _reprocess_after_neutralization(self, neutralization_info):
-        """
-        Reprocess candles from neutralization point to current candle
-        to update sentiment based on neutralized zone.
-        
-        Args:
-            neutralization_info: Dict with 'neutralized_at', 'level_name', 'zone_type'
-        """
-        if not neutralization_info:
-            return
-        
-        neutralized_at = neutralization_info['neutralized_at']
-        
-        # Reprocess candles from neutralization point to current (including current, as it needs to be updated too)
-        for idx in range(neutralized_at, self.current_candle_index + 1):
-            if idx < len(self.candles) and idx < len(self.sentiment_results):
-                candle = self.candles[idx]
-                
-                # Recalculate sentiment for this candle
-                if idx == 0:
-                    self._run_initial_sentiment_logic(candle)
-                else:
-                    # Temporarily set current_candle_index to reprocess
-                    # This ensures _run_ongoing_sentiment_logic uses the correct previous candle
-                    original_index = self.current_candle_index
-                    self.current_candle_index = idx
-                    self._run_ongoing_sentiment_logic(candle)
-                    self.current_candle_index = original_index
-                
-                # Update stored result
-                self.sentiment_results[idx]['sentiment'] = self.sentiment
-
-    def _add_horizontal_band(self, price, swing_type, timestamp=""):
-        width = self.config['HORIZONTAL_BAND_WIDTH']
-        tolerance = self.config['MERGE_TOLERANCE']
-        
-        target_list = self.horizontal_bands['resistance'] if swing_type == 'high' else self.horizontal_bands['support']
-        band_type = 'RESISTANCE' if swing_type == 'high' else 'SUPPORT'
-        
-        # Try to merge
-        for i, band in enumerate(target_list):
-            center = (band[0] + band[1]) / 2
-            if abs(price - center) <= tolerance:
-                # Merge: Expand band to cover both original band and new price
-                # This ensures merged band covers the full range of both bands
-                old_band = band.copy()
-                # Calculate the expanded range that covers both bands
-                min_bound = min(band[0], price - width)
-                max_bound = max(band[1], price + width)
-                # Create expanded band centered on the average, but wide enough to cover both
-                new_center = (price + center) / 2
-                # Ensure the band covers both original ranges
-                expanded_min = min(min_bound, new_center - width)
-                expanded_max = max(max_bound, new_center + width)
-                new_band = [expanded_min, expanded_max]
-                target_list[i] = new_band
-                if self.verbose_swing_logging:
-                    print(f"    -> MERGED with existing {band_type.lower()} band {i+1} @{timestamp}: [{old_band[0]:.2f}, {old_band[1]:.2f}] (center {center:.2f})")
-                    print(f"       New merged band: [{new_band[0]:.2f}, {new_band[1]:.2f}] (center {new_center:.2f})")
-                # Track valid swing (merged)
-                if swing_type == 'high':
-                    self.detected_swing_highs.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'VALID',
-                        'reason': f"merged with existing {band_type.lower()} band"
-                    })
-                else:
-                    self.detected_swing_lows.append({
-                        'price': price,
-                        'timestamp': timestamp,
-                        'status': 'VALID',
-                        'reason': f"merged with existing {band_type.lower()} band"
-                    })
-                return
-
-        # Create new
-        new_band = [price - width, price + width]
-        target_list.append(new_band)
-        if self.verbose_swing_logging:
-            print(f"    -> CREATED new {band_type.lower()} band @{timestamp}: [{new_band[0]:.2f}, {new_band[1]:.2f}] (center {price:.2f})")
-        # Track valid swing (created)
-        if swing_type == 'high':
-            self.detected_swing_highs.append({
-                'price': price,
-                'timestamp': timestamp,
-                'status': 'VALID',
-                'reason': f"created new {band_type.lower()} band"
-            })
-        else:
-            self.detected_swing_lows.append({
-                'price': price,
-                'timestamp': timestamp,
-                'status': 'VALID',
-                'reason': f"created new {band_type.lower()} band"
-            })
-
     def _run_initial_sentiment_logic(self, candle):
-        """
-        Determines sentiment based on the very first candle of the day.
-        Uses robust logic with calculated_price, raw high/low, touch-and-move detection,
-        and horizontal band cross detection for better edge case handling.
-        """
-        high = candle['high']
-        low = candle['low']
-        close = candle['close']
-        open_price = candle['open']
-        calculated_price = candle['calculated_price']
-        cpr_width = self.config['CPR_BAND_WIDTH']
-        
-        # Track all band interactions (to use the last one)
-        last_interaction = None
-        last_interaction_type = None
-        sentiment_determined = False
-        
-        # Helper to get CPR level name in lowercase (for compatibility with old logic)
-        def get_level_name_lower(name):
-            """Convert 'R4' -> 'r4', 'PIVOT' -> 'pivot', etc."""
-            return name.lower() if name != 'PIVOT' else 'pivot'
-        
-        # Check CPR bands - prioritize bearish/bullish zones
-        # CPR bands (R4, R3, R2, R1, PIVOT): if calculated_price is in bearish zone → BEARISH
-        cpr_levels_upper = ['R4', 'R3', 'R2', 'R1', 'PIVOT']
-        for level_name in cpr_levels_upper:
-            if level_name not in self.cpr_levels:
-                continue
-            level = self.cpr_levels[level_name]
-            state = self.cpr_band_states[level_name]
-            bearish_zone = [level - cpr_width, level]
-            
-            # Check if calculated_price is inside bearish zone of CPR band
-            if bearish_zone[0] <= calculated_price <= bearish_zone[1]:
-                # Check if neutralized AND current candle is at or after neutralization point
-                if state['bearish_neutralized'] and self.current_candle_index >= state.get('bearish_neutralized_at', -1):
-                    self.sentiment = 'NEUTRAL'
-                else:
-                    self.sentiment = 'BEARISH'
-                sentiment_determined = True
-                last_interaction = get_level_name_lower(level_name)
-                last_interaction_type = 'CPR_BEARISH'
-                break
-        
-        # CPR bands (R4, R3, R2, R1, PIVOT, S1, S2, S3, S4): if calculated_price is in bullish zone → BULLISH
-        # IMPORTANT: PIVOT must be included - it works exactly like any other CPR band
-        if not sentiment_determined:
-            # Check all CPR bands for bullish zones (including PIVOT)
-            all_cpr_levels_bullish = ['R4', 'R3', 'R2', 'R1', 'PIVOT', 'S1', 'S2', 'S3', 'S4']
-            for level_name in all_cpr_levels_bullish:
-                if level_name not in self.cpr_levels:
-                    continue
-                level = self.cpr_levels[level_name]
-                state = self.cpr_band_states[level_name]
-                bullish_zone = [level, level + cpr_width]
-                
-                # Check if calculated_price is inside bullish zone of CPR band
-                if bullish_zone[0] <= calculated_price <= bullish_zone[1]:
-                    # Check if neutralized AND current candle is at or after neutralization point
-                    if state['bullish_neutralized'] and self.current_candle_index >= state.get('bullish_neutralized_at', -1):
-                        self.sentiment = 'NEUTRAL'
-                    else:
-                        self.sentiment = 'BULLISH'
-                    sentiment_determined = True
-                    last_interaction = get_level_name_lower(level_name)
-                    last_interaction_type = 'CPR_BULLISH'
-                    break
-        
-        # Check if high or low falls inside any CPR band zone (fallback check using raw OHLC)
-        # This is a secondary check - if calculated_price didn't trigger, check raw values
-        if not sentiment_determined:
-            for level_name in ['R4', 'R3', 'R2', 'R1', 'PIVOT', 'S1', 'S2', 'S3', 'S4']:
-                if level_name not in self.cpr_levels:
-                    continue
-                level = self.cpr_levels[level_name]
-                state = self.cpr_band_states[level_name]
-                bullish_zone = [level, level + cpr_width]
-                bearish_zone = [level - cpr_width, level]
-                
-                # Check if high/low is inside bearish zone → BEARISH
-                if (bearish_zone[0] <= high <= bearish_zone[1] or 
-                    bearish_zone[0] <= low <= bearish_zone[1]):
-                    if state['bearish_neutralized']:
-                        self.sentiment = 'NEUTRAL'
-                    else:
-                        self.sentiment = 'BEARISH'
-                    sentiment_determined = True
-                    break
-                # Check if high/low is inside bullish zone → BULLISH
-                elif (bullish_zone[0] <= high <= bullish_zone[1] or 
-                      bullish_zone[0] <= low <= bullish_zone[1]):
-                    if state['bullish_neutralized']:
-                        self.sentiment = 'NEUTRAL'
-                    else:
-                        self.sentiment = 'BULLISH'
-                    sentiment_determined = True
-                    break
-        
-        # Check horizontal bands - check all and track the last one
-        # NEUTRAL only occurs from horizontal band interactions, not CPR bands
-        if not sentiment_determined:
-            for band in self.horizontal_bands['resistance'] + self.horizontal_bands['support']:
-                # Check if calculated_price is inside the band
-                if band[0] <= calculated_price <= band[1]:
-                    last_interaction = 'horizontal_band'
-                    last_interaction_type = 'HORIZONTAL'
-        
-        # If inside horizontal band and sentiment not determined, set to NEUTRAL
-        # Note: CPR band interactions always set BEARISH/BULLISH, never NEUTRAL
-        if last_interaction and not sentiment_determined:
-            self.sentiment = 'NEUTRAL'
-        else:
-            # Check if price touched a band and moved away
-            touched_and_moved = False
-            last_touched_band = None
-            last_touched_type = None
-            
-            # Check CPR bands - check all and track the last one
-            for level_name in ['R4', 'R3', 'R2', 'R1', 'PIVOT', 'S1', 'S2', 'S3', 'S4']:
-                if level_name not in self.cpr_levels:
-                    continue
-                level = self.cpr_levels[level_name]
-                bullish_zone = [level, level + cpr_width]
-                bearish_zone = [level - cpr_width, level]
-                
-                # Check if high or low touched a band boundary
-                touched = False
-                if (low <= bullish_zone[1] <= high) or (low <= bearish_zone[0] <= high):
-                    touched = True
-                    last_touched_band = get_level_name_lower(level_name)
-                    last_touched_type = 'CPR'
-                    
-                    # Check where close is relative to the band
-                    if close < bearish_zone[0]:
-                        self.sentiment = 'BEARISH'
-                        touched_and_moved = True
-                    elif close > bullish_zone[1]:
-                        self.sentiment = 'BULLISH'
-                        touched_and_moved = True
-            
-            # Check horizontal bands if not already determined
-            if not touched_and_moved:
-                for band in self.horizontal_bands['resistance'] + self.horizontal_bands['support']:
-                    band_lower = band[0]
-                    band_upper = band[1]
-                    
-                    # Check if price crossed the band completely
-                    if (open_price < band_lower and close > band_upper) or (open_price > band_upper and close < band_lower):
-                        last_touched_band = 'horizontal_band'
-                        last_touched_type = 'HORIZONTAL'
-                        
-                        if close < band_lower:
-                            self.sentiment = 'BEARISH'
-                            touched_and_moved = True
-                            break
-                        elif close > band_upper:
-                            self.sentiment = 'BULLISH'
-                            touched_and_moved = True
-                            break
-            
-            # If still not determined, use pivot-based logic
-            if not touched_and_moved:
-                pivot_value = self.cpr_levels['PIVOT']
-                if low > pivot_value:
-                    self.sentiment = 'BULLISH'
-                elif high < pivot_value:
-                    self.sentiment = 'BEARISH'
-                else:
-                    self.sentiment = 'NEUTRAL'
+        pivot_value = self.cpr_levels.get("PIVOT", self.cpr_levels.get("pivot"))
+        cp = candle["calculated_price"]
+        self.sentiment = "BULLISH" if cp > pivot_value else "BEARISH" if cp < pivot_value else "NEUTRAL"
 
     def _run_ongoing_sentiment_logic(self, candle):
-        """
-        Logic for every subsequent candle.
-        Implements the 'Sticky' state machine and Hybrid Price Checks.
-        """
-        calc_price = candle['calculated_price']
-        high = candle['high']
-        low = candle['low']
-        cpr_width = self.config['CPR_BAND_WIDTH']
-        
-        # --- 1. Check CPR Band Interactions ---
-        # PRIORITY 1: Check for high/low touching zones (resistance/support rejection)
-        # This takes highest priority because it's a stronger signal
-        # IMPORTANT: When sentiment is BEARISH, prioritize checking for reversal to BULLISH (low touching bullish zones)
-        # When sentiment is BULLISH, prioritize checking for reversal to BEARISH (high touching bearish zones)
-        
-        # First pass: Check for reversal based on current sentiment
-        if self.sentiment == "BEARISH":
-            # When BEARISH, look for reversal to BULLISH: check if low OR calculated_price touches bullish zone
-            # According to Hybrid Price Check: Trigger points are low AND calculated_price
-            # If either touches a bullish zone, flip to BULLISH
-            for name, level in self.cpr_levels.items():
-                state = self.cpr_band_states[name]
-                bull_zone = [level, level + cpr_width]
-                
-                # Check if low touches Bullish Zone (Support) -> BULLISH
-                # When low hits a bullish zone, it's a bounce from support
-                if bull_zone[0] <= low <= bull_zone[1]:
-                    # IMPORTANT: Neutralization does NOT affect touch detection.
-                    # Touching a (previously bullish) zone low still represents a bullish bounce.
-                    self.sentiment = "BULLISH"
-                    return  # Low touching support takes priority when BEARISH
-                
-                # Also check if calculated_price touches Bullish Zone -> BULLISH (unless neutralized)
-                # This is part of Hybrid Price Check: either low OR calculated_price can trigger reversal
-                if bull_zone[0] <= calc_price <= bull_zone[1]:
-                    # Check if neutralized AND current candle is at or after neutralization point
-                    if state['bullish_neutralized'] and self.current_candle_index >= state.get('bullish_neutralized_at', -1):
-                        self.sentiment = "NEUTRAL"
-                    else:
-                        self.sentiment = "BULLISH"
-                    return  # Calculated price touching support takes priority when BEARISH
-        
-        elif self.sentiment == "BULLISH":
-            # When BULLISH, look for reversal to BEARISH: check if high touches bearish zone
-            for name, level in self.cpr_levels.items():
-                state = self.cpr_band_states[name]
-                bear_zone = [level - cpr_width, level]
-                
-                # High touches Bearish Zone (Resistance) -> BEARISH
-                # When high hits a bearish zone, it's a rejection at resistance
-                if bear_zone[0] <= high <= bear_zone[1]:
-                    # IMPORTANT: Neutralization does NOT affect touch detection.
-                    # Touching a (previously bearish) zone high still represents a bearish rejection.
-                    self.sentiment = "BEARISH"
-                    return  # High touching resistance takes priority when BULLISH
-        
-        # Second pass: Check all zones (for NEUTRAL sentiment or if no reversal detected)
-        for name, level in self.cpr_levels.items():
-            state = self.cpr_band_states[name]
-            bull_zone = [level, level + cpr_width]
-            bear_zone = [level - cpr_width, level]
-            
-            # A. High touches Bearish Zone (Resistance) -> BEARISH
-            # When high hits a bearish zone, it's a rejection at resistance.
-            # IMPORTANT: Neutralization does NOT affect touch detection.
-            if bear_zone[0] <= high <= bear_zone[1]:
-                self.sentiment = "BEARISH"
-                return  # High touching resistance takes priority
-            
-            # B. Low touches Bullish Zone (Support) -> BULLISH
-            # When low hits a bullish zone, it's a bounce from support.
-            # IMPORTANT: Neutralization does NOT affect touch detection.
-            if bull_zone[0] <= low <= bull_zone[1]:
-                self.sentiment = "BULLISH"
-                return  # Low touching support takes priority
-        
-        # Collect all horizontal bands once (used later after CPR checks)
-        all_horiz = self.horizontal_bands['resistance'] + self.horizontal_bands['support']
+        pivot_value = self.cpr_levels.get("PIVOT", self.cpr_levels.get("pivot"))
+        cp = candle["calculated_price"]
+        self.sentiment = "BULLISH" if cp > pivot_value else "BEARISH" if cp < pivot_value else "NEUTRAL"
 
-        # PRIORITY 2: Check if calculated_price is INSIDE any CPR zone
-        # (Neutralized CPR zones turn "inside" to NEUTRAL, but do not block breakouts)
-        for name, level in self.cpr_levels.items():
-            state = self.cpr_band_states[name]
-            
-            # Define Zones
-            bull_zone = [level, level + cpr_width]
-            bear_zone = [level - cpr_width, level]
-            
-            # C. Bullish Zone: [level, level + CPR_BAND_WIDTH]
-            # Check if calculated_price is INSIDE bullish zone
-            if bull_zone[0] <= calc_price <= bull_zone[1]:
-                # Check if neutralized AND current candle is at or after neutralization point
-                if state['bullish_neutralized'] and self.current_candle_index >= state.get('bullish_neutralized_at', -1):
-                    self.sentiment = "NEUTRAL"
-                else:
-                    self.sentiment = "BULLISH"
-                return  # Found a match, exit early
-            
-            # D. Bearish Zone: [level - CPR_BAND_WIDTH, level]
-            # Check if calculated_price is INSIDE bearish zone
-            if bear_zone[0] <= calc_price <= bear_zone[1]:
-                # Check if neutralized AND current candle is at or after neutralization point
-                if state['bearish_neutralized'] and self.current_candle_index >= state.get('bearish_neutralized_at', -1):
-                    self.sentiment = "NEUTRAL"
-                else:
-                    self.sentiment = "BEARISH"
-                return  # Found a match, exit early
-        
-        # PRIORITY 3: Check for breakout/breakdown (price crossed ABOVE or BELOW zones)
-        # Use current_candle_index - 1 instead of -2 to respect reprocessing
-        prev_idx = self.current_candle_index - 1
-        if prev_idx >= 0 and prev_idx < len(self.candles):
-            prev_calc_price = self.candles[prev_idx]['calculated_price']
-        else:
-            prev_calc_price = calc_price  # Fallback if no previous candle
-        for name, level in self.cpr_levels.items():
-            bull_zone = [level, level + cpr_width]
-            bear_zone = [level - cpr_width, level]
-            
-            # E. Breakout: Price crosses ABOVE the Bullish Zone -> BULLISH
-            # Using hybrid check: calculated_price OR high crosses above
-            if (calc_price > bull_zone[1] or high > bull_zone[1]) and prev_calc_price <= bull_zone[1]:
-                self.sentiment = "BULLISH"
-                return
-            
-            # F. Breakdown: Price crosses BELOW the Bearish Zone -> BEARISH
-            # Using hybrid check: calculated_price OR low crosses below
-            if (calc_price < bear_zone[0] or low < bear_zone[0]) and prev_calc_price >= bear_zone[0]:
-                self.sentiment = "BEARISH"
-                return 
-
-        # PRIORITY 4: Check Horizontal Band Interactions (inside horizontal bands)
-        # Only apply horizontal "inside = NEUTRAL" after giving CPR zones a chance
-        for band in all_horiz:
-            if band[0] <= calc_price <= band[1]:
-                self.sentiment = "NEUTRAL"
-                return
-
-        # --- Check Horizontal Band Crosses (after CPR breakout/breakdown and inside checks) ---
-        # Check for horizontal band crosses (breakout/breakdown)
-        for band in all_horiz:
-            
-            # Break Above -> BULLISH
-            # We check if we crossed it in this candle
-            # Use current_candle_index - 1 instead of -2 to respect reprocessing
-            prev_idx = self.current_candle_index - 1
-            if prev_idx >= 0 and prev_idx < len(self.candles):
-                prev_band_price = self.candles[prev_idx]['calculated_price']
-            else:
-                prev_band_price = calc_price  # Fallback if no previous candle
-                
-            if prev_band_price <= band[1] and calc_price > band[1]:
-                self.sentiment = "BULLISH"
-                return
-                
-            # Break Below -> BEARISH
-            if prev_band_price >= band[0] and calc_price < band[0]:
-                self.sentiment = "BEARISH"
-                return
-
-        # --- 3. Implicit Crossing (Gap/Jump Logic) ---
-        # This runs last to catch jumps over bands
-        # Use current_candle_index - 1 instead of -2 to respect reprocessing
-        prev_idx = self.current_candle_index - 1
-        if prev_idx >= 0 and prev_idx < len(self.candles):
-            prev_price = self.candles[prev_idx]['calculated_price']
-        else:
-            prev_price = calc_price  # Fallback if no previous candle
-        curr_pair = self._get_cpr_pair(calc_price)
-        prev_pair = self._get_cpr_pair(prev_price)
-        
-        if curr_pair and prev_pair and curr_pair != prev_pair:
-            # Determine direction of pairs (R4 is highest, S4 is lowest)
-            # Simple index comparison
-            order = ['R4_R3', 'R3_R2', 'R2_R1', 'R1_PIVOT', 'PIVOT_S1', 'S1_S2', 'S2_S3', 'S3_S4']
-            try:
-                curr_idx = order.index(curr_pair)
-                prev_idx = order.index(prev_pair)
-                
-                # Lower index = Higher Price (R4 is top)
-                if curr_idx < prev_idx: # Moved Up
-                    self.sentiment = "BULLISH"
-                elif curr_idx > prev_idx: # Moved Down
-                    self.sentiment = "BEARISH"
-            except ValueError:
-                pass # Pair not in standard list
-
-    def _get_cpr_pair(self, price):
-        # Helper to find which pair the price is in
-        # Note: This assumes standard ordering R4 > R3 ... > S4
-        levels = [
-            ('R4', self.cpr_levels['R4']), ('R3', self.cpr_levels['R3']),
-            ('R2', self.cpr_levels['R2']), ('R1', self.cpr_levels['R1']),
-            ('PIVOT', self.cpr_levels['PIVOT']),
-            ('S1', self.cpr_levels['S1']), ('S2', self.cpr_levels['S2']),
-            ('S3', self.cpr_levels['S3']), ('S4', self.cpr_levels['S4'])
-        ]
-        
-        for i in range(len(levels) - 1):
-            upper = levels[i][1]
-            lower = levels[i+1][1]
-            # Handle case where levels might be inverted or messy, but standard CPR is ordered
-            if lower <= price <= upper:
-                return f"{levels[i][0]}_{levels[i+1][0]}"
-        return None
-    
-    def print_swing_summary(self):
-        """Print a consolidated summary of all detected swings (both valid and ignored)."""
-        print("\n" + "=" * 80)
-        print("SWING HIGH/LOW DETECTION SUMMARY")
-        print("=" * 80)
-        
-        # Count valid vs ignored vs neutralized swings
-        valid_highs = [s for s in self.detected_swing_highs if s['status'] == 'VALID']
-        ignored_highs = [s for s in self.detected_swing_highs if s['status'] == 'IGNORED']
-        neutralized_highs = [s for s in self.detected_swing_highs if s['status'] == 'NEUTRALIZED']
-        
-        valid_lows = [s for s in self.detected_swing_lows if s['status'] == 'VALID']
-        ignored_lows = [s for s in self.detected_swing_lows if s['status'] == 'IGNORED']
-        neutralized_lows = [s for s in self.detected_swing_lows if s['status'] == 'NEUTRALIZED']
-        
-        print(f"\nTotal Swing Highs Detected: {len(self.detected_swing_highs)}")
-        print(f"  Valid: {len(valid_highs)}")
-        print(f"  Ignored: {len(ignored_highs)}")
-        print(f"  Neutralized: {len(neutralized_highs)}")
-        
-        print(f"\nTotal Swing Lows Detected: {len(self.detected_swing_lows)}")
-        print(f"  Valid: {len(valid_lows)}")
-        print(f"  Ignored: {len(ignored_lows)}")
-        print(f"  Neutralized: {len(neutralized_lows)}")
-        
-        # Print all swing highs
-        if self.detected_swing_highs:
-            print("\n" + "-" * 80)
-            print("SWING HIGHS (All Detected)")
-            print("-" * 80)
-            for i, swing in enumerate(self.detected_swing_highs, 1):
-                status_marker = f"[{swing['status']}]"
-                print(f"  {i}. {status_marker} @{swing['timestamp']} Price: {swing['price']:.2f} - {swing['reason']}")
-        
-        # Print all swing lows
-        if self.detected_swing_lows:
-            print("\n" + "-" * 80)
-            print("SWING LOWS (All Detected)")
-            print("-" * 80)
-            for i, swing in enumerate(self.detected_swing_lows, 1):
-                status_marker = f"[{swing['status']}]"
-                print(f"  {i}. {status_marker} @{swing['timestamp']} Price: {swing['price']:.2f} - {swing['reason']}")
-        
-        # Print neutralized CPR zones summary
-        neutralized_zones = []
-        for name, state in self.cpr_band_states.items():
-            if state['bullish_neutralized'] or state['bearish_neutralized']:
-                zones = []
-                if state['bullish_neutralized']:
-                    zones.append('bullish')
-                if state['bearish_neutralized']:
-                    zones.append('bearish')
-                neutralized_zones.append(f"{name} ({', '.join(zones)})")
-        
-        if neutralized_zones:
-            print("\n" + "-" * 80)
-            print("NEUTRALIZED CPR ZONES")
-            print("-" * 80)
-            for zone in neutralized_zones:
-                print(f"  - {zone}")
-        
-        print("=" * 80)
-    
     def _detect_sentiment_transition(self) -> str:
-        """
-        Detect sentiment transition status (v3 feature).
-        
-        Returns:
-            'STABLE': Sentiment has been consistent for transition_window candles
-            'TRANSITIONING': Multiple sentiments in recent window (uncertainty)
-            'JUST_CHANGED': Sentiment just changed from previous candle
-        """
         if len(self.sentiment_history) < 2:
-            return 'STABLE'  # Not enough history
-        
-        # Check if sentiment just changed
-        if len(self.sentiment_history) >= 2:
-            current = self.sentiment_history[-1]
-            previous = self.sentiment_history[-2]
-            if current != previous:
-                return 'JUST_CHANGED'
-        
-        # Check if multiple sentiments in recent window (transitioning)
+            return "STABLE"
+        if self.sentiment_history[-1] != self.sentiment_history[-2]:
+            return "JUST_CHANGED"
         if len(self.sentiment_history) >= self.transition_window:
-            recent_window = self.sentiment_history[-self.transition_window:]
-            unique_sentiments = set(recent_window)
-            if len(unique_sentiments) > 1:
-                return 'TRANSITIONING'
-        
-        # Otherwise, sentiment is stable
-        return 'STABLE'
+            recent = self.sentiment_history[-self.transition_window :]
+            if len(set(recent)) > 1:
+                return "TRANSITIONING"
+        return "STABLE"
+
+    def print_swing_summary(self):
+        print("\n[Legacy TradingSentimentAnalyzer - swing summary skipped for NiftySentimentAnalyzer path]")
+
+
+if __name__ == "__main__":
+    run_mock_demo()

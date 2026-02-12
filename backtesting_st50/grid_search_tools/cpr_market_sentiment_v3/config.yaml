@@ -4,28 +4,27 @@
 # Format: day_label (lowercase, e.g., nov21) -> expiry_week (uppercase, e.g., NOV25)
 # Used for finding input files in respective dynamic/static folders
 DATE_MAPPINGS:
-  # oct15: OCT20
-  # oct16: OCT20
-  # oct17: OCT20
-  # oct23: OCT28
-  # oct24: OCT28
-  # oct27: OCT28
-  # oct29: NOV04
-  # oct30: NOV04
-  # oct31: NOV04
-  # nov03: NOV04
-  # nov06: NOV11
-  # nov07: NOV11
-  # nov10: NOV11
-  # nov12: NOV18
-  # nov13: NOV18
-  # nov14: NOV18
-  # nov17: NOV18
-  # nov19: NOV25
-  # nov20: NOV25
-  # nov21: NOV25
-  # nov24: NOV25
-  # nov25: NOV25
+  oct15: OCT20  
+  oct16: OCT20
+  oct17: OCT20
+  oct23: OCT28
+  oct24: OCT28
+  oct27: OCT28
+  oct29: NOV04
+  oct30: NOV04
+  oct31: NOV04
+  nov03: NOV04
+  nov06: NOV11
+  nov07: NOV11
+  nov10: NOV11
+  nov12: NOV18
+  nov13: NOV18
+  nov14: NOV18
+  nov17: NOV18
+  nov19: NOV25
+  nov20: NOV25
+  nov21: NOV25
+  nov24: NOV25
   nov26: DEC02
   nov27: DEC02
   nov28: DEC02
@@ -34,7 +33,6 @@ DATE_MAPPINGS:
   dec04: DEC09
   dec05: DEC09
   dec08: DEC09
-  dec09: DEC09
   dec10: DEC16
   dec11: DEC16
   dec12: DEC16
@@ -43,15 +41,17 @@ DATE_MAPPINGS:
   jan08: JAN13
   jan09: JAN13
   jan12: JAN13
-  jan13: JAN13
   jan14: JAN20
   jan16: JAN20
   jan19: JAN20
-  jan20: JAN20
   jan21: JAN27
   jan22: JAN27
   jan23: JAN27
-  jan27: JAN27
+  jan28: FEB03
+  jan29: FEB03
+  jan30: FEB03
+  feb01: FEB03
+  feb02: FEB03
 # CPR Pivot Width Filter (TC - BC)
 # Dynamic CPR_BAND_WIDTH adjustment based on CPR_PIVOT_WIDTH
 CPR_PIVOT_WIDTH_FILTER:

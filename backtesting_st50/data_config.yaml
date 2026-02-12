@@ -3,14 +3,13 @@
 
 # Target Expiry Week Configuration (for data collection)
 TARGET_EXPIRY:
-  EXPIRY_DATE: "2026-02-10"  # Monday expiry date (YYYY-MM-DD format); must be current/future for Kite tokens
-  EXPIRY_WEEK_LABEL: "FEB10"  # Base label for folder naming (e.g., OCT20, NOV25, FEB10). Use FEB10 not FEB010.
+  EXPIRY_DATE: "2025-02-17"  # Monday expiry date (YYYY-MM-DD format)
+  EXPIRY_WEEK_LABEL: "FEB17"  # Base label for folder naming (e.g., OCT20, NOV25, etc.)
   
   # Trading days in the expiry week (Monday to Friday)
   # NOTE: Only include date mentioned in config (OCT16) - no past or future dates
   TRADING_DAYS:
-  - '2026-02-04'
-  - '2026-02-05'
+  - '2026-02-11'
 
 
 # Data Collection Settings

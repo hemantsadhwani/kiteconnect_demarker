@@ -4,80 +4,67 @@
 # Format: day_label (lowercase, e.g., nov21) -> expiry_week (uppercase, e.g., NOV25)
 # Used for finding input files in respective dynamic/static folders
 DATE_MAPPINGS:
-  oct15: OCT20
-  oct16: OCT20
-  oct17: OCT20
-  oct23: OCT28
-  oct24: OCT28
-  oct27: OCT28
-  oct29: NOV04
-  oct30: NOV04
-  oct31: NOV04
-  nov03: NOV04
-  nov06: NOV11
-  nov07: NOV11
-  nov10: NOV11
-  nov12: NOV18
-  nov13: NOV18
-  nov14: NOV18
-  nov17: NOV18
-  nov19: NOV25
-  nov20: NOV25
-  nov21: NOV25
-  nov24: NOV25
-  nov25: NOV25
-  nov26: DEC02
-  nov27: DEC02
-  nov28: DEC02
-  dec01: DEC02
-  dec03: DEC09
-  dec04: DEC09
-  dec05: DEC09
-  dec08: DEC09
-  dec09: DEC09
-  dec10: DEC16
-  dec11: DEC16
-  dec12: DEC16
-  dec15: DEC16
-  dec17: DEC23
-  dec18: DEC23
-  dec19: DEC23
-  dec22: DEC23
-  dec23: DEC23
-  dec24: DEC30
-  dec26: DEC30
-  dec29: DEC30
-  dec31: JAN06
-  jan01: JAN06
-  jan02: JAN06
-  jan05: JAN06
-# CPR Pivot Width Filter (TC - BC)
-# Dynamic CPR_BAND_WIDTH adjustment based on CPR_PIVOT_WIDTH
-CPR_PIVOT_WIDTH_FILTER:
-  ENABLED: true
-  RANGES:
-    - MAX_WIDTH: 20.0
-      CPR_BAND_WIDTH: 10.0
-    - MAX_WIDTH: 50.0
-      CPR_BAND_WIDTH: 10.0
-    - MAX_WIDTH: null  # null means no upper limit
-      CPR_BAND_WIDTH: 15.0
+  # oct15: OCT20
+  # oct16: OCT20
+  # oct17: OCT20
+  # oct23: OCT28
+  # oct24: OCT28
+  # oct27: OCT28
+  # oct29: NOV04
+  # oct30: NOV04
+  # oct31: NOV04
+  # nov03: NOV04
+  # nov06: NOV11
+  # nov07: NOV11
+  # nov10: NOV11
+  # nov12: NOV18
+  # nov13: NOV18
+  # nov14: NOV18
+  # nov17: NOV18
+  # nov19: NOV25
+  # nov20: NOV25
+  # nov21: NOV25
+  # nov24: NOV25
+  # nov26: DEC02
+  # nov27: DEC02
+  # nov28: DEC02
+  # dec01: DEC02
+  # dec03: DEC09
+  # dec04: DEC09
+  # dec05: DEC09
+  # dec08: DEC09
+  # dec10: DEC16
+  # dec11: DEC16
+  # dec12: DEC16
+  # dec15: DEC16
+  # jan07: JAN13
+  # jan08: JAN13
+  # jan09: JAN13
+  # jan12: JAN13
+  # jan14: JAN20
+  # jan16: JAN20
+  # jan19: JAN20
+  # jan21: JAN27
+  # jan22: JAN27
+  # jan23: JAN27
+  # jan28: FEB03
+  # jan29: FEB03
+  # jan30: FEB03
+  # feb01: FEB03
+  # feb02: FEB03
+
+  # feb04: FEB10
+  # feb05: FEB10
+  # feb06: FEB10
+  # feb09: FEB10
+  feb11: FEB17
 
 
-CPR_IGNORE_BUFFER: 0         # Buffer to ignore swings near CPR (unless inside zone)
-MERGE_TOLERANCE: 12.5           # Tolerance for merging horizontal bands
+# Workflow sentiment file (nifty_market_sentiment_<date>.csv):
+#   When true:  file is lagged by 1 candle (09:15=DISABLE, 09:16 gets 09:15 sentiment, etc.) to simulate production.
+#   When false: file is same as nifty_market_sentiment_<date>_plot.csv (no lag).
+LAG_SENTIMENT_BY_ONE: false
 
-# Dynamic horizontal support/resistance from swings (used by plot.py)
-# When set to false, swing-based horizontal S/R bands will NOT be plotted.
-ENABLE_DYNAMIC_SWING_BANDS: true
-# Swing Detection
-SWING_CONFIRMATION_CANDLES: 15  # N candles lookback/lookforward
-
-# CPR Logic
-# When false, default 50% CPR midpoint horizontal bands will NOT be plotted (but swing bands can still be plotted)
-ENABLE_DEFAULT_CPR_MID_BANDS: true
-CPR_PAIR_WIDTH_THRESHOLD: 80.0  # Width to create default 50% band
-HORIZONTAL_BAND_WIDTH: 2.5
 # Visualization
 PLOT_ENABLED: true
 

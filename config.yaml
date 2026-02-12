@@ -26,7 +26,7 @@ TRADE_SETTINGS:
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (8.0%)
   STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
-    ABOVE_THRESHOLD: 6.5  # Stop loss % when entry price > 120
+    ABOVE_THRESHOLD: 6.0  # Stop loss % when entry price > 120
     BETWEEN_THRESHOLD: 7.5  # Stop loss % when entry price is between 70 and 120
     BELOW_THRESHOLD: 7.5  # Stop loss % when entry price < 70
   # Legacy single value (for backward compatibility, will be overridden by above if both exist)
@@ -70,7 +70,7 @@ TRADE_SETTINGS:
 MARK2MARKET:
   ENABLE: true  # Enable/disable trailing stop logic
   CAPITAL: 15000  # Starting daily capital
-  LOSS_MARK: 30  # Percentage drop from High-Water Mark to trigger stop
+  LOSS_MARK: 50  # Percentage drop from High-Water Mark to trigger stop
   PER_DAY: true  # Each day starts fresh with CAPITAL, tracks day's high, stops if drops LOSS_MARK% from day's high 
 
 # Bot Operational Settings
@@ -149,7 +149,7 @@ THRESHOLDS:
 DYNAMIC_ATM:
   ENABLED: true          # Set to false to use static ATM (strikes calculated once at market open)
   SLAB_CHANGE_ALERT: true # Log alerts when slab changes occur
-  MIN_SLAB_CHANGE_INTERVAL: 60  # Minimum seconds between slab changes (prevents rapid switching)
+  MIN_SLAB_CHANGE_INTERVAL: 180  # Minimum seconds between slab changes (prevents rapid switching)
 
 # Strike Difference Configuration
 # Controls the strike interval for ATM/OTM strike calculation
@@ -157,7 +157,7 @@ DYNAMIC_ATM:
 # For STRIKE_DIFFERENCE=50: CE = floor(price/50)*50, PE = ceil(price/50)*50
 # For STRIKE_DIFFERENCE=100: CE = floor(price/100)*100, PE = ceil(price/100)*100
 # Example: NIFTY=25510, STRIKE_DIFFERENCE=100 -> CE=25500, PE=25600
-STRIKE_DIFFERENCE: 100  # Options: 50 or 100
+STRIKE_DIFFERENCE: 50  # Options: 50 or 100
 
 # Strike Type Configuration
 # Controls whether to use ATM (At-The-Money) or OTM (Out-of-The-Money) strike selection

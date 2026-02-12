@@ -139,9 +139,9 @@ class RealTimeMarketSentimentManager:
         s2 = pivot - prev_range
         r3 = prev_day_high + 2 * (pivot - prev_day_low)
         s3 = prev_day_low - 2 * (prev_day_high - pivot)
-        # R4/S4: Follow the interval pattern (matching TradingView Floor Pivot Points)
-        r4 = r3 + (r2 - r1)  # R4 = R3 + (R2 - R1)
-        s4 = s3 - (s1 - s2)  # S4 = S3 - (S1 - S2)
+        # Corrected R4/S4 (TradingView-validated): R4 = R3 + (R2 - R1), S4 = S3 - (S1 - S2)
+        r4 = r3 + (r2 - r1)
+        s4 = s3 - (s1 - s2)
         
         return {
             'R4': r4, 'R3': r3, 'R2': r2, 'R1': r1,

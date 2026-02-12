@@ -376,6 +376,17 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     
     all_trades = pd.concat([ce_trades, pe_trades], ignore_index=True)
 
+    # Normalize sentiment_df['date'] to Asia/Kolkata so matching with entry_time_dt works.
+    # Sentiment CSV may have +05:30 or different tz representation; entry_time_dt is Asia/Kolkata.
+    # Without this, JAN28/JAN30 (and other days) can get no matches and end up with blank mkt_sentiment_trades.
+    if sentiment_df is not None and not sentiment_df.empty and 'date' in sentiment_df.columns:
+        sentiment_df = sentiment_df.copy()
+        sent_dates = pd.to_datetime(sentiment_df['date'])
+        if sent_dates.dt.tz is None:
+            sentiment_df['date'] = sent_dates.dt.tz_localize('Asia/Kolkata', ambiguous='infer')
+        else:
+            sentiment_df['date'] = sent_dates.dt.tz_convert('Asia/Kolkata')
+
     # Check for realized_pnl_pct, sentiment_pnl, or pnl column (in order of preference)
     pnl_col_all = 'realized_pnl_pct' if 'realized_pnl_pct' in all_trades.columns else ('sentiment_pnl' if 'sentiment_pnl' in all_trades.columns else 'pnl')
     if pnl_col_all not in all_trades.columns:
@@ -416,7 +427,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     matching_sentiment = matching_rows.iloc[0]['sentiment']
                 else:
                     time_diff = abs((sentiment_df['date'] - entry_time).dt.total_seconds())
-                    if time_diff.min() <= 60:
+                    if time_diff.min() <= 90:
                         nearest_idx = time_diff.idxmin()
                         matching_sentiment = sentiment_df.loc[nearest_idx, 'sentiment']
             
@@ -457,9 +468,10 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     else:
                         matching_transition = 'STABLE'  # Default for v2 compatibility
                 else:
-                    # Try to find nearest sentiment within 60 seconds (fallback for timestamp mismatches)
+                    # Try to find nearest sentiment within 90 seconds (fallback for timestamp mismatches)
+                    # Entry time can be 09:41:01 while sentiment has 09:41:00; same-minute match should succeed.
                     time_diff = abs((sentiment_df['date'] - entry_time).dt.total_seconds())
-                    if time_diff.min() <= 60:
+                    if time_diff.min() <= 90:
                         nearest_idx = time_diff.idxmin()
                         matching_sentiment = sentiment_df.loc[nearest_idx, 'sentiment']
                         # v3: Get sentiment_transition if available
@@ -467,7 +479,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                             matching_transition = sentiment_df.loc[nearest_idx].get('sentiment_transition', 'STABLE')
                         else:
                             matching_transition = 'STABLE'  # Default for v2 compatibility
-                        logger.debug(f"Using nearest sentiment (within 60s) for trade at {entry_time}")
+                        logger.debug(f"Using nearest sentiment (within 90s) for trade at {entry_time}")
             
             # Normalize sentiment to uppercase for comparison
             if matching_sentiment is not None:

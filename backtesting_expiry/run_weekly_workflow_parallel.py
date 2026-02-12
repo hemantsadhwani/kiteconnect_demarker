@@ -131,22 +131,21 @@ def load_expiry_config():
         # Then, for dates in BACKTESTING_DAYS that are NOT in date_mappings, infer expiry week
         # Parse expiry week labels to get their approximate dates for matching
         def parse_expiry_week(expiry_label):
-            """Parse expiry week label (e.g., 'OCT20', 'NOV04', 'JAN20', 'FEB10') to get approximate date"""
+            """Parse expiry week label (e.g., 'OCT20', 'NOV04', 'JAN20') to get approximate date"""
             try:
                 month_str = expiry_label[:3].upper()
-                day_str = expiry_label[3:].lstrip('0') or '0'
+                day_str = expiry_label[3:]
                 month_map = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
                     'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
                 }
                 month = month_map.get(month_str, 1)
                 day = int(day_str) if day_str.isdigit() else 1
-                if day < 1 or day > 31:
-                    return None
-                # JAN/FEB expiries are typically in 2026 when BACKTESTING_DAYS include 2026; else 2025
-                year = 2026 if month_str in ('JAN', 'FEB') else 2025
+                # Determine year based on month: JAN expiries are typically in 2026, others in 2025
+                # This handles year boundary cases (DEC 2025 -> JAN 2026)
+                year = 2026 if month_str == 'JAN' else 2025
                 return datetime(year, month, day).date()
-            except Exception:
+            except:
                 return None
         
         # Build expiry week date map
@@ -1037,12 +1036,15 @@ def run_phase_3_55_parallel(max_workers=None, config: dict = None):
             completed += 1
             try:
                 result = future.result()
+                # run_script returns a dict with 'success' and 'duration', not exit code
+                ok = result.get('success', False)
+                duration = result.get('duration', 0)
                 results.append({
                     'file': str(sentiment_file),
-                    'success': result == 0,
-                    'duration': 0
+                    'success': ok,
+                    'duration': duration
                 })
-                status = "[OK]" if result == 0 else "[FAIL]"
+                status = "[OK]" if ok else "[FAIL]"
                 if completed % 10 == 0 or completed == len(sentiment_files):
                     summary_logger.info(f"[PROGRESS] Completed {completed}/{len(sentiment_files)}: {status} {sentiment_file.name}")
             except Exception as e:

@@ -14,7 +14,7 @@ BACKTESTING_ANALYSIS:
   DYNAMIC_OTM: ENABLE
   PRICE_ZONES:
     DYNAMIC_ATM:
-      HIGH_PRICE: 200
+      HIGH_PRICE: 200   # was 220; JAN28+ ATM CE/PE often 250-300+, raise so sentiment output is not empty
       LOW_PRICE: 40
     DYNAMIC_OTM:
       HIGH_PRICE: 200
@@ -32,56 +32,60 @@ BACKTESTING_EXPIRY:
   # - '2025-10-15'
   # - '2025-10-16'
   # - '2025-10-17'
-  # - '2025-10-23'
-  # - '2025-10-24'
   # - '2025-10-27'
-  # - '2025-10-29'
-  # - '2025-10-30'
   # - '2025-10-31'
-  # - '2025-11-03'
   # - '2025-11-06'
   # - '2025-11-07'
   # - '2025-11-10'
-  # - '2025-11-12'
-  # - '2025-11-13'
   # - '2025-11-14'
   # - '2025-11-17'
   # - '2025-11-19'
   # - '2025-11-20'
   # - '2025-11-21'
   # - '2025-11-24'
-  # - '2025-11-25'
   # - '2025-11-26'
-  # - '2025-11-27'
-  # - '2025-11-28'
-  # - '2025-12-01'
   # - '2025-12-03'
-  # - '2025-12-04'
-  # - '2025-12-05'
-  # - '2025-12-08'
-  # - '2025-12-10'
   # - '2025-12-11'
-  # - '2025-12-12'
   # - '2025-12-15'
 
-  # - '2026-01-07'
-  # - '2026-01-08'
-  # - '2026-01-09'
-  # - '2026-01-12'
-  # - '2026-01-14'
   # - '2026-01-16'
   # - '2026-01-19'
-  # - '2026-01-21'
   # - '2026-01-22'
-  # - '2026-01-23'
+
   # - '2026-01-28'
   # - '2026-01-29'
-  # - '2026-01-30'
-  # - '2026-02-01'
-  # - '2026-02-02'
-  - '2026-02-04'
-  - '2026-02-05' 
 
+  # - '2025-10-23'
+  # - '2025-10-29'
+  # - '2025-10-30'
+  # - '2025-11-13'
+  # - '2025-11-28'
+  # - '2025-12-01'
+  # - '2025-12-04'
+  # - '2025-12-05'
+  # - '2025-12-10'
+  # - '2026-01-07'
+  # - '2026-01-08'
+  # - '2026-01-14'
+  # - '2026-01-23'
+  # - '2026-02-01'
+
+  # - '2025-10-24'
+  # - '2025-11-03'
+  # - '2025-11-12'
+  # - '2025-11-27'
+  # - '2025-12-08'
+  # - '2025-12-12'
+  # - '2026-01-09'
+  # - '2026-01-12'
+  # - '2026-01-21'
+  # - '2026-01-30'
+  # - '2026-02-02'
+  # - '2026-02-04'
+  # - '2026-02-05'  
+  # - '2026-02-06'
+  # - '2026-02-09'
+  - '2026-02-11'
   BACKTESTING_STRIKE_TYPE:
   - ATM
   - OTM
@@ -100,6 +104,7 @@ BACKTESTING_EXPIRY:
   - JAN27
   - FEB03
   - FEB10
+  - FEB17
 CPR_WIDTH_FILTER:
   ENABLED: false
   CPR_WIDTH_SIZE: 62
@@ -140,14 +145,14 @@ ANALYTICS_OUTPUT:
   INCLUDE_SENTIMENT_COLUMNS: false
 MARKET_SENTIMENT_FILTER:
   ENABLED: true
-  MODE: MANUAL  # AUTO: Use sentiment file from algorithm (v2, v3, etc.) | MANUAL: Use fixed sentiment (NEUTRAL, BULLISH, BEARISH)
-  SENTIMENT_VERSION: v2  # Used when MODE=AUTO (v2, v3, v4, v5)
+  MODE: AUTO  # AUTO: Use sentiment file from algorithm (v2, v3, etc.) | MANUAL: Use fixed sentiment (NEUTRAL, BULLISH, BEARISH)
+  SENTIMENT_VERSION: v5  # Used when MODE=AUTO (v2, v3, v4, v5)
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
   ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
 MARK2MARKET:
-  ENABLE: true
+  ENABLE: false
   CAPITAL: 100000
-  LOSS_MARK: 20
+  LOSS_MARK: 30
   PER_DAY: true
 STRATEGY:
   CE_ENTRY_CONDITIONS:
@@ -175,14 +180,14 @@ TRADING:
 ENTRY1:
   TAKE_PROFIT_PERCENT: 6.0
 ENTRY2:
-  CONFIRMATION_WINDOW: 5
+  CONFIRMATION_WINDOW: 4
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
-  TAKE_PROFIT_PERCENT: 10.0
+  TAKE_PROFIT_PERCENT: 8.0
   STOP_LOSS_PRICE_THRESHOLD:
   - 140
   - 40
   STOP_LOSS_PERCENT:
-    ABOVE_THRESHOLD: 6.0
+    ABOVE_THRESHOLD: 6.5
     BETWEEN_THRESHOLD: 7.5
     BELOW_THRESHOLD: 7.5
   VALIDATE_ENTRY_RISK: true
@@ -190,14 +195,16 @@ ENTRY2:
     ABOVE_THRESHOLD: 13
     BETWEEN_THRESHOLD: 13
     BELOW_THRESHOLD: 15
-  SKIP_FIRST: false          # If true: skip first entry after SuperTrend switch to bearish (uses 9:30 Nifty + pivot sentiment)
-  DYNAMIC_TRAILING_MA: true # If true: after price reaches DYNAMIC_TRAILING_MA_THRESH% above entry, trail exit on Fast MA crossunder Slow MA
-  DYNAMIC_TRAILING_MA_THRESH: 7  # % above entry to activate MA-based trailing (used when DYNAMIC_TRAILING_MA is true)
-  WPR_INVALIDATION: true     # If true: during confirmation window, if both WPR fast and slow below oversold thresholds, invalidate trigger and reset
-  ST_STOP_LOSS_PERCENT: false # If true: use SuperTrend as dynamic stop (exit when price hits/crosses below ST level after ST turns bullish)
-  ST_SL_WHEN_TRAILING_TP: true   # If true: still apply SuperTrend SL when MA trailing is active; if false, exit only on MA crossunder during trailing
-  SL_TO_PRICE: false         # If true: move SL to breakeven (entry price) after price reaches HIGH_PRICE_PERCENT% above entry
-  HIGH_PRICE_THRESHOLD: 120   # Price threshold for HIGH_PRICE_PERCENT (above/below use different % for SL_TO_PRICE and high-price logic)
+  SKIP_FIRST: false
+  EXIT_WEAK_SIGNAL: false
+  DYNAMIC_TRAILING_WPR9: false
+  DYNAMIC_TRAILING_MA: true
+  DYNAMIC_TRAILING_MA_THRESH: 7
+  WPR9_INVALIDATION: false
+  ST_STOP_LOSS_PERCENT: true
+  ST_SL_WHEN_TRAILING_TP: true
+  SL_TO_PRICE: false
+  HIGH_PRICE_THRESHOLD: 120
   HIGH_PRICE_PERCENT:
-    ABOVE_THRESHOLD: 5.0
-    BELOW_THRESHOLD: 5.0
+    ABOVE_THRESHOLD: 6.0
+    BELOW_THRESHOLD: 7.0

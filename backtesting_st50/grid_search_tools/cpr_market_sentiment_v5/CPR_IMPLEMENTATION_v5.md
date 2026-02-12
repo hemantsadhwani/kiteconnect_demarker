@@ -1,139 +1,368 @@
-# CPR Market Sentiment v5 - Selective Entry2 Reversal
+# CPR Market Sentiment Analysis System – Implementation Documentation (v5)
 
-## Overview
+**Version**: v5  
+**Scope**: NIFTY intraday sentiment using CPR levels (including R4, S4), Fibonacci-derived bands, and NCP-based state machine. Matches the TradingView Pine Script "CPR + Fibs + Blue Smoothed Line (Filled) Extended". No dynamic swing bands.
 
-CPR Market Sentiment v5 combines **v3's proven transition logic** with **selective Entry2 reversal inclusion** during stable periods to close the gap to Un-Filtered P&L.
+## Table of Contents
 
-## Key Improvement: Selective Entry2 Reversal
+1. [System Overview](#system-overview)
+2. [Architecture](#architecture)
+3. [CPR Calculation](#cpr-calculation)
+4. [Band Types (Type 1 and Type 2)](#band-types-type-1-and-type-2)
+5. [NCP (Nifty Calculated Price)](#ncp-nifty-calculated-price)
+6. [Sentiment States](#sentiment-states)
+7. [State Machine Rules](#state-machine-rules)
+8. [Configuration](#configuration)
+9. [File Structure](#file-structure)
+10. [Usage](#usage)
+11. [Pine Script Reference](#pine-script-reference)
+12. [Differences from v2](#differences-from-v2)
 
-### Problem with v3
-- **v3 Optimized**: 337.74% P&L (72.2% retention)
-- **Gap to Un-Filtered**: 129.81% P&L (27.8%)
-- **Root Cause**: Excluding profitable Entry2 reversal trades during stable periods
+---
 
-### Solution in v5
-- **During Transitions**: PE-only (v3 optimized - data-driven, highly profitable)
-- **During Stable Periods**: Hybrid approach
-  - **BULLISH stable**: Allow both CE (traditional) AND PE (Entry2 reversal down)
-  - **BEARISH stable**: Allow both PE (traditional) AND CE (Entry2 reversal up)
+## System Overview
 
-### Research Findings
+The v5 CPR Market Sentiment system is a **stateful** analyzer that processes 1-minute NIFTY OHLC data and assigns one of three sentiments per candle:
 
-**Profitable Entry2 Reversal Trades:**
-- BEARISH + CE: 12 profitable trades, 135.07% P&L (11.26% avg) ✅
-- BULLISH + PE: 15 profitable trades, 166.41% P&L (11.09% avg) ✅
+- **BULLISH**
+- **BEARISH**
+- **NEUTRAL**
 
-**Losing Entry2 Reversal Trades:**
-- BEARISH + CE: 15 losing trades, -86.11% P&L (-5.74% avg)
-- BULLISH + PE: 15 losing trades, -88.99% P&L (-5.93% avg)
+It uses:
 
-**Net Impact**: +89.37% P&L if we include all Entry2 reversal trades
+1. **CPR levels** from the previous trading day (P, TC, BC, R1–R4, S1–S4). R4 = R3 + (R2 − R1), S4 = S3 − (S1 − S2).
+2. **Two band types** derived from CPR (matches Pine Script):
+   - **Type 1**: Eight gray “CPR Fib retracement” bands (S4–S3, S3–S2, S2–S1, S1–P, P–R1, R1–R2, R2–R3, R3–R4), each 38.2%–61.8%.
+   - **Type 2**: Nine colored bands (Pivot, S1, S2, S3, S4, R1, R2, R3, R4). S4/R4 bands use approximated outer level (s5_approx / r5_approx).
+3. **NCP (Nifty Calculated Price)** = smoothed line in Pine: bullish candle (Close ≥ Open) → (High + Close)/2; bearish → (Low + Close)/2.
+4. A **state machine** with four rules: opening bias (Rule 1), inside band → NEUTRAL (Rule 2), breakout from NEUTRAL (Rule 3), continuation (Rule 4).
 
-## Implementation Details
+There are **no dynamic swing bands** (no cyan/magenta swing bands as in v2). Plot shows CPR Fib bands (gray), colored CPR bands, and NCP (blue) line only.
 
-### Filter Logic
+---
+
+## Architecture
+
+### Core Components
 
 ```
-IF sentiment == DISABLE:
-    → Reject all trades
-
-ELIF sentiment == NEUTRAL:
-    → Allow both CE and PE
-
-ELIF sentiment == BULLISH:
-    IF is_transitioning:
-        → Allow only PE ✅ (v3 transition logic)
-    ELSE (STABLE):
-        → Allow both CE ✅ (traditional) AND PE ✅ (Entry2 reversal)
-
-ELIF sentiment == BEARISH:
-    IF is_transitioning:
-        → Allow only PE ✅ (v3 transition logic)
-    ELSE (STABLE):
-        → Allow both PE ✅ (traditional) AND CE ✅ (Entry2 reversal)
+┌─────────────────────────────────────────────────────────────┐
+│                  NiftySentimentAnalyzer                       │
+├─────────────────────────────────────────────────────────────┤
+│  • CPR from prev day OHLC (P, TC, BC, R1–R4, S1–S4)          │
+│  • generate_bands() → Type 1 (8) + Type 2 (9)                │
+│  • calculate_ncp() per candle                                │
+│  • apply_sentiment_logic() → state machine (Rules 1–4)       │
+└─────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    process_sentiment.py                      │
+├─────────────────────────────────────────────────────────────┤
+│  • get_previous_day_ohlc() via Kite API (daily candle)       │
+│  • NiftySentimentAnalyzer(prev_day_ohlc)                     │
+│  • apply_sentiment_logic(df) → CSV with sentiment, ncp       │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Why This Works
+### Class: NiftySentimentAnalyzer
 
-1. **v3 Transition Logic Preserved**: PE-only during transitions (proven highly profitable)
-2. **Traditional Trades Preserved**: CE during BULLISH stable, PE during BEARISH stable (proven profitable)
-3. **Entry2 Reversal Added**: PE during BULLISH stable, CE during BEARISH stable (profitable on net)
-4. **Net Positive**: Including all Entry2 reversal trades gives +89.37% P&L despite some losing trades
+**Location**: `trading_sentiment_analyzer.py`
 
-## Expected Performance
+- **`__init__(prev_day_ohlc)`**: Computes CPR levels, then `generate_bands()` → `bands_type1` (first 8), `bands_type2` (next 9), `bands` = Type 1 + Type 2.
+- **`calculate_cpr(prev_day_ohlc)`**: Returns P, TC, BC, R1–R4, S1–S4 (matches Pine Script).
+- **`generate_bands(cpr_levels)`**: Returns 17 bands: 8 Type 1 (gray Fib S4–S3 … R3–R4), 9 Type 2 (Pivot, S1–S4, R1–R4; S4/R4 use s5_approx / r5_approx).
+- **`calculate_ncp(row)`**: NCP = (H+C)/2 if Close ≥ Open, else (L+C)/2.
+- **`apply_sentiment_logic(df)`**: Stateful pass over rows; adds `ncp` and `market_sentiment`.
 
-### Target Metrics
-- **Current (v3)**: 337.74% P&L (72.2% retention)
-- **Target (v5)**: ~435% P&L (93% retention)
-- **Expected Improvement**: +97.26% P&L
-- **Gap Reduction**: 75.3% (from 129.81% to 32.07%)
+Legacy **TradingSentimentAnalyzer** is kept for plot/swing compatibility but is not used for the main sentiment output path.
 
-### Breakdown
-- Bug fix: +8.37% P&L
-- Entry2 reversal (net): +89.37% P&L
-- **Total**: +97.74% P&L
+---
+
+## CPR Calculation
+
+### Formula (Floor Pivot – matches Pine Script / TradingView)
+
+From previous day **High, Low, Close**:
+
+```python
+pivot = (pdh + pdl + pdc) / 3
+prev_range = pdh - pdl
+tc = (pdh + pdl) / 2
+bc = (pivot - tc) + pivot
+r1 = (2 * pivot) - pdl
+s1 = (2 * pivot) - pdh
+r2 = pivot + prev_range
+s2 = pivot - prev_range
+r3 = pdh + 2 * (pivot - pdl)
+s3 = pdl - 2 * (pdh - pivot)
+r4 = r3 + (r2 - r1)
+s4 = s3 - (s1 - s2)
+```
+
+**Levels used in v5**: Pivot (P), TC, BC, R1–R4, S1–S4.
+
+### Previous Day OHLC Source
+
+- **process_sentiment.py**: Fetches previous tradable day OHLC via **Kite API** (NIFTY 50, instrument token 256265), **daily** interval (not 1-minute).
+- **generate_cpr_dates.py** (in this folder and in `analytics/`): Can generate `cpr_dates.csv` for all BACKTESTING_DAYS using Kite daily OHLC; used by analytics scripts for R1/S1 zones.
+
+---
+
+## Band Types (Type 1 and Type 2)
+
+### Fibonacci helper
+
+```python
+def calc_fib(p1, p2, ratio):
+    return p1 + (p2 - p1) * ratio
+```
+
+### Type 1 – CPR Fib retracement (gray, 8 bands)
+
+Between **consecutive CPR zones**, each band is the 38.2%–61.8% range (matches Pine Script “STANDARD FIBONACCI BANDS - EXTENDED”):
+
+| Zone | Levels | Band bounds (0.382 and 0.618 of zone) |
+|------|--------|----------------------------------------|
+| 1    | S4–S3  | Fib(0.382, 0.618) between S4 and S3   |
+| 2    | S3–S2  | S3–S2                                 |
+| 3    | S2–S1  | S2–S1                                 |
+| 4    | S1–P   | S1–Pivot                              |
+| 5    | P–R1   | Pivot–R1                              |
+| 6    | R1–R2  | R1–R2                                 |
+| 7    | R2–R3  | R2–R3                                 |
+| 8    | R3–R4  | R3–R4                                 |
+
+So **Type 1** = 8 bands, used for “inside band” → NEUTRAL (Rule 2) and for breakout (Rule 3) after NEUTRAL.
+
+### Type 2 – CPR colored bands (9 bands)
+
+Built from **50% midpoints** of adjacent zones, then 38.2%–61.8% around that midpoint (matches Pine Script “SPECIAL BANDS - EXTENDED”):
+
+- **Pivot band**: midpoint(S1–P, P–R1) → 0.382–0.618 (Orange).
+- **S1 band**: midpoint(S2–S1, S1–P) → 0.382–0.618 (Green).
+- **S2 band**: midpoint(S3–S2, S2–S1) → 0.382–0.618 (Green).
+- **S3 band**: midpoint(S4–S3, S3–S2) → 0.382–0.618 (Green).
+- **S4 band**: s5_approx = S4 − (S3 − S4); midpoint(s5_approx–S4, S4–S3) → 0.382–0.618 (Green).
+- **R1 band**: midpoint(P–R1, R1–R2) → 0.382–0.618 (Red).
+- **R2 band**: midpoint(R1–R2, R2–R3) → 0.382–0.618 (Red).
+- **R3 band**: midpoint(R2–R3, R3–R4) → 0.382–0.618 (Red).
+- **R4 band**: r5_approx = R4 + (R4 − R3); midpoint(R3–R4, R4–r5_approx) → 0.382–0.618 (Red).
+
+**Type 2** is used for **Rule 1 (first candle)** “in band” check only.
+
+### Combined bands
+
+- `bands_type1` = first 8 bands (gray).
+- `bands_type2` = next 9 bands (colored).
+- `bands` = Type 1 + Type 2 (all 17) for Rules 2, 3, 4.
+
+---
+
+## NCP (Nifty Calculated Price)
+
+Sentiment is decided on **NCP**, not raw OHLC:
+
+```python
+if close >= open:
+    ncp = (high + close) / 2   # bullish candle
+else:
+    ncp = (low + close) / 2   # bearish candle
+```
+
+- **Bullish candle** (Close ≥ Open): NCP = (H + C) / 2.  
+- **Bearish candle** (Close < Open): NCP = (L + C) / 2.
+
+All “in band”, “above band”, “below band” checks in the state machine use **NCP**.
+
+---
+
+## Sentiment States
+
+| State    | Meaning                         |
+|----------|----------------------------------|
+| BULLISH  | Bias up; CE-friendly.            |
+| BEARISH  | Bias down; PE-friendly.         |
+| NEUTRAL  | Inside a band; both CE and PE.  |
+
+---
+
+## State Machine Rules
+
+Rules are applied in order, per candle, with state carried across candles.
+
+### Rule 1 – Opening bias (first candle only, index i == 0)
+
+- **“In band”** for Rule 1 uses **only Type 2 bands** (colored CPR bands: Pivot, S1–S4, R1–R4), not Type 1 (gray).
+- If NCP is **not** in any Type 2 band:
+  - NCP > Pivot → **BULLISH**
+  - NCP < Pivot → **BEARISH**
+- If NCP **is** in any Type 2 band → **NEUTRAL**, and `last_neutral_band` is set to that band (from full `bands` list for consistency).
+
+So the first candle can be BULLISH/BEARISH when NCP is above/below Pivot but outside all colored bands (e.g. in a gray zone only).
+
+### Rule 2 – Inside any band → NEUTRAL
+
+- For **all candles after the first** (i > 0):
+  - If NCP is inside **any** band (Type 1 or Type 2):
+    - Set sentiment to **NEUTRAL**.
+    - Set `last_neutral_band` to the band containing NCP.
+
+### Rule 3 – Breakout from NEUTRAL
+
+- If current sentiment was **NEUTRAL** and `last_neutral_band` is set:
+  - If NCP **<** band lower bound → **BEARISH**.
+  - If NCP **>** band upper bound → **BULLISH**.
+  - Then clear `last_neutral_band`.
+
+### Rule 4 – Continuation
+
+- If sentiment is already BULLISH or BEARISH and NCP is **not** inside any band, leave sentiment **unchanged** (continuation).
+
+---
+
+## Configuration
+
+**File**: `config.yaml`
+
+| Parameter                 | Description |
+|---------------------------|-------------|
+| `DATE_MAPPINGS`           | day_label (e.g. jan16) → expiry_week (e.g. JAN20) for input/output paths. |
+| `LAG_SENTIMENT_BY_ONE`    | If true, output is lagged by 1 candle (e.g. 09:16 row gets 09:15 sentiment). |
+| `PLOT_ENABLED`            | Enable HTML plot generation. |
+| `VERBOSE_SWING_LOGGING`   | Extra logging (legacy path). |
+
+v5 does **not** use CPR_BAND_WIDTH, HORIZONTAL_BAND_WIDTH, SWING_CONFIRMATION_CANDLES, etc.; band geometry is fully defined by the Fib formulas above.
+
+---
+
+## File Structure
+
+```
+cpr_market_sentiment_v5/
+├── config.yaml                  # Date mappings, plot, lag option
+├── trading_sentiment_analyzer.py # NiftySentimentAnalyzer + legacy TradingSentimentAnalyzer
+├── process_sentiment.py          # Kite prev-day OHLC, run analyzer, write CSV
+├── plot.py                      # HTML plot (CPR bands, NCP; no R4/S4, no swing bands)
+├── generate_cpr_dates.py        # Copy that writes analytics/cpr_dates.csv (Kite daily OHLC)
+├── run_accuracy_test.py         # Accuracy vs manual labels
+├── cpr_width_utils.py           # Utilities if used
+├── cpr_pinescript_extended.pine # Full Pine Script (TradingView) reference
+└── CPR_IMPLEMENTATION_v5.md     # This document
+```
+
+### Input
+
+1-minute NIFTY OHLC CSV with columns: `date`, `open`, `high`, `low`, `close` (and optional `nifty_price` etc.).
+
+### Output
+
+- **process_sentiment.py**: CSV with `date`, `sentiment`, `calculated_price` (NCP), and OHLC. One row per candle; no DISABLE row; optional 1-candle lag if `LAG_SENTIMENT_BY_ONE: true`.
+
+---
 
 ## Usage
 
-### 1. Update Config
+### Process sentiment for a date
 
-```yaml
-# indicators_config.yaml
-CPR_MARKET_SENTIMENT_VERSION: v5
-```
-
-### 2. Regenerate Sentiment Files (if needed)
+From project root (or with PYTHONPATH including kiteconnect_app):
 
 ```bash
-cd /home/ec2-user/kiteconect_nifty_atr/backtesting/grid_search_tools/cpr_market_sentiment_v5
-python process_sentiment.py all
+python backtesting_st50/grid_search_tools/cpr_market_sentiment_v5/process_sentiment.py <date_id>
+# e.g. jan16
 ```
 
-### 3. Run Workflow
+### Generate analytics CPR dates (Kite daily OHLC)
 
 ```bash
-cd /home/ec2-user/kiteconect_nifty_atr/backtesting
-python run_weekly_workflow_parallel.py
+python backtesting_st50/grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py
 ```
 
-## Comparison with Previous Versions
+Writes `backtesting_st50/analytics/cpr_dates.csv` for all BACKTESTING_DAYS in `backtesting_config.yaml`.
 
-| Version | Strategy | Stable Period Logic | Transition Logic |
-|---------|----------|-------------------|------------------|
-| **v2** | Traditional | BULLISH→CE, BEARISH→PE | N/A |
-| **v3** | Transition-based | BULLISH→CE, BEARISH→PE | PE-only |
-| **v4** | Entry2-aware | BULLISH→PE, BEARISH→CE | PE-only |
-| **v5** | Selective Entry2 | **BULLISH→CE+PE, BEARISH→PE+CE** ✅ | PE-only |
+### Run accuracy test
 
-## Key Differences
+```bash
+python backtesting_st50/grid_search_tools/cpr_market_sentiment_v5/run_accuracy_test.py
+```
 
-### v3 vs v5
+Compares analyzer output to manual labels (e.g. for jan16, jan19, jan22).
 
-**v3 Stable Periods:**
-- BULLISH → CE only (traditional)
-- BEARISH → PE only (traditional)
+---
 
-**v5 Stable Periods:**
-- BULLISH → CE (traditional) + PE (Entry2 reversal) ✅
-- BEARISH → PE (traditional) + CE (Entry2 reversal) ✅
+## Pine Script Reference
 
-**Both v3 and v5:**
-- Transitions → PE only (data-driven)
+The v5 implementation matches the TradingView indicator **“CPR + Fibs + Blue Smoothed Line (Filled) Extended”**. The full Pine Script is in **`cpr_pinescript_extended.pine`** in this folder. Summary below.
 
-## Testing
+- **Data**: `request.security(NSE:NIFTY, "D", [high[1], low[1], close[1]])` for previous day OHLC.
+- **Pivot / CPR**: `pivot = (H+L+C)/3`, `bc = (H+L)/2`, `tc = (pivot - bc) + pivot`, then R1–R4, S1–S4 as in [CPR Calculation](#cpr-calculation).
+- **Smoothed line (NCP)**: `isGreen = close >= open`, `lineValue = isGreen ? (high + close) / 2 : (low + close) / 2`.
+- **Gray bands**: 8 zones (S4–S3, S3–S2, …, R3–R4), each with 0.382 and 0.618 Fib levels, filled gray.
+- **Colored bands**: 9 bands (Pivot, S1, S2, S3, S4, R1, R2, R3, R4) with 0.382–0.618 of 50% midpoints; S4 uses `s5_approx = s4 - (s3 - s4)`; R4 uses `r5_approx = r4 + (r4 - r3)`.
 
-After implementing v5:
-1. Run workflow and compare Filtered P&L vs Un-Filtered P&L
-2. Verify Entry2 reversal trades are being included
-3. Check that P&L retention improves toward 93%
-4. Analyze which trades are now included vs excluded
-5. Measure gap reduction (target: 75.3%)
+<details>
+<summary>Full Pine Script (click to expand)</summary>
 
-## Next Steps
+```pinescript
+//@version=5
+indicator("CPR + Fibs + Blue Smoothed Line (Filled) Extended", "CPR Bands Filled Extended", overlay=true) 
 
-If v5 shows improvement but needs refinement:
-- Add selective filters (time of day, Entry2 signal strength)
-- Consider excluding Entry2 reversal trades during certain conditions
-- Analyze specific trade patterns that still underperform
+niftySymbol = input.symbol("NSE:NIFTY", title="Index Symbol")
+[prevDayHigh, prevDayLow, prevDayClose] = request.security(niftySymbol, "D", [high[1], low[1], close[1]], lookahead=barmerge.lookahead_on)
 
+pivot = (prevDayHigh + prevDayLow + prevDayClose) / 3
+prevDayRange = prevDayHigh - prevDayLow
+bc = (prevDayHigh + prevDayLow) / 2
+tc = (pivot - bc) + pivot
 
+r1 = (2 * pivot) - prevDayLow
+s1 = (2 * pivot) - prevDayHigh
+r2 = pivot + prevDayRange
+s2 = pivot - prevDayRange
+r3 = prevDayHigh + 2 * (pivot - prevDayLow)
+s3 = prevDayLow - 2 * (prevDayHigh - pivot)
+r4 = r3 + (r2 - r1)
+s4 = s3 - (s1 - s2)
+
+isGreen = close >= open
+lineValue = isGreen ? (high + close) / 2 : (low + close) / 2
+isNewDay = ta.change(time("D"))
+getDailyValue(value) => isNewDay ? na : value
+calcFib(p1, p2, r) => p1 + (p2 - p1) * r
+
+colorFib = color.new(color.gray, 50)
+colorGold = color.new(color.orange, 30)
+colorGreenBand = color.new(color.green, 30)
+colorRedBand = color.new(color.red, 30)
+fillGreen = color.new(color.green, 85)
+fillRed = color.new(color.red, 85)
+fillOrange = color.new(color.orange, 85)
+fillGray = color.new(color.gray, 90)
+
+// Gray Fib bands: S4-S3, S3-S2, S2-S1, S1-P, P-R1, R1-R2, R2-R3, R3-R4 (each 0.382/0.5/0.618, fill between 0.382-0.618)
+// Colored bands: Pivot, S1, S2, S3, S4, R1, R2, R3, R4 (same midpoint + 0.382-0.618 logic; S4/R4 use s5_approx/r5_approx)
+// plot(lineValue) for blue smoothed line
+```
+
+</details>
+
+---
+
+## Differences from v2
+
+| Aspect              | v2 | v5 |
+|---------------------|----|-----|
+| CPR levels          | R4, R3, R2, R1, PIVOT, S1, S2, S3, S4 | P, TC, BC, R1–R4, S1–S4 (same formulas) |
+| Band definition     | Fixed CPR_BAND_WIDTH around each level; neutralization by swings | Fib 0.382–0.618 bands (Type 1: 8 gray, Type 2: 9 colored) |
+| Price for decisions | calculated_price = ((L+C)/2 + (H+O)/2)/2 | NCP: (H+C)/2 if C≥O else (L+C)/2 (= Pine smoothed line) |
+| First-candle rule   | Multi-priority (CPR zones, horizontal, touch-and-move, pivot fallback) | Only Type 2 “in band”; else BULLISH/BEARISH by pivot |
+| Ongoing logic       | Touch, inside, breakout, horizontal, implicit crossing | Inside band → NEUTRAL; breakout from NEUTRAL → BULLISH/BEARISH; else continuation |
+| Swing / horizontal  | Swing detection, horizontal bands, neutralization | No swing bands; no horizontal bands in logic |
+| Plot                | CPR + horizontal + swing bands (cyan/magenta) | CPR Fib (8 gray) + colored (9) + NCP (blue); matches Pine Script |
+
+v5 is a **NCP + CPR Fib band + state machine** implementation aligned with the Pine Script “CPR + Fibs + Blue Smoothed Line (Filled) Extended”.
+
+---
+
+**Last updated**: February 2026  
+**Path**: `backtesting_st50/grid_search_tools/cpr_market_sentiment_v5/`

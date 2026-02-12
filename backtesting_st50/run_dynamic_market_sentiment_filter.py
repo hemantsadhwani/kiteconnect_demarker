@@ -147,16 +147,15 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         pe_path = base_dir / f'{entry_type_lower}_dynamic_atm_pe_trades.csv'
         output_file = base_dir / f'{entry_type_lower}_dynamic_atm_mkt_sentiment_trades.csv'
 
-    # CRITICAL FIX: When sentiment filter is disabled, always use raw CE/PE files instead of filtered file
-    # If sentiment filter is disabled, skip using cached filtered file and calculate directly from raw files
+    # When sentiment filter is enabled, always regenerate so current MODE and SENTIMENT_VERSION are applied.
+    # (Reusing a cached file would return results from a previous run's config, e.g. MANUAL vs AUTO v5.)
     should_regenerate = True
-    if sentiment_filter_enabled and output_file.exists() and ce_path.exists() and pe_path.exists():
+    if not sentiment_filter_enabled and output_file.exists() and ce_path.exists() and pe_path.exists():
         try:
-            # Check if source files are newer than filtered file
+            # Only consider cache when sentiment filter is disabled
             output_mtime = output_file.stat().st_mtime
             ce_mtime = ce_path.stat().st_mtime
             pe_mtime = pe_path.stat().st_mtime
-            # If both source files are older than output file, we can reuse it
             if ce_mtime < output_mtime and pe_mtime < output_mtime:
                 filtered_df_existing = pd.read_csv(output_file)
                 # Check for realized_pnl_pct, sentiment_pnl, or pnl column (in order of preference)
@@ -376,6 +375,17 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     
     all_trades = pd.concat([ce_trades, pe_trades], ignore_index=True)
 
+    # Normalize sentiment_df['date'] to Asia/Kolkata so matching with entry_time_dt works.
+    # Sentiment CSV may have +05:30 or different tz representation; entry_time_dt is Asia/Kolkata.
+    # Without this, JAN28/JAN30 (and other days) can get no matches and end up with blank mkt_sentiment_trades.
+    if sentiment_df is not None and not sentiment_df.empty and 'date' in sentiment_df.columns:
+        sentiment_df = sentiment_df.copy()
+        sent_dates = pd.to_datetime(sentiment_df['date'])
+        if sent_dates.dt.tz is None:
+            sentiment_df['date'] = sent_dates.dt.tz_localize('Asia/Kolkata', ambiguous='infer')
+        else:
+            sentiment_df['date'] = sent_dates.dt.tz_convert('Asia/Kolkata')
+
     # Check for realized_pnl_pct, sentiment_pnl, or pnl column (in order of preference)
     pnl_col_all = 'realized_pnl_pct' if 'realized_pnl_pct' in all_trades.columns else ('sentiment_pnl' if 'sentiment_pnl' in all_trades.columns else 'pnl')
     if pnl_col_all not in all_trades.columns:
@@ -389,17 +399,32 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     # Use config already loaded at function start
     time_filter_enabled = config['time_filter_enabled']
     time_zones = config['time_zones']
-    sentiment_mode = config.get('sentiment_mode', 'AUTO').upper()
-    sentiment_version = config.get('sentiment_version', 'v2').lower()  # Get version once, use for all trades
-    manual_sentiment = config.get('manual_sentiment', 'NEUTRAL').upper()  # Get manual sentiment if MODE=MANUAL
+    sentiment_mode = str(config.get('sentiment_mode', 'AUTO')).strip().upper()
+    raw_version = config.get('sentiment_version', 'v2')
+    # Normalize version: v5, V5, 5 (int) -> 'v5'
+    if raw_version is None:
+        sentiment_version = 'v2'
+    else:
+        v = str(raw_version).strip().upper()
+        if v in ('5', 'V5'):
+            sentiment_version = 'v5'
+        elif v in ('2', 'V2'):
+            sentiment_version = 'v2'
+        elif v in ('3', 'V3'):
+            sentiment_version = 'v3'
+        elif v in ('4', 'V4'):
+            sentiment_version = 'v4'
+        else:
+            sentiment_version = 'v' + v.lstrip('V') if not v.startswith('V') else v.lower()
+    manual_sentiment = str(config.get('manual_sentiment', 'NEUTRAL')).strip().upper()
     
-    # Log sentiment filter status
+    # Log sentiment filter status (INFO so user can confirm MODE and version)
     if not sentiment_filter_enabled:
         logger.info(f"Market sentiment filter DISABLED - including all trades regardless of sentiment (Entry1 behavior)")
     elif sentiment_mode == 'MANUAL':
         logger.info(f"Market sentiment filter ENABLED - MANUAL mode with sentiment: {manual_sentiment}")
     else:
-        logger.debug(f"Market sentiment filter ENABLED - AUTO mode using sentiment file (version: {sentiment_version})")
+        logger.info(f"Market sentiment filter ENABLED - AUTO mode, SENTIMENT_VERSION={sentiment_version}")
     
     # Skip sentiment filtering for Entry1 OR if sentiment filter is disabled (include all trades)
     if entry_type == 'Entry1' or not sentiment_filter_enabled:
@@ -457,9 +482,10 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     else:
                         matching_transition = 'STABLE'  # Default for v2 compatibility
                 else:
-                    # Try to find nearest sentiment within 60 seconds (fallback for timestamp mismatches)
+                    # Try to find nearest sentiment within 90 seconds (fallback for timestamp mismatches)
+                    # Entry time can be 09:41:01 while sentiment has 09:41:00; same-minute match should succeed.
                     time_diff = abs((sentiment_df['date'] - entry_time).dt.total_seconds())
-                    if time_diff.min() <= 60:
+                    if time_diff.min() <= 90:
                         nearest_idx = time_diff.idxmin()
                         matching_sentiment = sentiment_df.loc[nearest_idx, 'sentiment']
                         # v3: Get sentiment_transition if available
@@ -505,6 +531,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
             if matching_sentiment == 'NEUTRAL':
                 filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED'})
                 logger.debug(f"NEUTRAL sentiment: Including {trade['option_type']} trade at {entry_time} (both CE and PE allowed)")
+                continue
             
             # MANUAL MODE: Simple filtering based on fixed sentiment (BULLISH/BEARISH)
             elif sentiment_mode == 'MANUAL':
@@ -551,68 +578,62 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     logger.warning(f"Unknown sentiment value '{matching_sentiment}' for trade at {entry_time}, skipping")
                     continue
             
-            # AUTO MODE: v3/v5: TRANSITION-BASED + SELECTIVE ENTRY2 REVERSAL FILTERING
-            elif sentiment_mode == 'AUTO' and sentiment_version in ['v3', 'v4', 'v5']:
-                # v3/v5: Transition-based filtering with selective Entry2 reversal
+            # AUTO MODE: v5: TRADITIONAL FILTERING (same as v2) so AUTO differs from MANUAL NEUTRAL
+            # BULLISH → CE only; BEARISH → PE only; NEUTRAL handled above (both CE and PE)
+            elif sentiment_mode == 'AUTO' and sentiment_version == 'v5':
+                if matching_sentiment == 'BULLISH':
+                    if trade['option_type'] == 'CE':
+                        filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (v5_BULLISH_CE)'})
+                        logger.debug(f"BULLISH sentiment (v5): Including CE trade at {entry_time}")
+                    else:
+                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (v5_BULLISH_ONLY_CE)'})
+                        logger.debug(f"BULLISH sentiment (v5): Excluding PE trade at {entry_time} (only CE allowed)")
+                elif matching_sentiment == 'BEARISH':
+                    if trade['option_type'] == 'PE':
+                        filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (v5_BEARISH_PE)'})
+                        logger.debug(f"BEARISH sentiment (v5): Including PE trade at {entry_time}")
+                    else:
+                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (v5_BEARISH_ONLY_PE)'})
+                        logger.debug(f"BEARISH sentiment (v5): Excluding CE trade at {entry_time} (only PE allowed)")
+                else:
+                    excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED (UNKNOWN_SENTIMENT)'})
+                    logger.warning(f"Unknown sentiment value '{matching_sentiment}' for trade at {entry_time}, skipping")
+                    continue
+            
+            # AUTO MODE: v3/v4: TRANSITION-BASED FILTERING (stable = v2-style; transitioning = PE only)
+            elif sentiment_mode == 'AUTO' and sentiment_version in ['v3', 'v4']:
                 is_transitioning = matching_transition in ['JUST_CHANGED', 'TRANSITIONING']
-                
-                # Handle BULLISH sentiment
                 if matching_sentiment == 'BULLISH':
                     if is_transitioning:
-                        # v3/v5: During transitions, allow only PE (reversal strategy - PE performs well in transitions)
                         if trade['option_type'] == 'PE':
                             filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'INCLUDED (TRANSITION: {matching_transition} - PE_ONLY)'})
-                            logger.debug(f"BULLISH sentiment (TRANSITION {matching_transition}): Including PE trade at {entry_time} (PE performs well in transitions)")
+                            logger.debug(f"BULLISH sentiment (TRANSITION {matching_transition}): Including PE trade at {entry_time}")
                         else:
                             excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED (TRANSITION_ONLY_PE)'})
-                            logger.debug(f"BULLISH sentiment (TRANSITION {matching_transition}): Excluding CE trade at {entry_time} (only PE allowed during transitions)")
+                            logger.debug(f"BULLISH sentiment (TRANSITION {matching_transition}): Excluding CE trade at {entry_time}")
                     else:
-                        # v5: During stable BULLISH, allow both CE (traditional) and PE (Entry2 reversal down)
-                        # v3: During stable BULLISH, allow only CE (traditional)
-                        if sentiment_version == 'v5':
-                            if trade['option_type'] == 'CE':
-                                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (TRADITIONAL)'})
-                                logger.debug(f"BULLISH sentiment (STABLE): Including CE trade at {entry_time} (traditional trend-following)")
-                            elif trade['option_type'] == 'PE':
-                                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (ENTRY2_REVERSAL)'})
-                                logger.debug(f"BULLISH sentiment (STABLE): Including PE trade at {entry_time} (Entry2 reversal - betting on reversal down)")
-                        else:  # v3
-                            if trade['option_type'] == 'CE':
-                                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED'})
-                                logger.debug(f"BULLISH sentiment (STABLE): Including CE trade at {entry_time}")
-                            else:
-                                excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (BULLISH_ONLY_CE)'})
-                                logger.debug(f"BULLISH sentiment (STABLE): Excluding PE trade at {entry_time} (only CE allowed)")
-                
-                # Handle BEARISH sentiment
+                        if trade['option_type'] == 'CE':
+                            filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED'})
+                            logger.debug(f"BULLISH sentiment (v3): Including CE trade at {entry_time}")
+                        else:
+                            excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (BULLISH_ONLY_CE)'})
+                            logger.debug(f"BULLISH sentiment (v3): Excluding PE trade at {entry_time}")
                 elif matching_sentiment == 'BEARISH':
                     if is_transitioning:
-                        # v3/v5: During transitions, allow only PE (reversal strategy - PE performs well in transitions)
                         if trade['option_type'] == 'PE':
                             filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'INCLUDED (TRANSITION: {matching_transition} - PE_ONLY)'})
-                            logger.debug(f"BEARISH sentiment (TRANSITION {matching_transition}): Including PE trade at {entry_time} (PE performs well in transitions)")
+                            logger.debug(f"BEARISH sentiment (TRANSITION {matching_transition}): Including PE trade at {entry_time}")
                         else:
                             excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED (TRANSITION_ONLY_PE)'})
-                            logger.debug(f"BEARISH sentiment (TRANSITION {matching_transition}): Excluding CE trade at {entry_time} (only PE allowed during transitions)")
+                            logger.debug(f"BEARISH sentiment (TRANSITION {matching_transition}): Excluding CE trade at {entry_time}")
                     else:
-                        # v5: During stable BEARISH, allow both PE (traditional) and CE (Entry2 reversal up)
-                        # v3: During stable BEARISH, allow only PE (traditional)
-                        if sentiment_version == 'v5':
-                            if trade['option_type'] == 'PE':
-                                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (TRADITIONAL)'})
-                                logger.debug(f"BEARISH sentiment (STABLE): Including PE trade at {entry_time} (traditional trend-following)")
-                            elif trade['option_type'] == 'CE':
-                                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (ENTRY2_REVERSAL)'})
-                                logger.debug(f"BEARISH sentiment (STABLE): Including CE trade at {entry_time} (Entry2 reversal - betting on reversal up)")
-                        else:  # v3
-                            if trade['option_type'] == 'PE':
-                                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED'})
-                                logger.debug(f"BEARISH sentiment (STABLE): Including PE trade at {entry_time}")
-                            else:
-                                excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (BEARISH_ONLY_PE)'})
-                                logger.debug(f"BEARISH sentiment (STABLE): Excluding CE trade at {entry_time} (only PE allowed)")
+                        if trade['option_type'] == 'PE':
+                            filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED'})
+                            logger.debug(f"BEARISH sentiment (v3): Including PE trade at {entry_time}")
+                        else:
+                            excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (BEARISH_ONLY_PE)'})
+                            logger.debug(f"BEARISH sentiment (v3): Excluding CE trade at {entry_time}")
                 else:
-                    # Unknown sentiment in v3/v5
                     excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED (UNKNOWN_SENTIMENT)'})
                     logger.warning(f"Unknown sentiment value '{matching_sentiment}' for trade at {entry_time}, skipping")
                     continue
@@ -732,22 +753,25 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         
         df = df.copy()
         
-        # Convert high to percentage
+        # Convert high to percentage (leave None/empty when high was not calculated)
         if 'high' in df.columns and 'entry_price' in df.columns:
             def calc_high_pct(row):
-                entry_price = row.get('entry_price', 0)
-                high = row.get('high', 0)
-                if pd.notna(entry_price) and pd.notna(high) and entry_price > 0:
-                    # Check if high is already a percentage (if it's between -200 and 200, it's likely a percentage)
-                    # Absolute prices should be much larger (typically 40-600+ for options)
-                    if abs(high) < 200 and abs(high) < entry_price * 0.5:
-                        # Already a percentage, clamp to >= 0 (high cannot be negative)
-                        return round(max(high, 0), 2)
-                    # Otherwise, convert from absolute price to percentage
-                    # High should be >= entry_price, so percentage should be >= 0
-                    pct = ((high - entry_price) / entry_price) * 100
-                    return round(max(pct, 0), 2)  # Clamp to >= 0
-                return None
+                entry_price = row.get('entry_price')
+                high = row.get('high')
+                if pd.isna(high) or high is None:
+                    return None
+                if pd.isna(entry_price) or entry_price is None or entry_price <= 0:
+                    return None
+                try:
+                    high = float(high)
+                    entry_price = float(entry_price)
+                except (TypeError, ValueError):
+                    return None
+                # Check if high is already a percentage
+                if abs(high) < 200 and abs(high) < entry_price * 0.5:
+                    return round(max(high, 0), 2)
+                pct = ((high - entry_price) / entry_price) * 100
+                return round(max(pct, 0), 2)
             df['high'] = df.apply(calc_high_pct, axis=1)
         
         # Convert swing_low to percentage

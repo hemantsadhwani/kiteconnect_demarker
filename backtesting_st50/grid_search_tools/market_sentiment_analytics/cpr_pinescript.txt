@@ -1,0 +1,85 @@
+//@version=5
+indicator("CPR with S/R Levels and Labels", "CPR Levels", overlay=true) 
+
+// --- INPUTS ---
+niftySymbol = input.symbol("NSE:NIFTY", title="Index Symbol")
+
+// --- DATA FETCHING ---
+[prevDayHigh, prevDayLow, prevDayClose] = request.security(niftySymbol, "D", [high[1], low[1], close[1]], lookahead=barmerge.lookahead_on)
+
+// --- PIVOT POINT CALCULATIONS ---
+pivot = (prevDayHigh + prevDayLow + prevDayClose) / 3
+prevDayRange = prevDayHigh - prevDayLow
+
+// --- CPR (TC & BC) CALCULATIONS ---
+bc = (prevDayHigh + prevDayLow) / 2
+tc = (pivot - bc) + pivot
+
+// --- SUPPORT & RESISTANCE CALCULATIONS ---
+r1 = (2 * pivot) - prevDayLow
+s1 = (2 * pivot) - prevDayHigh
+
+r2 = pivot + prevDayRange
+s2 = pivot - prevDayRange
+
+r3 = prevDayHigh + 2 * (pivot - prevDayLow)
+s3 = prevDayLow - 2 * (prevDayHigh - pivot)
+
+// --- CORRECTED R4/S4 FORMULA (CPR STANDARD) ---
+r4 = r3 + (r2 - r1)
+s4 = s3 - (s1 - s2)
+
+// --- LOGIC TO PREVENT INTER-DAY LINE CONNECTION ---
+isNewDay = ta.change(time("D"))
+
+// Function to handle daily values
+getDailyValue(value) =>
+    isNewDay ? na : value
+
+// --- PLOTTING ---
+// Define colors
+colorR_line = color.new(#FF006E, 0)      // Resistance
+colorS_line = color.new(#4CAF50, 0)      // Support
+colorP_line = color.new(#3A86FF, 0)      // Blue for Pivot/TC/BC
+colorPD_line = color.new(color.black, 0) // Black for PDH/PDL
+
+// --- PLOT PREVIOUS DAY HIGH/LOW ---
+plot(getDailyValue(prevDayHigh), title="PDH", color=colorPD_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(prevDayLow), title="PDL", color=colorPD_line, style=plot.style_linebr, linewidth=2)
+
+// --- PLOT CENTRAL PIVOT RANGE (TC, P, BC) ---
+// Increased linewidth to 2 to match the visual weight of other lines
+plot(getDailyValue(tc), title="TC", color=colorP_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(pivot), title="Pivot", color=colorP_line, style=plot.style_circles, linewidth=2)
+plot(getDailyValue(bc), title="BC", color=colorP_line, style=plot.style_linebr, linewidth=2)
+
+// --- PLOT S/R LINES ---
+plot(getDailyValue(r1), title="R1", color=colorR_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(s1), title="S1", color=colorS_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(r2), title="R2", color=colorR_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(s2), title="S2", color=colorS_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(r3), title="R3", color=colorR_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(s3), title="S3", color=colorS_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(r4), title="R4", color=colorR_line, style=plot.style_linebr, linewidth=2)
+plot(getDailyValue(s4), title="S4", color=colorS_line, style=plot.style_linebr, linewidth=2)
+
+// --- CREATE LABELS ON NEW DAY ---
+if isNewDay
+    // PDH/PDL Labels
+    label.new(bar_index, prevDayHigh, "PDH", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorPD_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, prevDayLow, "PDL", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorPD_line, style=label.style_none, textalign=text.align_left)
+
+    // CPR Labels
+    label.new(bar_index, tc, "TC", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorP_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, pivot, "P", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorP_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, bc, "BC", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorP_line, style=label.style_none, textalign=text.align_left)
+
+    // S/R Labels
+    label.new(bar_index, r1, "R1", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorR_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, r2, "R2", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorR_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, r3, "R3", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorR_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, r4, "R4", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorR_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, s1, "S1", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorS_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, s2, "S2", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorS_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, s3, "S3", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorS_line, style=label.style_none, textalign=text.align_left)
+    label.new(bar_index, s4, "S4", xloc=xloc.bar_index, yloc=yloc.price, color=color.new(color.white, 100), textcolor=colorS_line, style=label.style_none, textalign=text.align_left)

@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import date
 from threading import RLock
 from typing import Any, Dict, Optional, Set
 from trading_bot_utils import format_dict_for_logging
@@ -67,6 +68,27 @@ class TradeStateManager:
                     )
                     self.state["sentiment_mode"] = "MANUAL"
                 
+                # New trading day: clear active_trades so we start lean (no carry-over from previous day).
+                # This prevents adopting yesterday's positions and immediately hitting SL on first candle.
+                self.state.setdefault("last_trading_date", None)
+                today_str = date.today().strftime("%Y-%m-%d")
+                last_date = self.state.get("last_trading_date")
+                if last_date and last_date != today_str:
+                    try:
+                        last_d = date.fromisoformat(last_date)
+                        today_d = date.today()
+                        if last_d < today_d:
+                            cleared = list(self.state["active_trades"].keys())
+                            self.state["active_trades"] = {}
+                            self.state["last_trading_date"] = today_str
+                            self.logger.info(
+                                f"New trading day detected (last run: {last_date}, today: {today_str}). "
+                                f"Clearing active_trades to start lean. Cleared: {cleared}"
+                            )
+                            self.save_state()
+                    except (ValueError, TypeError):
+                        self.state["last_trading_date"] = today_str
+                
                 self.logger.info("Trade state loaded successfully.")
             except (FileNotFoundError, json.JSONDecodeError):
                 self.logger.warning("Trade state file not found or invalid. Starting with a fresh state.")
@@ -75,6 +97,8 @@ class TradeStateManager:
     def save_state(self):
         with self._lock:
             try:
+                # Stamp current date so we can detect new trading day on next load
+                self.state["last_trading_date"] = date.today().strftime("%Y-%m-%d")
                 with open(self.file_path, "w") as f:
                     json.dump(self.state, f, indent=4)
             except Exception as e:

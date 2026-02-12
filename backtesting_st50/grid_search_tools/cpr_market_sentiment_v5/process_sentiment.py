@@ -4,7 +4,7 @@ import os
 import sys
 import argparse
 from datetime import timedelta
-from trading_sentiment_analyzer import TradingSentimentAnalyzer
+from trading_sentiment_analyzer import NiftySentimentAnalyzer, TradingSentimentAnalyzer
 from cpr_width_utils import calculate_cpr_pivot_width, get_dynamic_cpr_band_width
 
 # Module-level cache for Kite instance to avoid regenerating tokens
@@ -31,9 +31,9 @@ def calculate_cpr(prev_ohlc):
     s2 = pivot - prev_range
     r3 = prev_day_high + 2 * (pivot - prev_day_low)
     s3 = prev_day_low - 2 * (prev_day_high - pivot)
-    # R4/S4: Follow the interval pattern (matching TradingView Floor Pivot Points)
-    r4 = r3 + (r2 - r1)  # R4 = R3 + (R2 - R1) - matches TradingView pattern
-    s4 = s3 - (s1 - s2)  # S4 = S3 - (S1 - S2) - matches TradingView pattern
+    # Corrected R4/S4 (TradingView-validated): R4 extends by (R2-R1), S4 by (S1-S2)
+    r4 = r3 + (r2 - r1)  # R4 = R3 + (R2 - R1)
+    s4 = s3 - (s1 - s2)  # S4 = S3 - (S1 - S2)
     
     return {
         'R4': r4, 'R3': r3, 'R2': r2, 'R1': r1,
@@ -165,6 +165,14 @@ def process_single_file(input_csv_path, output_csv_path, config_path, kite_insta
     """
     Process a single CSV file and generate sentiment analysis.
     
+    This function now performs a **two-step** process:
+      1. Generate the "plot" sentiment file (used by plot.py), e.g. `nifty_market_sentiment_feb09_plot.csv`
+      2. Generate the "production-style" shifted sentiment file (used by backtesting workflow),
+         e.g. `nifty_market_sentiment_feb09.csv`, where:
+           - 09:15 candle sentiment is forced to DISABLE
+           - Each subsequent candle's sentiment is shifted by +1 candle
+             (sentiment at 09:15 in *_plot.csv moves to 09:16 in the shifted file, etc.)
+    
     Args:
         input_csv_path: Path to input CSV file
         output_csv_path: Path to output CSV file
@@ -183,30 +191,13 @@ def process_single_file(input_csv_path, output_csv_path, config_path, kite_insta
     print("\nStep 1: Getting previous day OHLC data...")
     prev_day_ohlc = get_previous_day_ohlc(input_csv_path, kite_instance=kite_instance)
     
-    # Calculate CPR levels
-    print("\nStep 2: Calculating CPR levels...")
-    cpr_levels = calculate_cpr(prev_day_ohlc)
-    print("CPR Levels:")
-    for level_name in ['R4', 'R3', 'R2', 'R1', 'PIVOT', 'S1', 'S2', 'S3', 'S4']:
-        if level_name in cpr_levels:
-            print(f"  {level_name}: {cpr_levels[level_name]:.2f}")
-    
-    # Calculate CPR_PIVOT_WIDTH and determine dynamic CPR_BAND_WIDTH
-    print("\nStep 2.5: Calculating CPR_PIVOT_WIDTH and dynamic CPR_BAND_WIDTH...")
-    cpr_pivot_width, tc, bc, pivot = calculate_cpr_pivot_width(
-        prev_day_ohlc['high'], 
-        prev_day_ohlc['low'], 
-        prev_day_ohlc['close']
-    )
-    print(f"CPR Pivot Width (TC - BC):")
-    print(f"  TC (Top Central): {tc:.2f}")
-    print(f"  BC (Bottom Central): {bc:.2f}")
-    print(f"  CPR_PIVOT_WIDTH: {cpr_pivot_width:.2f}")
-    
-    # Get dynamic CPR_BAND_WIDTH from config
-    dynamic_cpr_band_width = get_dynamic_cpr_band_width(cpr_pivot_width, config)
-    config['CPR_BAND_WIDTH'] = dynamic_cpr_band_width
-    print(f"  Applied CPR_BAND_WIDTH: {dynamic_cpr_band_width} (from config ranges)")
+    # Initialize NiftySentimentAnalyzer (CPR + Fib bands + NCP state machine)
+    print("\nStep 2: Initializing NiftySentimentAnalyzer (CPR + Fib bands)...")
+    analyzer = NiftySentimentAnalyzer(prev_day_ohlc)
+    cpr = analyzer.cpr_levels
+    print("CPR Levels (P, R1-R4, S1-S4):")
+    for k in ['Pivot', 'R1', 'R2', 'R3', 'R4', 'S1', 'S2', 'S3', 'S4']:
+        print(f"  {k}: {cpr[k]:.2f}")
     
     # Load CSV data
     print("\nStep 3: Loading 1-minute candle data...")
@@ -224,125 +215,66 @@ def process_single_file(input_csv_path, output_csv_path, config_path, kite_insta
         print("ERROR: No data found in market hours. Skipping file.")
         return False
     
-    # Initialize Analyzer
-    print("\nStep 4: Initializing TradingSentimentAnalyzer...")
-    analyzer = TradingSentimentAnalyzer(config, cpr_levels)
+    # Apply sentiment logic (1:1 row alignment: each row = one candle, sentiment for that candle)
+    print("\nStep 4: Applying NCP + sentiment state machine...")
+    df_out = analyzer.apply_sentiment_logic(df)
     
-    # Process each candle
-    print("\nStep 5: Processing candles...")
-    print("  PRODUCTION-ALIGNED BEHAVIOR: Sentiment calculated from candle T is assigned to timestamp T+1")
-    print("  Example: Sentiment calculated from 9:15 candle is assigned to 9:16 timestamp (when 9:15 completes)")
-    print("  This matches production: [09:16:00] Market Sentiment: BULLISH (sentiment from 9:15 candle)")
-    results = []
-    previous_sentiment = None
-    previous_calculated_price = None
-    previous_ohlc = None
-    previous_candle_date = None  # Track previous candle's date for timestamp assignment
+    # Build plot CSV (Step 1): date, sentiment (= market_sentiment), calculated_price (= ncp), open, high, low, close
+    # This file is meant to be consumed by plot.py and keeps 1:1 alignment (sentiment for same candle).
+    print("\nStep 5 (Plot): Building plot sentiment CSV (1:1 alignment)...")
+    output_df = pd.DataFrame({
+        'date': df_out['date'],
+        'sentiment': df_out['market_sentiment'],
+        'calculated_price': df_out['ncp'],
+        'open': df_out['open'],
+        'high': df_out['high'],
+        'low': df_out['low'],
+        'close': df_out['close'],
+    })
     
-    for idx, row in df.iterrows():
-        candle = {
-            'date': row['date'],
-            'open': row['open'],
-            'high': row['high'],
-            'low': row['low'],
-            'close': row['close']
-        }
-        
-        # Process current candle to update analyzer state
-        result = analyzer.process_new_candle(candle)
-        
-        # PRODUCTION-ALIGNED BEHAVIOR: Sentiment calculated from candle T is assigned to timestamp T+1
-        # - At 9:15: Process 9:15 candle, calculate sentiment, but assign to 9:16 timestamp (when candle completes)
-        # - At 9:16: Process 9:16 candle, calculate sentiment, but assign to 9:17 timestamp (when candle completes)
-        # This matches production: sentiment is evaluated when candle completes (at T+1), not at candle start (T)
-        if idx == 0:
-            # First candle (9:15): Process 9:15 candle, but keep at 9:15 timestamp with DISABLE
-            # Production doesn't log 9:15 sentiment (no previous candle to evaluate)
-            # We keep 9:15 row for completeness, but sentiment is DISABLE
-            result['sentiment'] = 'DISABLE'
-            result['sentiment_transition'] = 'STABLE'  # v3: Set default transition for first candle
-            # Keep original timestamp for first candle (9:15) - production doesn't have this entry
-            result['date'] = candle['date']
-            print(f"  First candle (9:15): sentiment set to DISABLE (cold start), timestamp remains 9:15 (production doesn't log this)")
-            # Store current candle's sentiment/price for next iteration (9:15's data will be used at 9:16)
-            # Note: analyzer.sentiment contains the actual sentiment calculated from 9:15's OHLC
-            # (even though we set result['sentiment'] to DISABLE for the 9:15 row)
-            previous_sentiment = analyzer.sentiment  # Sentiment calculated from 9:15's OHLC
-            previous_calculated_price = result['calculated_price']  # 9:15's calculated_price
-            previous_sentiment_transition = result.get('sentiment_transition', 'STABLE')  # v3: Store transition status
-            previous_ohlc = {
-                'open': candle['open'],
-                'high': candle['high'],
-                'low': candle['low'],
-                'close': candle['close']
-            }
-            previous_candle_date = pd.to_datetime(candle['date'])  # Store 9:15 date for next iteration
-        else:
-            # Save current candle's calculated_price and sentiment_transition before overwriting (needed for next iteration)
-            current_calculated_price = result['calculated_price']
-            current_sentiment_transition = result.get('sentiment_transition', 'STABLE')  # v3: Get transition status
-            
-            # For candle N: Use sentiment calculated from candle N-1's OHLC
-            # This matches production: at 9:16, we calculate sentiment from 9:15's completed OHLC
-            result['sentiment'] = previous_sentiment
-            result['calculated_price'] = previous_calculated_price
-            result['open'] = previous_ohlc['open']
-            result['high'] = previous_ohlc['high']
-            result['low'] = previous_ohlc['low']
-            result['close'] = previous_ohlc['close']
-            # v3: Also use previous sentiment_transition (from previous candle's analysis)
-            result['sentiment_transition'] = previous_sentiment_transition if 'previous_sentiment_transition' in locals() else 'STABLE'
-            
-            # CRITICAL FIX: Use PREVIOUS candle's timestamp + 1 minute to match production behavior
-            # Sentiment calculated from candle T should be assigned to timestamp T+1 (when candle completes)
-            # Example: When processing 9:16 candle, sentiment from 9:15's OHLC should be assigned to 9:16 timestamp
-            # We use previous_candle_date (9:15) + 1 minute = 9:16 timestamp
-            if previous_candle_date is not None:
-                assigned_timestamp = previous_candle_date + pd.Timedelta(minutes=1)
-                result['date'] = assigned_timestamp
-            else:
-                # Fallback: shift current candle's timestamp (shouldn't happen, but safety check)
-                original_date = pd.to_datetime(candle['date'])
-                assigned_timestamp = original_date + pd.Timedelta(minutes=1)
-                result['date'] = assigned_timestamp
-            
-            if idx == 1:
-                print(f"  Processing 9:16 candle: using sentiment calculated from 9:15's OHLC, assigned to 9:16 timestamp")
-                print(f"    9:15 OHLC: O={previous_ohlc['open']:.2f} H={previous_ohlc['high']:.2f} L={previous_ohlc['low']:.2f} C={previous_ohlc['close']:.2f}")
-                print(f"    9:15 calculated_price: {previous_calculated_price:.2f}, sentiment: {previous_sentiment}")
-                print(f"    Timestamp assignment: {previous_candle_date.strftime('%H:%M:%S')} + 1min = {assigned_timestamp.strftime('%H:%M:%S')} (matches production: [09:16:00] Market Sentiment)")
-            
-            # Update for next iteration: current candle's sentiment/price will be used for next candle
-            previous_sentiment = analyzer.sentiment  # Get current sentiment (calculated from current candle)
-            previous_calculated_price = current_calculated_price  # Current candle's calculated_price (saved before overwrite)
-            previous_sentiment_transition = current_sentiment_transition  # v3: Store current transition status for next iteration
-            previous_ohlc = {
-                'open': candle['open'],
-                'high': candle['high'],
-                'low': candle['low'],
-                'close': candle['close']
-            }
-            previous_candle_date = pd.to_datetime(candle['date'])  # Store current candle's date for next iteration
-        
-        results.append(result)
-        
-        if (idx + 1) % 100 == 0:
-            print(f"  Processed {idx + 1}/{len(df)} candles...")
-    
-    # Save Results
-    print(f"\nStep 6: Saving results to {os.path.basename(output_csv_path)}...")
-    output_df = pd.DataFrame(results)
+    print(f"\nSaving plot sentiment file to {os.path.basename(output_csv_path)}...")
     output_df.to_csv(output_csv_path, index=False)
-    
+
+    # ------------------------------------------------------------------
+    # Step 2: Generate workflow sentiment file (nifty_market_sentiment_<date>.csv)
+    # ------------------------------------------------------------------
+    # Controlled by config LAG_SENTIMENT_BY_ONE:
+    #   True:  lagged by 1 (09:15=DISABLE, 9:16 gets 9:15 sentiment, etc.) to simulate production.
+    #   False: same as _plot (no lag) — use for backtesting that matches plot alignment.
+    #
+    lag_sentiment_by_one = config.get('LAG_SENTIMENT_BY_ONE', False)
+
+    base, ext = os.path.splitext(output_csv_path)
+    if base.endswith('_plot'):
+        workflow_output_path = base[:-5] + ext  # remove '_plot' -> nifty_market_sentiment_<date>.csv
+    else:
+        workflow_output_path = base + '_workflow' + ext
+
+    if not output_df.empty:
+        if lag_sentiment_by_one:
+            print("\nStep 6 (Workflow File): Building lagged-by-1 sentiment CSV (LAG_SENTIMENT_BY_ONE=true)...")
+            workflow_df = output_df.copy()
+            sentiments = workflow_df['sentiment'].astype(str).str.upper().str.strip()
+            shifted_sentiments = sentiments.shift(1)
+            shifted_sentiments.iloc[0] = 'DISABLE'
+            workflow_df['sentiment'] = shifted_sentiments.fillna('DISABLE')
+            workflow_df.to_csv(workflow_output_path, index=False)
+            print(f"Saved lagged workflow file: {os.path.basename(workflow_output_path)}")
+        else:
+            print("\nStep 6 (Workflow File): Copying plot sentiment to workflow CSV (LAG_SENTIMENT_BY_ONE=false)...")
+            output_df.to_csv(workflow_output_path, index=False)
+            print(f"Saved workflow file (same as plot): {os.path.basename(workflow_output_path)}")
+    else:
+        print("Warning: Output dataframe is empty, skipping workflow file generation.")
+
     print(f"\n{'=' * 80}")
     print(f"Processing Complete!")
     print(f"  Input: {os.path.basename(input_csv_path)}")
-    print(f"  Output: {os.path.basename(output_csv_path)}")
-    print(f"  Total candles processed: {len(results)}")
+    print(f"  Plot Output (Step 1): {os.path.basename(output_csv_path)}")
+    if not output_df.empty:
+        print(f"  Workflow Output (Step 2): {os.path.basename(workflow_output_path)} (lagged={lag_sentiment_by_one})")
+    print(f"  Total candles: {len(output_df)}")
     print(f"{'=' * 80}")
-    
-    # Print swing detection summary
-    analyzer.print_swing_summary()
     
     return True
 
@@ -425,7 +357,7 @@ def main():
                 
                 for input_file, data_type in input_files:
                     output_file = os.path.join(os.path.dirname(input_file), 
-                                             f'nifty_market_sentiment_{date_identifier}.csv')
+                                             f'nifty_market_sentiment_{date_identifier}_plot.csv')
                     
                     try:
                         print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
@@ -475,7 +407,7 @@ def main():
             
             for input_file, data_type in input_files:
                 output_file = os.path.join(os.path.dirname(input_file), 
-                                          f'nifty_market_sentiment_{date_identifier}.csv')
+                                          f'nifty_market_sentiment_{date_identifier}_plot.csv')
                 
                 try:
                     print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
@@ -526,7 +458,7 @@ def main():
             
             for input_file, data_type in input_files:
                 output_file = os.path.join(os.path.dirname(input_file), 
-                                         f'nifty_market_sentiment_{date_identifier}.csv')
+                                         f'nifty_market_sentiment_{date_identifier}_plot.csv')
                 
                 try:
                     print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")

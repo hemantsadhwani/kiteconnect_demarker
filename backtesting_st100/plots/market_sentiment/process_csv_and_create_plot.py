@@ -58,7 +58,7 @@ def get_previous_day_nifty_data(csv_file_path):
         print(f"  Low: {prev_day_low}")
         print(f"  Close: {prev_day_close}")
         
-        # Calculate CPR levels
+        # Calculate CPR levels (Floor Pivot; R4/S4 = corrected TradingView-validated formula)
         pivot = (prev_day_high + prev_day_low + prev_day_close) / 3
         bc = (prev_day_high + prev_day_low) / 2
         tc = (pivot + (pivot - bc)) if (pivot > bc) else (2 * pivot - bc)
@@ -68,6 +68,9 @@ def get_previous_day_nifty_data(csv_file_path):
         s2 = pivot - (prev_day_high - prev_day_low)
         r3 = prev_day_high + 2 * (pivot - prev_day_low)
         s3 = prev_day_low - 2 * (prev_day_high - pivot)
+        # Corrected R4/S4 (TradingView-validated): R4 = R3 + (R2 - R1), S4 = S3 - (S1 - S2)
+        r4 = r3 + (r2 - r1)
+        s4 = s3 - (s1 - s2)
         
         cpr_levels = {
             'pivot': pivot,
@@ -78,7 +81,9 @@ def get_previous_day_nifty_data(csv_file_path):
             'r2': r2,
             's2': s2,
             'r3': r3,
-            's3': s3
+            's3': s3,
+            'r4': r4,
+            's4': s4
         }
         
         print(f"CPR levels calculated:")
@@ -91,7 +96,7 @@ def get_previous_day_nifty_data(csv_file_path):
         print(f"Error fetching NIFTY 50 data: {e}")
         print("Using dummy CPR levels for demonstration...")
         
-        # Return dummy CPR levels
+        # Return dummy CPR levels (R4/S4 use corrected formula)
         return {
             'pivot': 25900,
             'bc': 25850,
@@ -101,7 +106,9 @@ def get_previous_day_nifty_data(csv_file_path):
             'r2': 26100,
             's2': 25700,
             'r3': 26200,
-            's3': 25600
+            's3': 25600,
+            'r4': 26300,
+            's4': 25500
         }
 
 def process_csv_data(csv_file_path):
@@ -507,7 +514,9 @@ def create_html_file(data, output_file):
                 {{'value': cprLevels.r2, 'color': '#FF006E', 'title': 'R2', 'lineWidth': 1, 'lineStyle': 2}},
                 {{'value': cprLevels.s2, 'color': '#4CAF50', 'title': 'S2', 'lineWidth': 1, 'lineStyle': 2}},
                 {{'value': cprLevels.r3, 'color': '#FF006E', 'title': 'R3', 'lineWidth': 1, 'lineStyle': 2}},
-                {{'value': cprLevels.s3, 'color': '#4CAF50', 'title': 'S3', 'lineWidth': 1, 'lineStyle': 2}}
+                {{'value': cprLevels.s3, 'color': '#4CAF50', 'title': 'S3', 'lineWidth': 1, 'lineStyle': 2}},
+                {{'value': cprLevels.r4, 'color': '#FF006E', 'title': 'R4', 'lineWidth': 1, 'lineStyle': 2}},
+                {{'value': cprLevels.s4, 'color': '#4CAF50', 'title': 'S4', 'lineWidth': 1, 'lineStyle': 2}}
             ];
             
             cprLines.forEach(line => {{

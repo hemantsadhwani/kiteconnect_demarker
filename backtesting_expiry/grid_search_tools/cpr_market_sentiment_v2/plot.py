@@ -250,9 +250,9 @@ def get_previous_day_nifty_data(csv_file_path, kite_instance=None):
     s2 = pivot - prev_range
     r3 = prev_day_high + 2 * (pivot - prev_day_low)
     s3 = prev_day_low - 2 * (prev_day_high - pivot)
-    # R4/S4: Follow the interval pattern (matching TradingView Floor Pivot Points)
-    r4 = r3 + (r2 - r1)  # R4 = R3 + (R2 - R1) - matches TradingView pattern
-    s4 = s3 - (s1 - s2)  # S4 = S3 - (S1 - S2) - matches TradingView pattern
+    # Corrected R4/S4 (TradingView-validated): R4 = R3 + (R2 - R1), S4 = S3 - (S1 - S2)
+    r4 = r3 + (r2 - r1)
+    s4 = s3 - (s1 - s2)
 
     # Store levels
     cpr_levels = {

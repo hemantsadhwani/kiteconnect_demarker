@@ -37,106 +37,15 @@ except ImportError:
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 NIFTY_DATA_DIR = os.path.join(THIS_DIR, 'nifty_data')
+
+# NiftySentimentAnalyzer for CPR + Fib band logic (single source of truth)
+from trading_sentiment_analyzer import NiftySentimentAnalyzer
 # Default files in the same directory as this script (for backward compatibility)
 CSV_PATH = os.path.join(THIS_DIR, 'nifty50_1min_data_test.csv')
 OUTPUT_HTML = os.path.join(THIS_DIR, 'nifty50_1min_data_test.html')
 
 
-def load_band_config_for_plot():
-    """Load CPR band configuration from YAML file for plotting"""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_file = os.path.join(script_dir, 'config.yaml')
-    default_config = {
-        'BAND_SIZE': 10,
-        'DIRECTION': 'middle'
-    }
-    
-    try:
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-            
-            if config and 'CPR_BANDS' in config:
-                bands_config = config['CPR_BANDS']
-                # Get default values
-                default_band_size = bands_config.get('default', {}).get('BAND_SIZE', 10)
-                default_direction = bands_config.get('default', {}).get('DIRECTION', 'middle')
-                
-                # Build per-level configuration
-                level_configs = {}
-                all_levels = ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4']
-                
-                for level in all_levels:
-                    level_config = bands_config.get(level, {})
-                    level_configs[level] = {
-                        'BAND_SIZE': level_config.get('BAND_SIZE', default_band_size),
-                        'DIRECTION': level_config.get('DIRECTION', default_direction)
-                    }
-                
-                return level_configs
-        
-        # Fallback: return default config for all levels
-        all_levels = ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4']
-        return {level: default_config.copy() for level in all_levels}
-    except Exception as e:
-        print(f"Warning: Could not load band config from {config_file}: {e}")
-        # Fallback: return default config for all levels
-        all_levels = ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4']
-        return {level: default_config.copy() for level in all_levels}
-
-def load_horizontal_sr_config_for_plot():
-    """Load horizontal SR configuration from YAML file for plotting"""
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_file = os.path.join(script_dir, 'config.yaml')
-    default_horizontal_band_width = 6.5
-    default_enable_pair_size_filter = False
-    default_pair_size_threshold = 80.0
-    
-    try:
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-            
-            if config and 'HORIZONTAL_SR' in config:
-                sr_config = config['HORIZONTAL_SR']
-                return {
-                    'HORIZONTAL_BAND_WIDTH': sr_config.get('HORIZONTAL_BAND_WIDTH', default_horizontal_band_width),
-                    'ENABLE_PAIR_SIZE_FILTER': sr_config.get('ENABLE_PAIR_SIZE_FILTER', default_enable_pair_size_filter),
-                    'PAIR_SIZE_THRESHOLD': sr_config.get('PAIR_SIZE_THRESHOLD', default_pair_size_threshold)
-                }
-        
-        return {
-            'HORIZONTAL_BAND_WIDTH': default_horizontal_band_width,
-            'ENABLE_PAIR_SIZE_FILTER': default_enable_pair_size_filter,
-            'PAIR_SIZE_THRESHOLD': default_pair_size_threshold
-        }
-    except Exception as e:
-        print(f"Warning: Could not load horizontal SR config from {config_file}: {e}")
-        return {
-            'HORIZONTAL_BAND_WIDTH': default_horizontal_band_width,
-            'ENABLE_PAIR_SIZE_FILTER': default_enable_pair_size_filter,
-            'PAIR_SIZE_THRESHOLD': default_pair_size_threshold
-        }
-
-def calculate_neutral_zone(level_value, band_size, direction):
-    """Calculate neutral zone boundaries based on level value, band size, and direction."""
-    direction_lower = direction.lower()
-    
-    if direction_lower == 'middle':
-        zone_bottom = level_value - band_size
-        zone_top = level_value + band_size
-    elif direction_lower == 'above':
-        zone_bottom = level_value
-        zone_top = level_value + band_size
-    elif direction_lower == 'below':
-        zone_bottom = level_value - band_size
-        zone_top = level_value
-    else:
-        # Default to middle if invalid direction
-        zone_bottom = level_value - band_size
-        zone_top = level_value + band_size
-    
-    return (zone_bottom, zone_top)
+# Plot uses NiftySentimentAnalyzer for CPR levels and Fib retracement bands only (no old BAND_SIZE/neutral zone logic).
 
 # Module-level cache for Kite instance to avoid regenerating tokens
 _cached_kite_instance_plot = None
@@ -239,180 +148,50 @@ def get_previous_day_nifty_data(csv_file_path, kite_instance=None):
         print(f"  Low: {prev_day_low:.2f}")
         print(f"  Close: {prev_day_close:.2f}")
 
-    # Calculate CPR levels using STANDARD CPR formula
-    # R4/S4 follow the interval pattern: R4 = R3 + (R2 - R1), S4 = S3 - (S1 - S2)
-    pivot = (prev_day_high + prev_day_low + prev_day_close) / 3
-    prev_range = prev_day_high - prev_day_low
-    
-    r1 = 2 * pivot - prev_day_low
-    s1 = 2 * pivot - prev_day_high
-    r2 = pivot + prev_range
-    s2 = pivot - prev_range
-    r3 = prev_day_high + 2 * (pivot - prev_day_low)
-    s3 = prev_day_low - 2 * (prev_day_high - pivot)
-    # R4/S4: Follow the interval pattern (matching TradingView Floor Pivot Points)
-    r4 = r3 + (r2 - r1)  # R4 = R3 + (R2 - R1) - matches TradingView pattern
-    s4 = s3 - (s1 - s2)  # S4 = S3 - (S1 - S2) - matches TradingView pattern
-
-    # Store levels
+    # CPR levels and all bands come from NiftySentimentAnalyzer (Fib retracement 0.382/0.618, no fixed BAND_SIZE).
+    prev_day_ohlc = {
+        'high': prev_day_high,
+        'low': prev_day_low,
+        'close': prev_day_close
+    }
+    analyzer = NiftySentimentAnalyzer(prev_day_ohlc)
+    cl = analyzer.cpr_levels
     cpr_levels = {
-        'r4': r4, 'r3': r3, 'r2': r2, 'r1': r1,
-        'pivot': pivot,
-        's1': s1, 's2': s2, 's3': s3, 's4': s4
+        'r4': cl['R4'], 'r3': cl['R3'], 'r2': cl['R2'], 'r1': cl['R1'],
+        'pivot': cl['Pivot'],
+        's1': cl['S1'], 's2': cl['S2'], 's3': cl['S3'], 's4': cl['S4']
     }
 
-    # Calculate CPR_PIVOT_WIDTH (TC - BC) and determine dynamic CPR_BAND_WIDTH
-    from cpr_width_utils import calculate_cpr_pivot_width, get_dynamic_cpr_band_width
-    
-    cpr_pivot_width, tc, bc, _ = calculate_cpr_pivot_width(
-        prev_day_high, prev_day_low, prev_day_close
-    )
-    
-    print(f"\nCPR Pivot Width (TC - BC):")
-    print(f"  TC (Top Central): {tc:.2f}")
-    print(f"  BC (Bottom Central): {bc:.2f}")
-    print(f"  CPR_PIVOT_WIDTH: {cpr_pivot_width:.2f}")
+    print(f"\nCPR Levels (NiftySentimentAnalyzer formula, matches Pine Script):")
+    for name in ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4']:
+        print(f"  {name.upper():<6}: {cpr_levels[name]:.2f}")
 
-    # Load config and determine dynamic CPR_BAND_WIDTH
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_file = os.path.join(script_dir, 'config.yaml')
-    cpr_band_width = 10.0  # Default fallback
-    try:
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-                cpr_band_width = get_dynamic_cpr_band_width(cpr_pivot_width, config)
-                
-                # Print which range was applied
-                filter_config = config.get('CPR_PIVOT_WIDTH_FILTER', {})
-                if filter_config.get('ENABLED', False):
-                    ranges = filter_config.get('RANGES', [])
-                    if ranges:
-                        prev_max = 0.0
-                        for range_config in ranges:
-                            max_width = range_config.get('MAX_WIDTH')
-                            if max_width is None:
-                                print(f"  Applied CPR_BAND_WIDTH: {cpr_band_width} (CPR_PIVOT_WIDTH >= {prev_max})")
-                                break
-                            elif cpr_pivot_width < max_width:
-                                if prev_max == 0.0:
-                                    print(f"  Applied CPR_BAND_WIDTH: {cpr_band_width} (CPR_PIVOT_WIDTH < {max_width})")
-                                else:
-                                    print(f"  Applied CPR_BAND_WIDTH: {cpr_band_width} ({prev_max} <= CPR_PIVOT_WIDTH < {max_width})")
-                                break
-                            prev_max = max_width
-                else:
-                    print(f"  Using default CPR_BAND_WIDTH: {cpr_band_width} (filter disabled)")
-    except Exception as e:
-        print(f"Warning: Could not load config from {config_file}: {e}")
-        print(f"  Using default CPR_BAND_WIDTH: {cpr_band_width}")
-    
-    # Create CPR bands with bullish/bearish zones (simplified - using 'above' direction for all)
-    # For our system, we use: bullish_zone = [level, level + CPR_BAND_WIDTH]
-    #                          bearish_zone = [level - CPR_BAND_WIDTH, level]
-    cpr_bands = {}
-    for level_name, level_value in cpr_levels.items():
-        # Create bullish and bearish zones
-        bullish_zone = [level_value, level_value + cpr_band_width]
-        bearish_zone = [level_value - cpr_band_width, level_value]
-        # Store as tuple for compatibility with existing code
-        cpr_bands[level_name] = (bearish_zone[0], bullish_zone[1])
-
-    print(f"\nCPR Levels and Bands (from config):")
-    level_order = ['r4', 'r3', 'r2', 'r1', 'pivot', 's1', 's2', 's3', 's4']
-    for level_name in level_order:
-        center = cpr_levels[level_name]
-        band = cpr_bands[level_name]
-        print(f"  {level_name.upper():<6} center: {center:8.2f}   band: [{band[0]:7.2f}, {band[1]:7.2f}]   "
-              f"size: {cpr_band_width}")
-
-    # Calculate initialized horizontal SR levels for all pairs
-    # These are initialized at 50% between each pair with band width from config
-    horizontal_sr_bands = {}
-    # Load horizontal SR config for plotting (should match sentiment logic)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_file = os.path.join(script_dir, 'config.yaml')
-    plotting_band_width = 5.0  # Default
-    enable_pair_size_filter = True  # Default
-    pair_size_threshold = 80.0  # Default
-    enable_default_cpr_mid_bands = True  # Default: draw CPR midpoint bands
-    try:
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
-                config = yaml.safe_load(f)
-                if config:
-                    plotting_band_width = config.get('HORIZONTAL_BAND_WIDTH', 5.0)
-                    # Check if we have HORIZONTAL_SR section (for compatibility)
-                    if 'HORIZONTAL_SR' in config:
-                        sr_config = config['HORIZONTAL_SR']
-                        plotting_band_width = sr_config.get('HORIZONTAL_BAND_WIDTH', plotting_band_width)
-                        enable_pair_size_filter = sr_config.get('ENABLE_PAIR_SIZE_FILTER', enable_pair_size_filter)
-                        pair_size_threshold = sr_config.get('PAIR_SIZE_THRESHOLD', pair_size_threshold)
-                    else:
-                        # Use top-level config values
-                        enable_pair_size_filter = config.get('CPR_PAIR_WIDTH_THRESHOLD', 80.0) is not None
-                        pair_size_threshold = config.get('CPR_PAIR_WIDTH_THRESHOLD', 80.0)
-                    
-                    # Optional: allow disabling default CPR midpoint horizontal bands
-                    enable_default_cpr_mid_bands = config.get('ENABLE_DEFAULT_CPR_MID_BANDS', True)
-    except Exception as e:
-        print(f"Warning: Could not load horizontal SR config from {config_file}: {e}")
-    
-    # Define band pairs: (upper_level, lower_level, pair_name)
-    band_pairs = [
-        ('r4', 'r3', 'r4_r3'),
-        ('r3', 'r2', 'r3_r2'),
-        ('r2', 'r1', 'r2_r1'),
-        ('r1', 'pivot', 'r1_pivot'),
-        ('pivot', 's1', 'pivot_s1'),
-        ('s1', 's2', 's1_s2'),
-        ('s2', 's3', 's2_s3'),
-        ('s3', 's4', 's3_s4'),
+    # Build Fib bands from analyzer (Type 1 = 8 gray, Type 2 = 9 colored)
+    all_bands = analyzer.bands
+    # Type 1: first 8 bands (S4-S3, S3-S2, S2-S1, S1-P, P-R1, R1-R2, R2-R3, R3-R4)
+    gray_labels = ['S4-S3', 'S3-S2', 'S2-S1', 'S1-P', 'P-R1', 'R1-R2', 'R2-R3', 'R3-R4']
+    cpr_fib_bands_gray = [
+        {'bottom': all_bands[i][0], 'top': all_bands[i][1], 'label': gray_labels[i]}
+        for i in range(8)
     ]
-    
-    excluded_pairs = []
-    
-    for upper_level, lower_level, pair_name in band_pairs:
-        upper_value = cpr_levels[upper_level]
-        lower_value = cpr_levels[lower_level]
-        
-        # Calculate distance between CPR levels
-        distance = abs(upper_value - lower_value)
-        
-        # Apply filter if enabled
-        if enable_pair_size_filter:
-            if distance <= pair_size_threshold:
-                excluded_pairs.append(pair_name)
-                continue  # Skip this pair
-        
-        # Optionally disable plotting of default CPR midpoint horizontal bands
-        if not enable_default_cpr_mid_bands:
-            continue
-        
-        # Initialize at 50% distance between the two bands
-        initial_level = (upper_value + lower_value) / 2.0
-        
-        # Store the center level and +/-5 boundaries for plotting
-        horizontal_sr_bands[pair_name] = {
-            'center': initial_level,
-            'top': initial_level + plotting_band_width,
-            'bottom': initial_level - plotting_band_width,
-            'upper_level': upper_level,
-            'lower_level': lower_level,
-            'upper_value': upper_value,
-            'lower_value': lower_value
-        }
-    
-    if enable_pair_size_filter and excluded_pairs:
-        print(f"  Excluded pairs (distance <= {pair_size_threshold}): {', '.join(excluded_pairs)}")
-    
-    print(f"\nHorizontal Support/Resistance Initialized Bands (for plotting, ±{plotting_band_width}):")
-    for pair_name, band_data in horizontal_sr_bands.items():
-        print(f"  {pair_name:<12} center: {band_data['center']:8.2f}   "
-              f"band: [{band_data['bottom']:7.2f}, {band_data['top']:7.2f}]   "
-              f"range: [{band_data['lower_value']:7.2f}, {band_data['upper_value']:7.2f}]")
+    # Type 2: next 9 bands (Pivot, S1, S2, S3, S4, R1, R2, R3, R4) with colors
+    colored_specs = [
+        ('Pivot', '#FF9800'),
+        ('S1', '#4CAF50'), ('S2', '#4CAF50'), ('S3', '#4CAF50'), ('S4', '#4CAF50'),
+        ('R1', '#F44336'), ('R2', '#F44336'), ('R3', '#F44336'), ('R4', '#F44336'),
+    ]
+    cpr_fib_bands_colored = [
+        {'bottom': all_bands[8 + i][0], 'top': all_bands[8 + i][1], 'label': colored_specs[i][0], 'color': colored_specs[i][1]}
+        for i in range(9)
+    ]
 
-    return cpr_levels, cpr_bands, horizontal_sr_bands, cpr_band_width
+    print(f"\nCPR Fib bands: {len(cpr_fib_bands_gray)} gray (retracement), {len(cpr_fib_bands_colored)} colored")
+
+    # Legacy: empty horizontal SR bands (discarded); cpr_band_width for get_swing_bands_from_sentiment_analyzer
+    horizontal_sr_bands = {}
+    cpr_band_width = 10.0
+
+    return cpr_levels, cpr_fib_bands_gray, cpr_fib_bands_colored, horizontal_sr_bands, cpr_band_width
 
 
 def get_swing_bands_from_sentiment_analyzer(csv_file_path, cpr_levels, cpr_band_width=None):
@@ -597,7 +376,7 @@ def process_csv_data(csv_file_path, kite_instance=None):
         kite_instance: Optional pre-authenticated Kite instance to reuse
     """
     print(f"Loading CSV data from: {csv_file_path}")
-    cpr_levels, cpr_bands, horizontal_sr_bands, cpr_band_width = get_previous_day_nifty_data(csv_file_path, kite_instance)
+    cpr_levels, cpr_fib_bands_gray, cpr_fib_bands_colored, horizontal_sr_bands, cpr_band_width = get_previous_day_nifty_data(csv_file_path, kite_instance)
 
     df = pd.read_csv(csv_file_path)
     print(f"Loaded {len(df)} rows")
@@ -645,8 +424,11 @@ def process_csv_data(csv_file_path, kite_instance=None):
             low = float(row['low'])
             close = float(row['close'])
             
-            # Calculate representative price: ((low + close)/2 + (high + open)/2)/2
-            calculated_price = ((low + close) / 2 + (high + open_price) / 2) / 2
+            # NCP (Nifty Calculated Price) - same as NiftySentimentAnalyzer: Bullish (C>=O) -> (H+C)/2, Bearish -> (L+C)/2
+            if close >= open_price:
+                calculated_price = (high + close) / 2
+            else:
+                calculated_price = (low + close) / 2
             
             ohlc_data.append({
                 "time": timestamp,
@@ -700,6 +482,31 @@ def process_csv_data(csv_file_path, kite_instance=None):
     
     sentiment_path = os.path.join(os.path.dirname(csv_file_path), sentiment_filename)
     sentiment_data = []
+
+    # ------------------------------------------------------------------
+    # Enhanced sentiment file resolution:
+    #   1. Prefer new "*_plot.csv" file produced by process_sentiment.py step 1
+    #   2. Fallback to legacy "nifty_market_sentiment_<date>.csv"
+    #   3. If regex fails, fallback to old "nifty50_1min_market_sentiment.csv"
+    # ------------------------------------------------------------------
+    preferred_sentiment_path = None
+    legacy_sentiment_path = None
+
+    if match:
+        # New preferred naming: nifty_market_sentiment_<date>_plot.csv
+        plot_sentiment_filename = f'nifty_market_sentiment_{date_identifier}_plot.csv'
+        preferred_sentiment_path = os.path.join(os.path.dirname(csv_file_path), plot_sentiment_filename)
+
+        # Legacy naming (used by backtesting workflow): nifty_market_sentiment_<date>.csv
+        legacy_sentiment_filename = f'nifty_market_sentiment_{date_identifier}.csv'
+        legacy_sentiment_path = os.path.join(os.path.dirname(csv_file_path), legacy_sentiment_filename)
+
+        if os.path.exists(preferred_sentiment_path):
+            sentiment_path = preferred_sentiment_path
+        elif os.path.exists(legacy_sentiment_path):
+            sentiment_path = legacy_sentiment_path
+        # else: keep original sentiment_path (will likely not exist, handled below)
+
     print(f"Looking for sentiment file: {sentiment_path}")
     if os.path.exists(sentiment_path):
         try:
@@ -758,6 +565,19 @@ def process_csv_data(csv_file_path, kite_instance=None):
                       for p in swing_bands)
     print(f"Found {swing_count} swing bands across {len(swing_bands)} CPR pairs")
 
+    # Build CPR Band bounds for sidebar (R4..R1, PIVOT, S1..S4) – colored bands: Pivot(0), S1(1), S2(2), S3(3), S4(4), R1(5), R2(6), R3(7), R4(8)
+    cpr_band_bounds = {
+        'R4': {'upper': cpr_fib_bands_colored[8]['top'], 'lower': cpr_fib_bands_colored[8]['bottom']},
+        'R3': {'upper': cpr_fib_bands_colored[7]['top'], 'lower': cpr_fib_bands_colored[7]['bottom']},
+        'R2': {'upper': cpr_fib_bands_colored[6]['top'], 'lower': cpr_fib_bands_colored[6]['bottom']},
+        'R1': {'upper': cpr_fib_bands_colored[5]['top'], 'lower': cpr_fib_bands_colored[5]['bottom']},
+        'PIVOT': {'upper': cpr_fib_bands_colored[0]['top'], 'lower': cpr_fib_bands_colored[0]['bottom']},
+        'S1': {'upper': cpr_fib_bands_colored[1]['top'], 'lower': cpr_fib_bands_colored[1]['bottom']},
+        'S2': {'upper': cpr_fib_bands_colored[2]['top'], 'lower': cpr_fib_bands_colored[2]['bottom']},
+        'S3': {'upper': cpr_fib_bands_colored[3]['top'], 'lower': cpr_fib_bands_colored[3]['bottom']},
+        'S4': {'upper': cpr_fib_bands_colored[4]['top'], 'lower': cpr_fib_bands_colored[4]['bottom']},
+    }
+
     print("Processed data:")
     print(f"  OHLC: {len(ohlc_data)} points")
     print(f"  Calculated price: {len(calculated_price_data)} points")
@@ -771,9 +591,11 @@ def process_csv_data(csv_file_path, kite_instance=None):
         "supertrendBearishSegments": supertrend_bearish_data,
         "supertrendBullishSegments": supertrend_bullish_data,
         "cprLevels": cpr_levels,
-        "cprBands": cpr_bands,  # Add bands for visualization
-        "horizontalSRBands": horizontal_sr_bands,  # Add horizontal SR bands for visualization
-        "swingBands": swing_bands,  # Add swing high/low bands for visualization
+        "cprBandBounds": cpr_band_bounds,
+        "cprFibBandsGray": cpr_fib_bands_gray,
+        "cprFibBandsColored": cpr_fib_bands_colored,
+        "horizontalSRBands": horizontal_sr_bands,
+        "swingBands": swing_bands,
         "marketSentiment": sentiment_data
     }
 
@@ -819,16 +641,44 @@ def create_html_file(data, output_file):
       <div class=\"kv\"><span class=\"k\">ST Dir</span><span id=\"md-st-dir\" class=\"v\">-</span></div>
 
       <div class=\"section\">
-        <div class=\"kv\"><span class=\"k\">CPR</span><span class=\"badge\">Prev Day</span></div>
-        <div class=\"cpr-level\"><span>R4</span><span id=\"cpr-r4\">-</span></div>
-        <div class=\"cpr-level\"><span>R3</span><span id=\"cpr-r3\">-</span></div>
-        <div class=\"cpr-level\"><span>R2</span><span id=\"cpr-r2\">-</span></div>
-        <div class=\"cpr-level\"><span>R1</span><span id=\"cpr-r1\">-</span></div>
-        <div class=\"cpr-level\"><span>PIVOT</span><span id=\"cpr-pivot\">-</span></div>
-        <div class=\"cpr-level\"><span>S1</span><span id=\"cpr-s1\">-</span></div>
-        <div class=\"cpr-level\"><span>S2</span><span id=\"cpr-s2\">-</span></div>
-        <div class=\"cpr-level\"><span>S3</span><span id=\"cpr-s3\">-</span></div>
-        <div class=\"cpr-level\"><span>S4</span><span id=\"cpr-s4\">-</span></div>
+        <div class=\"kv\"><span class=\"k\">CPR Band</span><span class=\"badge\">Upper / Lower</span></div>
+        <div class=\"cpr-level\"><span>R4_Upper</span><span id=\"cprband-r4-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R4_Lower</span><span id=\"cprband-r4-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>R3_Upper</span><span id=\"cprband-r3-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R3_Lower</span><span id=\"cprband-r3-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>R2_Upper</span><span id=\"cprband-r2-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R2_Lower</span><span id=\"cprband-r2-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>R1_Upper</span><span id=\"cprband-r1-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R1_Lower</span><span id=\"cprband-r1-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>PIVOT_Upper</span><span id=\"cprband-pivot-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>PIVOT_Lower</span><span id=\"cprband-pivot-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S1_Upper</span><span id=\"cprband-s1-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S1_Lower</span><span id=\"cprband-s1-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S2_Upper</span><span id=\"cprband-s2-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S2_Lower</span><span id=\"cprband-s2-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S3_Upper</span><span id=\"cprband-s3-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S3_Lower</span><span id=\"cprband-s3-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S4_Upper</span><span id=\"cprband-s4-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S4_Lower</span><span id=\"cprband-s4-lower\">-</span></div>
+      </div>
+      <div class=\"section\">
+        <div class=\"kv\"><span class=\"k\">CPR Fib retracement</span><span class=\"badge\">Gray bands</span></div>
+        <div class=\"cpr-level\"><span>S4-S3_Upper</span><span id=\"cprfib-0-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S4-S3_Lower</span><span id=\"cprfib-0-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S3-S2_Upper</span><span id=\"cprfib-1-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S3-S2_Lower</span><span id=\"cprfib-1-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S2-S1_Upper</span><span id=\"cprfib-2-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S2-S1_Lower</span><span id=\"cprfib-2-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>S1-P_Upper</span><span id=\"cprfib-3-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>S1-P_Lower</span><span id=\"cprfib-3-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>P-R1_Upper</span><span id=\"cprfib-4-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>P-R1_Lower</span><span id=\"cprfib-4-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>R1-R2_Upper</span><span id=\"cprfib-5-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R1-R2_Lower</span><span id=\"cprfib-5-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>R2-R3_Upper</span><span id=\"cprfib-6-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R2-R3_Lower</span><span id=\"cprfib-6-lower\">-</span></div>
+        <div class=\"cpr-level\"><span>R3-R4_Upper</span><span id=\"cprfib-7-upper\">-</span></div>
+        <div class=\"cpr-level\"><span>R3-R4_Lower</span><span id=\"cprfib-7-lower\">-</span></div>
       </div>
     </aside>
   </div>
@@ -861,23 +711,14 @@ def create_html_file(data, output_file):
     }}
 
     const cpr = data.cprLevels;
-    const cprBands = data.cprBands || {{}};
+    const cprFibBandsGray = Array.isArray(data.cprFibBandsGray) ? data.cprFibBandsGray : [];
+    const cprFibBandsColored = Array.isArray(data.cprFibBandsColored) ? data.cprFibBandsColored : [];
     const horizontalSRBands = data.horizontalSRBands || {{}};
     const swingBands = data.swingBands || {{}};
     const sentiment = Array.isArray(data.marketSentiment) ? data.marketSentiment : [];
     
-    // Define all CPR levels including R4 and S4
-    const levels = [
-      {{ key: 'r4', label: 'R4', value: cpr.r4, color:'#FF1744', bandColor:'rgba(255, 23, 68, 0.1)' }},
-      {{ key: 'r3', label: 'R3', value: cpr.r3, color:'#FF006E', bandColor:'rgba(255, 0, 110, 0.1)' }},
-      {{ key: 'r2', label: 'R2', value: cpr.r2, color:'#FF006E', bandColor:'rgba(255, 0, 110, 0.1)' }},
-      {{ key: 'r1', label: 'R1', value: cpr.r1, color:'#FF006E', bandColor:'rgba(255, 0, 110, 0.1)' }},
-      {{ key: 'pivot', label: 'PIVOT', value: cpr.pivot, color:'#3A86FF', bandColor:'rgba(58, 134, 255, 0.15)' }},
-      {{ key: 's1', label: 'S1', value: cpr.s1, color:'#4CAF50', bandColor:'rgba(76, 175, 80, 0.1)' }},
-      {{ key: 's2', label: 'S2', value: cpr.s2, color:'#4CAF50', bandColor:'rgba(76, 175, 80, 0.1)' }},
-      {{ key: 's3', label: 'S3', value: cpr.s3, color:'#4CAF50', bandColor:'rgba(76, 175, 80, 0.1)' }},
-      {{ key: 's4', label: 'S4', value: cpr.s4, color:'#2E7D32', bandColor:'rgba(46, 125, 50, 0.1)' }},
-    ];
+    // No CPR level lines (R3, S3, etc.) – bands only with fills
+    const levels = [];
 
     // Define data time range (market hours: 9:15-15:29)
     const timeRange = data.ohlc.length > 0 ? {{ 
@@ -888,222 +729,62 @@ def create_html_file(data, output_file):
     // Store last bar time for clamping checks
     const lastBarTime = data.ohlc.length > 0 ? data.ohlc[data.ohlc.length-1].time : null;
     
-    // Store line series references for coordinate sampling
-    const lineSeriesMap = new Map();
-    const bandTopSeriesMap = new Map();
-    const bandBottomSeriesMap = new Map();
-    
-    // Draw CPR levels as solid lines
-    levels.forEach(l => {{
-      // Draw the center line
-      const s = chart.addLineSeries({{ color: l.color, lineWidth: 1, priceLineVisible:false, lastValueVisible:false }});
-      s.setData([{{ time: timeRange.start, value: l.value }}, {{ time: timeRange.end, value: l.value }}]);
-      lineSeriesMap.set(l.key, s);
-    }});
-    
-    // Draw dotted lines for band boundaries (top and bottom of each band)
-    levels.forEach(l => {{
-      const band = cprBands[l.key];
-      if (!band) return;
-      const [bandBottom, bandTop] = band;
-      
-      // Top band boundary (dotted line)
+    // Draw CPR Fib retracement bands (Type 1 - Gray, no-trade zones)
+    cprFibBandsGray.forEach((band, idx) => {{
       const topSeries = chart.addLineSeries({{
-        color: l.color,
+        color: '#9E9E9E',
         lineWidth: 1,
-        lineStyle: 2,  // Dotted line
+        lineStyle: 2,
         priceLineVisible: false,
         lastValueVisible: false
       }});
       topSeries.setData([
-        {{ time: timeRange.start, value: bandTop }},
-        {{ time: timeRange.end, value: bandTop }}
+        {{ time: timeRange.start, value: band.top }},
+        {{ time: timeRange.end, value: band.top }}
       ]);
-      bandTopSeriesMap.set(l.key, topSeries);
-      
-      // Bottom band boundary (dotted line)
       const bottomSeries = chart.addLineSeries({{
-        color: l.color,
+        color: '#9E9E9E',
         lineWidth: 1,
-        lineStyle: 2,  // Dotted line
+        lineStyle: 2,
         priceLineVisible: false,
         lastValueVisible: false
       }});
       bottomSeries.setData([
-        {{ time: timeRange.start, value: bandBottom }},
-        {{ time: timeRange.end, value: bandBottom }}
+        {{ time: timeRange.start, value: band.bottom }},
+        {{ time: timeRange.end, value: band.bottom }}
       ]);
-      bandBottomSeriesMap.set(l.key, bottomSeries);
     }});
     
-    // Draw horizontal SR bands as white dotted lines (center, top, bottom)
-    const horizontalSRPairs = [
-      {{ key: 'r4_r3', label: 'R4-R3' }},
-      {{ key: 'r3_r2', label: 'R3-R2' }},
-      {{ key: 'r2_r1', label: 'R2-R1' }},
-      {{ key: 'r1_pivot', label: 'R1-Pivot' }},
-      {{ key: 'pivot_s1', label: 'Pivot-S1' }},
-      {{ key: 's1_s2', label: 'S1-S2' }},
-      {{ key: 's2_s3', label: 'S2-S3' }},
-      {{ key: 's3_s4', label: 'S3-S4' }}
-    ];
-    
-    horizontalSRPairs.forEach(pair => {{
-      const bandData = horizontalSRBands[pair.key];
-      if (!bandData) return;
-      
-      // Draw center line (white dotted)
-      const centerSeries = chart.addLineSeries({{
-        color: '#FFFFFF',
-        lineWidth: 1,
-        lineStyle: 2,  // Dotted line
-        priceLineVisible: false,
-        lastValueVisible: false
-      }});
-      centerSeries.setData([
-        {{ time: timeRange.start, value: bandData.center }},
-        {{ time: timeRange.end, value: bandData.center }}
-      ]);
-      
-      // Draw top line (+5, white dotted)
+    // Draw CPR colored bands (Type 2 - Pivot orange, S1/S2 green, R1/R2 red)
+    cprFibBandsColored.forEach((band) => {{
+      const color = band.color || '#9E9E9E';
       const topSeries = chart.addLineSeries({{
-        color: '#FFFFFF',
+        color: color,
         lineWidth: 1,
-        lineStyle: 2,  // Dotted line
+        lineStyle: 2,
         priceLineVisible: false,
         lastValueVisible: false
       }});
       topSeries.setData([
-        {{ time: timeRange.start, value: bandData.top }},
-        {{ time: timeRange.end, value: bandData.top }}
+        {{ time: timeRange.start, value: band.top }},
+        {{ time: timeRange.end, value: band.top }}
       ]);
-      
-      // Draw bottom line (-5, white dotted)
       const bottomSeries = chart.addLineSeries({{
-        color: '#FFFFFF',
+        color: color,
         lineWidth: 1,
-        lineStyle: 2,  // Dotted line
+        lineStyle: 2,
         priceLineVisible: false,
         lastValueVisible: false
       }});
       bottomSeries.setData([
-        {{ time: timeRange.start, value: bandData.bottom }},
-        {{ time: timeRange.end, value: bandData.bottom }}
+        {{ time: timeRange.start, value: band.bottom }},
+        {{ time: timeRange.end, value: band.bottom }}
       ]);
     }});
     
-    // Draw swing high/low bands as colored solid lines (cyan for support, magenta for resistance)
-    const swingBandPairs = [
-      {{ key: 'r4_r3', label: 'R4-R3' }},
-      {{ key: 'r3_r2', label: 'R3-R2' }},
-      {{ key: 'r2_r1', label: 'R2-R1' }},
-      {{ key: 'r1_pivot', label: 'R1-Pivot' }},
-      {{ key: 'pivot_s1', label: 'Pivot-S1' }},
-      {{ key: 's1_s2', label: 'S1-S2' }},
-      {{ key: 's2_s3', label: 'S2-S3' }},
-      {{ key: 's3_s4', label: 'S3-S4' }}
-    ];
-    
-    swingBandPairs.forEach(pair => {{
-      const pairBands = swingBands[pair.key];
-      if (!pairBands) return;
-      
-      // Draw swing support bands (cyan)
-      if (pairBands.support && pairBands.support.length > 0) {{
-        pairBands.support.forEach((band, idx) => {{
-          const bandLower = band[0];
-          const bandUpper = band[1];
-          const bandCenter = (bandLower + bandUpper) / 2.0;
-          
-          // Draw center line (cyan solid)
-          const centerSeries = chart.addLineSeries({{
-            color: '#00FFFF',  // Cyan
-            lineWidth: 2,
-            lineStyle: 0,  // Solid line
-            priceLineVisible: false,
-            lastValueVisible: false
-          }});
-          centerSeries.setData([
-            {{ time: timeRange.start, value: bandCenter }},
-            {{ time: timeRange.end, value: bandCenter }}
-          ]);
-          
-          // Draw top line (cyan solid)
-          const topSeries = chart.addLineSeries({{
-            color: '#00FFFF',  // Cyan
-            lineWidth: 1,
-            lineStyle: 0,  // Solid line
-            priceLineVisible: false,
-            lastValueVisible: false
-          }});
-          topSeries.setData([
-            {{ time: timeRange.start, value: bandUpper }},
-            {{ time: timeRange.end, value: bandUpper }}
-          ]);
-          
-          // Draw bottom line (cyan solid)
-          const bottomSeries = chart.addLineSeries({{
-            color: '#00FFFF',  // Cyan
-            lineWidth: 1,
-            lineStyle: 0,  // Solid line
-            priceLineVisible: false,
-            lastValueVisible: false
-          }});
-          bottomSeries.setData([
-            {{ time: timeRange.start, value: bandLower }},
-            {{ time: timeRange.end, value: bandLower }}
-          ]);
-        }});
-      }}
-      
-      // Draw swing resistance bands (magenta)
-      if (pairBands.resistance && pairBands.resistance.length > 0) {{
-        pairBands.resistance.forEach((band, idx) => {{
-          const bandLower = band[0];
-          const bandUpper = band[1];
-          const bandCenter = (bandLower + bandUpper) / 2.0;
-          
-          // Draw center line (magenta solid)
-          const centerSeries = chart.addLineSeries({{
-            color: '#FF00FF',  // Magenta
-            lineWidth: 2,
-            lineStyle: 0,  // Solid line
-            priceLineVisible: false,
-            lastValueVisible: false
-          }});
-          centerSeries.setData([
-            {{ time: timeRange.start, value: bandCenter }},
-            {{ time: timeRange.end, value: bandCenter }}
-          ]);
-          
-          // Draw top line (magenta solid)
-          const topSeries = chart.addLineSeries({{
-            color: '#FF00FF',  // Magenta
-            lineWidth: 1,
-            lineStyle: 0,  // Solid line
-            priceLineVisible: false,
-            lastValueVisible: false
-          }});
-          topSeries.setData([
-            {{ time: timeRange.start, value: bandUpper }},
-            {{ time: timeRange.end, value: bandUpper }}
-          ]);
-          
-          // Draw bottom line (magenta solid)
-          const bottomSeries = chart.addLineSeries({{
-            color: '#FF00FF',  // Magenta
-            lineWidth: 1,
-            lineStyle: 0,  // Solid line
-            priceLineVisible: false,
-            lastValueVisible: false
-          }});
-          bottomSeries.setData([
-            {{ time: timeRange.start, value: bandLower }},
-            {{ time: timeRange.end, value: bandLower }}
-          ]);
-        }});
-      }}
-    }});
+    // Swing high/low bands (cyan support, magenta resistance) are from OLD logic (TradingSentimentAnalyzer).
+    // Disabled so the chart shows only new CPR + Fib bands. Uncomment block below to re-enable.
+    // const swingBandPairs = [ ... ]; swingBandPairs.forEach(...);
     
     // Function to get Y coordinate from a line series by sampling crosshair
     function getYCoordinateFromLineSeries(lineSeries, sampleTime) {{
@@ -1180,119 +861,71 @@ def create_html_file(data, output_file):
       bandCtx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
     }}
     
+    function drawBandFill(bandTop, bandBottom, fillStyle) {{
+      const rect = bandCanvas.getBoundingClientRect();
+      const ts = chart.timeScale();
+      if (!ts) return;
+      let priceScale = null;
+      try {{ priceScale = chart.priceScale('right'); }} catch (e) {{ try {{ priceScale = chart.priceScale(); }} catch (e2) {{ return; }} }}
+      if (!priceScale) return;
+      const x1 = ts.timeToCoordinate(timeRange.start);
+      const x2 = ts.timeToCoordinate(timeRange.end);
+      if (x1 == null || x2 == null) return;
+      let y1 = null, y2 = null;
+      try {{
+        if (typeof priceScale.priceToCoordinate === 'function') {{
+          y1 = priceScale.priceToCoordinate(bandTop);
+          y2 = priceScale.priceToCoordinate(bandBottom);
+        }}
+      }} catch (e) {{}}
+      if ((y1 == null || y2 == null) && typeof priceScale.coordinateToPrice === 'function') {{
+        const visiblePriceTop = priceScale.coordinateToPrice(0);
+        const visiblePriceBottom = priceScale.coordinateToPrice(rect.height);
+        if (visiblePriceTop != null && visiblePriceBottom != null) {{
+          const priceRange = visiblePriceTop - visiblePriceBottom;
+          if (priceRange > 0) {{
+            y1 = ((visiblePriceTop - bandTop) / priceRange) * rect.height;
+            y2 = ((visiblePriceTop - bandBottom) / priceRange) * rect.height;
+          }}
+        }}
+      }}
+      if (y1 == null || y2 == null) return;
+      const finalY1 = Math.min(y1, y2);
+      const finalY2 = Math.max(y1, y2);
+      const width = Math.abs(x2 - x1);
+      const clampedY1 = Math.max(0, Math.min(rect.height, finalY1));
+      const clampedY2 = Math.max(0, Math.min(rect.height, finalY2));
+      const clampedHeight = clampedY2 - clampedY1;
+      if (width > 0 && clampedHeight > 0) {{
+        bandCtx.fillStyle = fillStyle;
+        bandCtx.fillRect(Math.min(x1, x2), clampedY1, width, clampedHeight);
+      }}
+    }}
+    
     function redrawBands() {{
       if (!bandCanvas || !bandCtx) return;
       const rect = bandCanvas.getBoundingClientRect();
       bandCtx.clearRect(0, 0, bandCanvas.width, bandCanvas.height);
-      const ts = chart.timeScale();
-      if (!ts) return;
-      
-      // Get price scale - use the right price scale
       let priceScale = null;
-      try {{
-        priceScale = chart.priceScale('right');
-      }} catch (e) {{
-        // Try alternative API
-        try {{
-          priceScale = chart.priceScale();
-        }} catch (e2) {{
-          console.warn('Could not get price scale for bands:', e2);
-          return;
-        }}
-      }}
-      
+      try {{ priceScale = chart.priceScale('right'); }} catch (e) {{ try {{ priceScale = chart.priceScale(); }} catch (e2) {{ return; }} }}
       if (!priceScale) return;
       
-      // Debug: Log visible price range once
-      let visiblePriceTop = null;
-      let visiblePriceBottom = null;
-      let usingManualCalc = false;
-      
-      try {{
-        if (typeof priceScale.coordinateToPrice === 'function') {{
-          visiblePriceTop = priceScale.coordinateToPrice(0);
-          visiblePriceBottom = priceScale.coordinateToPrice(rect.height);
-        }}
-      }} catch (e) {{
-        // Ignore
-      }}
-      
-      levels.forEach(l => {{
-        const band = cprBands[l.key];
-        if (!band) return;
-        const [bandBottom, bandTop] = band;
-        const x1 = ts.timeToCoordinate(timeRange.start);
-        const x2 = ts.timeToCoordinate(timeRange.end);
-        
-        if (x1 == null || x2 == null) {{
-          console.warn('Band', l.key, '- X coordinates null');
-          return;
-        }}
-        
-        // Use coordinateToPrice in reverse or try different API
-        let y1 = null, y2 = null;
-        let method = 'none';
-        
-        try {{
-          // Try priceToCoordinate if available (most accurate)
-          if (typeof priceScale.priceToCoordinate === 'function') {{
-            y1 = priceScale.priceToCoordinate(bandTop);
-            y2 = priceScale.priceToCoordinate(bandBottom);
-            method = 'priceToCoordinate';
-          }}
-        }} catch (e) {{
-          // Fall through to manual calculation
-        }}
-        
-        // Fallback: Manual calculation using coordinateToPrice
-        if (y1 == null || y2 == null) {{
-          usingManualCalc = true;
-          if (visiblePriceTop != null && visiblePriceBottom != null) {{
-            const priceRange = visiblePriceTop - visiblePriceBottom;
-            if (priceRange > 0) {{
-              // Calculate Y coordinates manually
-              // In lightweight-charts: Y=0 is top (highest price), Y=height is bottom (lowest price)
-              // Formula: Y = (visiblePriceTop - price) / priceRange * rect.height
-              y1 = ((visiblePriceTop - bandTop) / priceRange) * rect.height;
-              y2 = ((visiblePriceTop - bandBottom) / priceRange) * rect.height;
-              method = 'manual';
-            }}
-          }}
-        }}
-        
-        if (y1 != null && y2 != null) {{
-          // Ensure valid order (y1 should be top/upper, y2 should be bottom/lower)
-          // bandTop (higher price) -> smaller Y (closer to 0)
-          // bandBottom (lower price) -> larger Y (closer to rect.height)
-          const finalY1 = Math.min(y1, y2);  // Top Y (smaller)
-          const finalY2 = Math.max(y1, y2);  // Bottom Y (larger)
-          const width = Math.abs(x2 - x1);
-          const height = finalY2 - finalY1;
-          
-          // Clamp to visible canvas area
-          const clampedY1 = Math.max(0, Math.min(rect.height, finalY1));
-          const clampedY2 = Math.max(0, Math.min(rect.height, finalY2));
-          const clampedHeight = clampedY2 - clampedY1;
-          
-          // Only draw if band is at least partially visible
-          if (width > 0 && clampedHeight > 0 && clampedY2 > clampedY1) {{
-            bandCtx.fillStyle = l.bandColor;
-            bandCtx.fillRect(Math.min(x1, x2), clampedY1, width, clampedHeight);
-            
-            // Debug: Log first few bands
-            if (l.key === 'r4' || l.key === 'r3' || l.key === 'pivot' || l.key === 's1') {{
-              console.log('Band', l.key, '-', method, '- bandTop:', bandTop.toFixed(2), 'bandBottom:', bandBottom.toFixed(2), 
-                '- Y:', clampedY1.toFixed(1), 'to', clampedY2.toFixed(1), 'height:', clampedHeight.toFixed(1));
-            }}
-          }}
-        }} else {{
-          console.warn('Band', l.key, '- could not calculate Y coordinates, method:', method);
-        }}
+      // Gray fill: CPR Fib retracement bands (Type 1)
+      cprFibBandsGray.forEach((band) => {{
+        drawBandFill(band.top, band.bottom, 'rgba(158, 158, 158, 0.25)');
       }});
       
-      if (usingManualCalc && visiblePriceTop && visiblePriceBottom) {{
-        console.log('Using manual calculation - visiblePriceTop:', visiblePriceTop.toFixed(2), 'visiblePriceBottom:', visiblePriceBottom.toFixed(2));
-      }}
+      // Green fill: support bands (S1, S2 – Type 2 colored green)
+      // cprFibBandsColored order: Pivot(0), S1(1), S2(2), R1(3), R2(4)
+      drawBandFill(cprFibBandsColored[1].top, cprFibBandsColored[1].bottom, 'rgba(76, 175, 80, 0.2)');
+      drawBandFill(cprFibBandsColored[2].top, cprFibBandsColored[2].bottom, 'rgba(76, 175, 80, 0.2)');
+      
+      // Red fill: resistance bands (R1, R2 – Type 2 colored red)
+      drawBandFill(cprFibBandsColored[3].top, cprFibBandsColored[3].bottom, 'rgba(244, 67, 54, 0.2)');
+      drawBandFill(cprFibBandsColored[4].top, cprFibBandsColored[4].bottom, 'rgba(244, 67, 54, 0.2)');
+      
+      // Orange fill: Pivot band (Type 2)
+      drawBandFill(cprFibBandsColored[0].top, cprFibBandsColored[0].bottom, 'rgba(255, 152, 0, 0.2)');
     }}
     
     resizeBandCanvas();
@@ -1627,21 +1260,26 @@ def create_html_file(data, output_file):
       }}, 50);
     }});
 
-    // Write CPR values into sidebar
+    // Write CPR Band and CPR Fib retracement values into sidebar
     const setText = (id, val) => {{
       const el = document.getElementById(id);
       if (el) el.textContent = val;
     }};
-    // Update sidebar to show all 9 levels (R4-R1, Pivot, S1-S4)
-    if (cpr.r4) setText('cpr-r4', cpr.r4.toFixed ? cpr.r4.toFixed(2) : cpr.r4);
-    if (cpr.r3) setText('cpr-r3', cpr.r3.toFixed ? cpr.r3.toFixed(2) : cpr.r3);
-    if (cpr.r2) setText('cpr-r2', cpr.r2.toFixed ? cpr.r2.toFixed(2) : cpr.r2);
-    if (cpr.r1) setText('cpr-r1', cpr.r1.toFixed ? cpr.r1.toFixed(2) : cpr.r1);
-    if (cpr.pivot) setText('cpr-pivot', cpr.pivot.toFixed ? cpr.pivot.toFixed(2) : cpr.pivot);
-    if (cpr.s1) setText('cpr-s1', cpr.s1.toFixed ? cpr.s1.toFixed(2) : cpr.s1);
-    if (cpr.s2) setText('cpr-s2', cpr.s2.toFixed ? cpr.s2.toFixed(2) : cpr.s2);
-    if (cpr.s3) setText('cpr-s3', cpr.s3.toFixed ? cpr.s3.toFixed(2) : cpr.s3);
-    if (cpr.s4) setText('cpr-s4', cpr.s4.toFixed ? cpr.s4.toFixed(2) : cpr.s4);
+    const fmt = (v) => (v != null && v.toFixed) ? v.toFixed(2) : (v != null ? v : '-');
+    const cprBandBounds = data.cprBandBounds || {{}};
+    const bandKeys = ['R4', 'R3', 'R2', 'R1', 'PIVOT', 'S1', 'S2', 'S3', 'S4'];
+    bandKeys.forEach(k => {{
+      const b = cprBandBounds[k];
+      if (b) {{
+        setText('cprband-' + k.toLowerCase() + '-upper', fmt(b.upper));
+        setText('cprband-' + k.toLowerCase() + '-lower', fmt(b.lower));
+      }}
+    }});
+    const cprFibGray = Array.isArray(data.cprFibBandsGray) ? data.cprFibBandsGray : [];
+    cprFibGray.forEach((band, i) => {{
+      setText('cprfib-' + i + '-upper', fmt(band.top));
+      setText('cprfib-' + i + '-lower', fmt(band.bottom));
+    }});
 
     function formatTime(ts) {{
       if (!ts) return '-';
