@@ -14,7 +14,7 @@ BACKTESTING_ANALYSIS:
   DYNAMIC_OTM: ENABLE
   PRICE_ZONES:
     DYNAMIC_ATM:
-      HIGH_PRICE: 200   # was 220; JAN28+ ATM CE/PE often 250-300+, raise so sentiment output is not empty
+      HIGH_PRICE: 220   # was 220; JAN28+ ATM CE/PE often 250-300+, raise so sentiment output is not empty
       LOW_PRICE: 40
     DYNAMIC_OTM:
       HIGH_PRICE: 200
@@ -106,6 +106,13 @@ BACKTESTING_EXPIRY:
   - FEB03
   - FEB10
   - FEB17
+# CPR-derived allowed trading range: trading only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
+# Values are read from analytics/cpr_dates.csv (generate with grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py).
+CPR_TRADING_RANGE:
+  ENABLED: true
+  CPR_UPPER: "band_R2_upper"   # column name in cpr_dates.csv
+  CPR_LOWER: "band_S2_lower"   # column name in cpr_dates.csv
+
 CPR_WIDTH_FILTER:
   ENABLED: false
   CPR_WIDTH_SIZE: 62

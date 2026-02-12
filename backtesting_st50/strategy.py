@@ -313,6 +313,35 @@ class Entry2BacktestStrategyFixed:
             trading_dates = self.config.get('BACKTESTING_EXPIRY', {}).get('BACKTESTING_DAYS', [])
             if trading_dates:
                 _preload_prev_day_ohlc_cache(trading_dates)
+
+        # CPR trading range: allow entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER (from cpr_dates.csv)
+        cpr_range_config = self.config.get('CPR_TRADING_RANGE', {})
+        self.cpr_trading_range_enabled = cpr_range_config.get('ENABLED', False)
+        self.cpr_upper_col = (cpr_range_config.get('CPR_UPPER') or 'band_R2_upper').strip()
+        self.cpr_lower_col = (cpr_range_config.get('CPR_LOWER') or 'band_S2_lower').strip()
+        self._cpr_by_date = {}
+        if self.cpr_trading_range_enabled:
+            cpr_path = self.backtesting_dir / 'analytics' / 'cpr_dates.csv'
+            if cpr_path.exists():
+                try:
+                    cpr_df = pd.read_csv(cpr_path)
+                    if 'date' in cpr_df.columns and self.cpr_upper_col in cpr_df.columns and self.cpr_lower_col in cpr_df.columns:
+                        for _, row in cpr_df.iterrows():
+                            d = str(pd.to_datetime(row['date']).date())
+                            self._cpr_by_date[d] = {
+                                'cpr_upper': float(row[self.cpr_upper_col]),
+                                'cpr_lower': float(row[self.cpr_lower_col]),
+                            }
+                        logger.info(f"CPR_TRADING_RANGE: Loaded {len(self._cpr_by_date)} dates from {cpr_path.name} (upper={self.cpr_upper_col}, lower={self.cpr_lower_col})")
+                    else:
+                        logger.warning(f"CPR_TRADING_RANGE: cpr_dates.csv missing date/{self.cpr_upper_col}/{self.cpr_lower_col}; range check disabled")
+                        self.cpr_trading_range_enabled = False
+                except Exception as e:
+                    logger.warning(f"CPR_TRADING_RANGE: Failed to load cpr_dates.csv: {e}; range check disabled")
+                    self.cpr_trading_range_enabled = False
+            else:
+                logger.warning(f"CPR_TRADING_RANGE: {cpr_path} not found; run grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py; range check disabled")
+                self.cpr_trading_range_enabled = False
         
         # Weak signal exit management
         self.exit_weak_signal = entry2_config.get('EXIT_WEAK_SIGNAL', False)
@@ -2315,7 +2344,44 @@ class Entry2BacktestStrategyFixed:
 
     def _enter_position(self, df: pd.DataFrame, current_index: int, signal_type: str):
         current_row = df.iloc[current_index]
-        
+        # Execution bar = next candle (entry happens on next bar)
+        execution_index = current_index + 1 if current_index + 1 < len(df) else current_index
+        execution_row = df.iloc[execution_index]
+
+        # CPR trading range: allow entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER
+        if self.cpr_trading_range_enabled and getattr(self, '_cpr_by_date', None):
+            try:
+                exec_date = execution_row.get('date')
+                if exec_date is not None and not pd.isna(exec_date):
+                    current_date = pd.to_datetime(exec_date).date() if hasattr(exec_date, 'date') else pd.to_datetime(exec_date).date()
+                    date_str = str(current_date)
+                    cpr_bounds = self._cpr_by_date.get(date_str)
+                    if cpr_bounds is not None:
+                        if isinstance(exec_date, pd.Timestamp):
+                            entry_time_str = exec_date.strftime('%H:%M:%S')
+                        else:
+                            entry_time_str = str(exec_date).strip().split()[-1][:8] if ' ' in str(exec_date) else '09:15:00'
+                        nifty_file = self._get_nifty_file_path(self.csv_file_path, current_date) if hasattr(self, 'csv_file_path') and self.csv_file_path else None
+                        if nifty_file and nifty_file.exists():
+                            nifty_price = self._get_nifty_price_at_time(nifty_file, entry_time_str, target_date=current_date)
+                            if nifty_price is not None:
+                                cpr_lower = cpr_bounds['cpr_lower']
+                                cpr_upper = cpr_bounds['cpr_upper']
+                                if nifty_price < cpr_lower or nifty_price > cpr_upper:
+                                    logger.info(
+                                        f"CPR_TRADING_RANGE: Skip entry {signal_type} at bar {current_index}: "
+                                        f"Nifty {nifty_price:.2f} outside [{cpr_lower:.2f}, {cpr_upper:.2f}]"
+                                    )
+                                    return
+                            else:
+                                logger.debug(f"CPR_TRADING_RANGE: No Nifty price at {entry_time_str} for {date_str}; allowing entry")
+                        else:
+                            logger.debug(f"CPR_TRADING_RANGE: No Nifty file for {date_str}; allowing entry")
+                    else:
+                        logger.debug(f"CPR_TRADING_RANGE: No CPR bounds for {date_str}; allowing entry")
+            except Exception as e:
+                logger.warning(f"CPR_TRADING_RANGE check failed: {e}; allowing entry")
+
         # CRITICAL FIX: Use execution time candle price, not signal candle price
         # In production: Signal detected at candle T (e.g., 13:58:00) -> Trade executes at T+1 minute + 1 second (e.g., 13:59:01)
         # Entry price should be the open price of the execution time candle (T+1 minute), not the signal candle (T)

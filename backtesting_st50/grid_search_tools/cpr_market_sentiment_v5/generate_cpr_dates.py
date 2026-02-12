@@ -1,11 +1,14 @@
 """
 Copy of analytics/generate_cpr_dates.py for cpr_market_sentiment_v5.
 
-Generates backtesting_st50/analytics/cpr_dates.csv for all BACKTESTING_DAYS in backtesting_config.yaml.
+Generates CPR + Type 1 & Type 2 band columns for all BACKTESTING_DAYS in backtesting_config.yaml.
 CPR for a trading day D is computed from the *previous trading day* OHLC from Kite API (daily candles).
 
+For full output (CPR + all bands) when using many dates, run THIS script, not analytics/generate_cpr_dates.py
+(analytics/generate_cpr_dates.py only writes basic CPR columns and will overwrite analytics/cpr_dates.csv).
+
 Run from project root or with PYTHONPATH including kiteconnect_app so trading_bot_utils is available.
-Output: backtesting_st50/analytics/cpr_dates.csv
+Output: grid_search_tools/cpr_market_sentiment_v5/cpr_dates.csv and backtesting_st50/analytics/cpr_dates.csv
 """
 
 from __future__ import annotations
@@ -32,12 +35,15 @@ KITE_REQUEST_TIMEOUT_SEC = 30
 
 # Type 1: four CPR Fib bands; per band: lower (min), 5 (midpoint), upper (max) so semantics are consistent
 BAND_NAMES = ["S2_S1", "S1_P", "P_R1", "R1_R2"]
+# Type 2: nine colored bands (Pivot, S1–S4, R1–R4); midpoint of adjacent zones → 0.382–0.618
+BAND_NAMES_TYPE2 = ["Pivot", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4"]
+ALL_BAND_NAMES = BAND_NAMES + BAND_NAMES_TYPE2
 BAND_LOWER_UPPER_COLUMNS = [
-    c for band in BAND_NAMES for c in (f"band_{band}_lower", f"band_{band}_upper")
+    c for band in ALL_BAND_NAMES for c in (f"band_{band}_lower", f"band_{band}_upper")
 ]
 # Order: for each band, lower → 5 → upper (same for all bands)
 CPR_BAND_COLUMNS = [
-    c for band in BAND_NAMES for c in (f"band_{band}_lower", f"band_{band}_5", f"band_{band}_upper")
+    c for band in ALL_BAND_NAMES for c in (f"band_{band}_lower", f"band_{band}_5", f"band_{band}_upper")
 ]
 CPR_COLUMNS = [
     "date", "PDH", "PDL", "TC", "P", "BC", "R1", "R2", "R3", "R4", "S1", "S2", "S3", "S4",
@@ -113,6 +119,58 @@ def compute_cpr_fib_bands(cpr: dict) -> dict:
         lower, upper = _fib_band(low, high)
         out[f"band_{name}_lower"] = lower
         out[f"band_{name}_upper"] = upper
+    return out
+
+
+def _midpoint_range(low: float, high: float) -> tuple[float, float]:
+    """Return (min, max) so _fib_band can be applied; handles reversed order."""
+    return (min(low, high), max(low, high))
+
+
+def compute_cpr_type2_bands(cpr: dict) -> dict:
+    """Type 2: nine colored bands; each band = midpoint of two adjacent zones → 0.382–0.618 (lower/upper)."""
+    P = cpr["P"]
+    R1, R2, R3, R4 = cpr["R1"], cpr["R2"], cpr["R3"], cpr["R4"]
+    S1, S2, S3, S4 = cpr["S1"], cpr["S2"], cpr["S3"], cpr["S4"]
+    s5_approx = S4 - (S3 - S4)
+    r5_approx = R4 + (R4 - R3)
+    out = {}
+    # Pivot: midpoint(S1–P, P–R1)
+    lo, hi = _midpoint_range((S1 + P) / 2, (P + R1) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_Pivot_lower"], out["band_Pivot_upper"] = lv, uv
+    # S1: midpoint(S2–S1, S1–P)
+    lo, hi = _midpoint_range((S2 + S1) / 2, (S1 + P) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_S1_lower"], out["band_S1_upper"] = lv, uv
+    # S2: midpoint(S3–S2, S2–S1)
+    lo, hi = _midpoint_range((S3 + S2) / 2, (S2 + S1) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_S2_lower"], out["band_S2_upper"] = lv, uv
+    # S3: midpoint(S4–S3, S3–S2)
+    lo, hi = _midpoint_range((S4 + S3) / 2, (S3 + S2) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_S3_lower"], out["band_S3_upper"] = lv, uv
+    # S4: midpoint(s5_approx–S4, S4–S3)
+    lo, hi = _midpoint_range((s5_approx + S4) / 2, (S4 + S3) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_S4_lower"], out["band_S4_upper"] = lv, uv
+    # R1: midpoint(P–R1, R1–R2)
+    lo, hi = _midpoint_range((P + R1) / 2, (R1 + R2) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_R1_lower"], out["band_R1_upper"] = lv, uv
+    # R2: midpoint(R1–R2, R2–R3)
+    lo, hi = _midpoint_range((R1 + R2) / 2, (R2 + R3) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_R2_lower"], out["band_R2_upper"] = lv, uv
+    # R3: midpoint(R2–R3, R3–R4)
+    lo, hi = _midpoint_range((R2 + R3) / 2, (R3 + R4) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_R3_lower"], out["band_R3_upper"] = lv, uv
+    # R4: midpoint(R3–R4, R4–r5_approx)
+    lo, hi = _midpoint_range((R3 + R4) / 2, (R4 + r5_approx) / 2)
+    lv, uv = _fib_band(lo, hi)
+    out["band_R4_lower"], out["band_R4_upper"] = lv, uv
     return out
 
 
@@ -222,7 +280,8 @@ def main() -> None:
             continue
         cpr = compute_cpr(prev_h, prev_l, prev_c)
         fib_bands = compute_cpr_fib_bands(cpr)
-        row = {"date": date_str, **cpr, **fib_bands}
+        type2_bands = compute_cpr_type2_bands(cpr)
+        row = {"date": date_str, **cpr, **fib_bands, **type2_bands}
         rows.append(row)
 
     try:
@@ -236,18 +295,20 @@ def main() -> None:
             logger.warning("  ... and %d more", len(missing_prev) - 10)
 
     # Write to v5 folder (this script's directory) and to analytics for analyze_trades_above_r1_below_s1.py
+    # Always build with full column set so output has CPR + all bands even with 0 rows or mixed runs
     base_columns = [
         "date", "PDH", "PDL", "TC", "P", "BC", "R1", "R2", "R3", "R4", "S1", "S2", "S3", "S4",
     ] + BAND_LOWER_UPPER_COLUMNS
     out_df = pd.DataFrame(rows, columns=base_columns)
     # band_*_5 = 5-period rolling mean of band midpoint (average of lower and upper)
-    for band in BAND_NAMES:
+    for band in ALL_BAND_NAMES:
         mid = (out_df[f"band_{band}_lower"] + out_df[f"band_{band}_upper"]) / 2
         out_df[f"band_{band}_5"] = mid.rolling(5, min_periods=1).mean().round(2)
-    out_df = out_df[CPR_COLUMNS]
+    # Enforce full column order and presence (avoids ever writing CPR-only when many dates / other scripts)
+    out_df = out_df.reindex(columns=CPR_COLUMNS)
     out_path_v5 = script_dir / "cpr_dates.csv"
     out_df.to_csv(out_path_v5, index=False)
-    logger.info("Wrote %d rows to %s", len(out_df), out_path_v5)
+    logger.info("Wrote %d rows (%d columns: 14 CPR + %d band cols) to %s", len(out_df), len(CPR_COLUMNS), len(CPR_BAND_COLUMNS), out_path_v5)
     analytics_path = backtesting_root / "analytics" / "cpr_dates.csv"
     analytics_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(analytics_path, index=False)
