@@ -220,22 +220,37 @@ class NiftySentimentAnalyzer:
                     current_sentiment = "NEUTRAL"
                     last_neutral_band = self.band_containing(ncp, bands_list)
             else:
+                prev_ncp = float(ncp_arr[i - 1])
                 # Rule 2: Inside any band -> NEUTRAL
                 if in_any:
                     current_sentiment = "NEUTRAL"
                     last_neutral_band = self.band_containing(ncp, bands_list)
                 else:
-                    # Rule 3: Breakouts from NEUTRAL
-                    if current_sentiment == "NEUTRAL" and last_neutral_band is not None:
-                        low_b, high_b = last_neutral_band
-                        if ncp < low_b:
+                    # Rule 2b: Cross without being inside – transition directly to BULLISH/BEARISH
+                    # If NCP was above a band and is now below it (without being inside) -> BEARISH
+                    # If NCP was below a band and is now above it (without being inside) -> BULLISH
+                    cross_handled = False
+                    for (low_b, high_b) in bands_list:
+                        if prev_ncp > high_b and ncp < low_b:
                             current_sentiment = "BEARISH"
-                        elif ncp > high_b:
+                            last_neutral_band = None
+                            cross_handled = True
+                            break
+                        if prev_ncp < low_b and ncp > high_b:
                             current_sentiment = "BULLISH"
-                        # else: still consider we "exited" - could be in another band but we already checked in_any
-                        last_neutral_band = None
-                    # Rule 4: Continuation (prev BULLISH/BEARISH, not in band -> unchanged)
-                    # current_sentiment already holds previous; no change needed
+                            last_neutral_band = None
+                            cross_handled = True
+                            break
+                    if not cross_handled:
+                        # Rule 3: Breakouts from NEUTRAL
+                        if current_sentiment == "NEUTRAL" and last_neutral_band is not None:
+                            low_b, high_b = last_neutral_band
+                            if ncp < low_b:
+                                current_sentiment = "BEARISH"
+                            elif ncp > high_b:
+                                current_sentiment = "BULLISH"
+                            last_neutral_band = None
+                        # Rule 4: Continuation (prev BULLISH/BEARISH, not in band, no cross -> unchanged)
 
             sentiment_arr[i] = current_sentiment
 

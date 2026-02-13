@@ -238,9 +238,10 @@ def process_single_file(input_csv_path, output_csv_path, config_path, kite_insta
     # ------------------------------------------------------------------
     # Step 2: Generate workflow sentiment file (nifty_market_sentiment_<date>.csv)
     # ------------------------------------------------------------------
-    # Controlled by config LAG_SENTIMENT_BY_ONE:
-    #   True:  lagged by 1 (09:15=DISABLE, 9:16 gets 9:15 sentiment, etc.) to simulate production.
-    #   False: same as _plot (no lag) — use for backtesting that matches plot alignment.
+    # Realtime: sentiment of candle T is only available when T closes (start of T+1).
+    # LAG_SENTIMENT_BY_ONE:
+    #   True:  row at time T = sentiment of candle T-1 (realtime-aligned; use for production-like backtest).
+    #   False: row at time T = sentiment of candle T (1:1, lookahead). See CPR_IMPLEMENTATION_v5.md § Realtime vs backtest.
     #
     lag_sentiment_by_one = config.get('LAG_SENTIMENT_BY_ONE', False)
 

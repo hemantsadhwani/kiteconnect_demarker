@@ -208,16 +208,50 @@ So the first candle can be BULLISH/BEARISH when NCP is above/below Pivot but out
     - Set sentiment to **NEUTRAL**.
     - Set `last_neutral_band` to the band containing NCP.
 
+### Rule 2b – Cross without being inside (direct transition)
+
+- When NCP is **not** inside any band on the current candle:
+  - For **any** band (Type 1 or Type 2), compare current NCP with **previous candle’s NCP** (`prev_ncp`):
+    - If **prev_ncp > band upper** and **current NCP < band lower** (price crossed from above to below without being inside the band) → set sentiment to **BEARISH**, clear `last_neutral_band`.
+    - If **prev_ncp < band lower** and **current NCP > band upper** (price crossed from below to above without being inside) → set sentiment to **BULLISH**, clear `last_neutral_band`.
+  - This avoids forcing a NEUTRAL when price jumps over a band in one candle (e.g. from above R1–R2 to below R1–R2 → BEARISH; from below a band to above it → BULLISH).
+  - If no band is crossed in this way, apply Rule 3 or Rule 4 as below.
+
 ### Rule 3 – Breakout from NEUTRAL
 
-- If current sentiment was **NEUTRAL** and `last_neutral_band` is set:
+- If current sentiment was **NEUTRAL** and `last_neutral_band` is set (and Rule 2b did not apply):
   - If NCP **<** band lower bound → **BEARISH**.
   - If NCP **>** band upper bound → **BULLISH**.
   - Then clear `last_neutral_band`.
 
 ### Rule 4 – Continuation
 
-- If sentiment is already BULLISH or BEARISH and NCP is **not** inside any band, leave sentiment **unchanged** (continuation).
+- If sentiment is already BULLISH or BEARISH and NCP is **not** inside any band, and no direct cross (Rule 2b) was detected, leave sentiment **unchanged** (continuation).
+
+---
+
+## Realtime vs backtest: when is sentiment available?
+
+- **Backtest**: We have full OHLC for candle T at bar close, so we can compute “sentiment of T” and assign it to timestamp T (1:1). That is **lookahead** relative to live: in real time we don’t have T’s close until T+1 starts.
+- **Realtime**: Candle T **finishes** when candle T+1 **starts**. So the sentiment **of candle T** (from T’s OHLC) is only available **at the start of T+1**.
+
+To simulate realtime in backtesting, the sentiment that was **computed from candle T’s OHLC** must be **used as the sentiment for timestamp T+1** (i.e. “at T+1 we have T’s sentiment”). That is what **LAG_SENTIMENT_BY_ONE** does.
+
+### How process_sentiment.py handles it
+
+1. **Plot file** (`nifty_market_sentiment_<date>_plot.csv`): **1:1 alignment**. Row at time T has sentiment computed from **candle T’s** OHLC. Use this for **plotting** (correct “sentiment of this candle”).
+2. **Workflow file** (`nifty_market_sentiment_<date>.csv`), used by backtest/strategy:
+   - **`LAG_SENTIMENT_BY_ONE: false`**: Same as plot file. Row at T = sentiment of T. Backtest at bar T uses T’s sentiment → **lookahead** (not realtime).
+   - **`LAG_SENTIMENT_BY_ONE: true`**: **Lagged by one candle.** Row at T gets the sentiment that was computed from **T−1’s** OHLC. So “sentiment at 09:16” = sentiment of 09:15 (available at start of 09:16). Backtest at bar T reads row T and gets T−1’s sentiment → **realtime-aligned**.
+
+### Why PnL drops with lag
+
+With **no lag**, the backtest at 09:16 can use sentiment from 09:16’s OHLC (information that in realtime you only get at 09:17). With **lag**, at 09:16 you only use 09:15’s sentiment. So lag **removes lookahead bias**; the PnL drop when you set `LAG_SENTIMENT_BY_ONE: true` is expected and reflects what you would see in live trading.
+
+### Recommendation
+
+- For **realtime-like backtest**: set **`LAG_SENTIMENT_BY_ONE: true`** and use the **workflow file** (`nifty_market_sentiment_<date>.csv`) for strategy/merge. Interpret row T as “sentiment **available** at start of T” = “sentiment **of** candle T−1”.
+- For **plotting / analysis**: use the **plot file** (`*_plot.csv`); keep 1:1 so each bar shows the sentiment of that bar.
 
 ---
 
@@ -228,7 +262,7 @@ So the first candle can be BULLISH/BEARISH when NCP is above/below Pivot but out
 | Parameter                 | Description |
 |---------------------------|-------------|
 | `DATE_MAPPINGS`           | day_label (e.g. jan16) → expiry_week (e.g. JAN20) for input/output paths. |
-| `LAG_SENTIMENT_BY_ONE`    | If true, output is lagged by 1 candle (e.g. 09:16 row gets 09:15 sentiment). |
+| `LAG_SENTIMENT_BY_ONE`    | **false**: workflow CSV = 1:1 (row T = sentiment of T; backtest has lookahead). **true**: workflow CSV lagged by 1 (row T = sentiment of T−1; realtime-aligned). Plot file is always 1:1. |
 | `PLOT_ENABLED`            | Enable HTML plot generation. |
 | `VERBOSE_SWING_LOGGING`   | Extra logging (legacy path). |
 

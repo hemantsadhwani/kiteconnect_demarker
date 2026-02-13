@@ -639,6 +639,7 @@ def create_html_file(data, output_file):
       <div class=\"kv\"><span class=\"k\">Calc Price</span><span id=\"md-calc-price\" class=\"v\">-</span></div>
       <div class=\"kv\"><span class=\"k\">Supertrend</span><span id=\"md-st\" class=\"v\">-</span></div>
       <div class=\"kv\"><span class=\"k\">ST Dir</span><span id=\"md-st-dir\" class=\"v\">-</span></div>
+      <div class=\"kv\"><span class=\"k\">Sentiment</span><span id=\"md-sentiment\" class=\"v\">-</span></div>
 
       <div class=\"section\">
         <div class=\"kv\"><span class=\"k\">CPR Band</span><span class=\"badge\">Upper / Lower</span></div>
@@ -729,12 +730,12 @@ def create_html_file(data, output_file):
     // Store last bar time for clamping checks
     const lastBarTime = data.ohlc.length > 0 ? data.ohlc[data.ohlc.length-1].time : null;
     
-    // Draw CPR Fib retracement bands (Type 1 - Gray, no-trade zones)
+    // Draw CPR Fib retracement bands (Type 1 - Gray, 8 zones S4-S3..R3-R4) – solid lines, visible
     cprFibBandsGray.forEach((band, idx) => {{
       const topSeries = chart.addLineSeries({{
-        color: '#9E9E9E',
-        lineWidth: 1,
-        lineStyle: 2,
+        color: '#757575',
+        lineWidth: 2,
+        lineStyle: 0,
         priceLineVisible: false,
         lastValueVisible: false
       }});
@@ -743,9 +744,9 @@ def create_html_file(data, output_file):
         {{ time: timeRange.end, value: band.top }}
       ]);
       const bottomSeries = chart.addLineSeries({{
-        color: '#9E9E9E',
-        lineWidth: 1,
-        lineStyle: 2,
+        color: '#757575',
+        lineWidth: 2,
+        lineStyle: 0,
         priceLineVisible: false,
         lastValueVisible: false
       }});
@@ -755,13 +756,13 @@ def create_html_file(data, output_file):
       ]);
     }});
     
-    // Draw CPR colored bands (Type 2 - Pivot orange, S1/S2 green, R1/R2 red)
+    // Draw CPR colored bands (Type 2 - Pivot, S1-S4, R1-R4) – solid lines, bold colors
     cprFibBandsColored.forEach((band) => {{
       const color = band.color || '#9E9E9E';
       const topSeries = chart.addLineSeries({{
         color: color,
-        lineWidth: 1,
-        lineStyle: 2,
+        lineWidth: 2,
+        lineStyle: 0,
         priceLineVisible: false,
         lastValueVisible: false
       }});
@@ -771,8 +772,8 @@ def create_html_file(data, output_file):
       ]);
       const bottomSeries = chart.addLineSeries({{
         color: color,
-        lineWidth: 1,
-        lineStyle: 2,
+        lineWidth: 2,
+        lineStyle: 0,
         priceLineVisible: false,
         lastValueVisible: false
       }});
@@ -910,22 +911,22 @@ def create_html_file(data, output_file):
       try {{ priceScale = chart.priceScale('right'); }} catch (e) {{ try {{ priceScale = chart.priceScale(); }} catch (e2) {{ return; }} }}
       if (!priceScale) return;
       
-      // Gray fill: CPR Fib retracement bands (Type 1)
+      // Gray fill: CPR Fib retracement bands (Type 1 – all 8: S4-S3, S3-S2, S2-S1, S1-P, P-R1, R1-R2, R2-R3, R3-R4)
       cprFibBandsGray.forEach((band) => {{
-        drawBandFill(band.top, band.bottom, 'rgba(158, 158, 158, 0.25)');
+        drawBandFill(band.top, band.bottom, 'rgba(97, 97, 97, 0.4)');
       }});
       
-      // Green fill: support bands (S1, S2 – Type 2 colored green)
-      // cprFibBandsColored order: Pivot(0), S1(1), S2(2), R1(3), R2(4)
-      drawBandFill(cprFibBandsColored[1].top, cprFibBandsColored[1].bottom, 'rgba(76, 175, 80, 0.2)');
-      drawBandFill(cprFibBandsColored[2].top, cprFibBandsColored[2].bottom, 'rgba(76, 175, 80, 0.2)');
-      
-      // Red fill: resistance bands (R1, R2 – Type 2 colored red)
-      drawBandFill(cprFibBandsColored[3].top, cprFibBandsColored[3].bottom, 'rgba(244, 67, 54, 0.2)');
-      drawBandFill(cprFibBandsColored[4].top, cprFibBandsColored[4].bottom, 'rgba(244, 67, 54, 0.2)');
-      
-      // Orange fill: Pivot band (Type 2)
-      drawBandFill(cprFibBandsColored[0].top, cprFibBandsColored[0].bottom, 'rgba(255, 152, 0, 0.2)');
+      // Colored fills: all 9 Type 2 bands – Pivot(0), S1(1), S2(2), S3(3), S4(4), R1(5), R2(6), R3(7), R4(8)
+      // Orange: Pivot
+      drawBandFill(cprFibBandsColored[0].top, cprFibBandsColored[0].bottom, 'rgba(255, 152, 0, 0.35)');
+      // Green: S1, S2, S3, S4
+      for (let i = 1; i <= 4; i++) {{
+        drawBandFill(cprFibBandsColored[i].top, cprFibBandsColored[i].bottom, 'rgba(76, 175, 80, 0.35)');
+      }}
+      // Red: R1, R2, R3, R4
+      for (let i = 5; i <= 8; i++) {{
+        drawBandFill(cprFibBandsColored[i].top, cprFibBandsColored[i].bottom, 'rgba(244, 67, 54, 0.35)');
+      }}
     }}
     
     resizeBandCanvas();
@@ -1312,6 +1313,8 @@ def create_html_file(data, output_file):
       setText('md-calc-price', lastCalcPrice != null ? Number(lastCalcPrice).toFixed(2) : '-');
       setText('md-st', lastBar.supertrend != null ? Number(lastBar.supertrend).toFixed(2) : '-');
       setText('md-st-dir', lastBar.supertrend_dir != null ? String(lastBar.supertrend_dir) : '-');
+      const lastSentiment = sentimentMap.get(lastBar.time);
+      setText('md-sentiment', lastSentiment != null ? String(lastSentiment) : '-');
     }}
 
     // Live crosshair updates (v4: use seriesData map)
@@ -1362,6 +1365,18 @@ def create_html_file(data, output_file):
       }}
       setText('md-st', match && match.supertrend != null ? Number(match.supertrend).toFixed(2) : '-');
       setText('md-st-dir', match && match.supertrend_dir != null ? String(match.supertrend_dir) : '-');
+      // Sentiment for crosshair bar time (exact or nearest within 60s)
+      let sentimentVal = sentimentMap.get(t);
+      if (sentimentVal == null && sentiment.length > 0) {{
+        let minDiff = Infinity;
+        let nearest = null;
+        sentiment.forEach(p => {{
+          const d = Math.abs(p.time - t);
+          if (d < minDiff) {{ minDiff = d; nearest = p; }}
+        }});
+        if (minDiff <= 60) sentimentVal = String(nearest.sentiment).toUpperCase().trim();
+      }}
+      setText('md-sentiment', sentimentVal != null ? String(sentimentVal) : '-');
     }});
   </script>
 </body>
