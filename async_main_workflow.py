@@ -374,9 +374,11 @@ class AsyncTradingBot:
                 # Wire ticker_handler to entry_condition_manager for SKIP_FIRST feature
                 if self.entry_condition_manager and self.ticker_handler:
                     self.entry_condition_manager.ticker_handler = self.ticker_handler
-                    
+                # Wire CPR trading range (band_S2_lower, band_R2_upper) for entry validation
+                if self.entry_condition_manager:
+                    self.entry_condition_manager.cpr_today = getattr(self, 'cpr_today', None)
                     # Initialize SKIP_FIRST daily values at market open (if enabled)
-                    if self.entry_condition_manager.skip_first:
+                    if self.entry_condition_manager.ticker_handler and self.entry_condition_manager.skip_first:
                         try:
                             await self.entry_condition_manager._initialize_daily_skip_first_values()
                         except Exception as e:

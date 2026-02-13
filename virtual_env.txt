@@ -1,0 +1,123 @@
+# Virtual Environment Setup Guide
+# ================================
+
+## WINDOWS - PowerShell (Recommended for Windows)
+# ===============================================
+
+# Step 1: Navigate to project root
+cd C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_app
+
+# Step 2: Create virtual environment (if not already created)
+py -m venv venv
+# OR
+python -m venv venv
+
+# Step 3: Activate virtual environment (SHORTCUT - Recommended)
+# This script automatically handles execution policy and activation
+.\activate_venv.ps1
+
+# OR Manual two-step approach:
+# Step 3a: Set execution policy (one-time setup, if needed)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+# Step 3b: Activate virtual environment
+.\venv\Scripts\Activate.ps1
+
+# Step 5: Upgrade pip
+pip install --upgrade pip
+
+# Step 6: Install packages from requirements.txt
+pip install -r requirements.txt
+
+# Verify activation (you should see "(venv)" in your prompt)
+python --version
+pip list
+
+# Deactivate when done
+deactivate
+
+
+## WINDOWS - Cursor Terminal (PowerShell)
+# ========================================
+# Cursor terminal uses PowerShell by default on Windows
+
+# SHORTCUT (Recommended - handles everything automatically):
+.\activate_venv.ps1
+
+# OR Manual approach:
+# From project root:
+.\venv\Scripts\Activate.ps1
+# From backtesting subdirectory:
+..\venv\Scripts\Activate.ps1
+# If you get execution policy error, run this first:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+
+
+## WINDOWS - Command Prompt (CMD)
+# ===============================
+
+# From project root:
+venv\Scripts\activate.bat
+
+# From backtesting subdirectory:
+..\venv\Scripts\activate.bat
+
+
+## LINUX / macOS
+# ==============
+
+# Step 1: Navigate to project root
+cd /path/to/kiteconnect_app
+
+# Step 2: Create virtual environment (if not already created)
+python3 -m venv venv
+# OR
+python3.13 -m venv venv
+
+# Step 3: Activate virtual environment
+source venv/bin/activate
+
+# Step 4: Upgrade pip
+pip install --upgrade pip
+
+# Step 5: Install packages from requirements.txt
+pip install -r requirements.txt
+
+# Verify activation (you should see "(venv)" in your prompt)
+python --version
+pip list
+
+# Deactivate when done
+deactivate
+
+
+## Quick Reference - Activation Commands
+# ======================================
+# Windows PowerShell SHORTCUT (anywhere in project):  .\activate_venv.ps1
+# Windows PowerShell (from project root):             .\venv\Scripts\Activate.ps1
+# Windows PowerShell (from backtesting/):              ..\venv\Scripts\Activate.ps1
+# Windows CMD (from project root):                    venv\Scripts\activate.bat
+# Windows CMD (from backtesting/):                    ..\venv\Scripts\activate.bat
+# Linux/macOS (from project root):                    source venv/bin/activate
+# Linux/macOS (from backtesting/):                     source ../venv/bin/activate
+
+
+## Troubleshooting
+# ================
+
+# If PowerShell activation fails with execution policy error:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+
+# If you're in a subdirectory and activation fails:
+# Navigate to project root first, then activate
+
+# Verify virtual environment is activated:
+# - PowerShell/CMD: Check for "(venv)" prefix in prompt
+# - Check Python path: python -c "import sys; print(sys.executable)"
+#   Should show path to venv\Scripts\python.exe
+
+
+## Notes:
+# - Virtual environment location: Project root (kiteconnect_app/venv/)
+# - Always activate before running Python scripts
+# - Use requirements.txt for consistent environment setup
+# - Created: 2025-01-XX

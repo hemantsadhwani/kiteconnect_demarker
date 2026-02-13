@@ -164,6 +164,15 @@ class EntryConditionManager:
         else:
             self.logger.info("Time distribution filter DISABLED - all time zones allowed")
 
+        # --- CPR Trading Range (NIFTY must be within band_S2_lower and band_R2_upper) ---
+        cpr_range_config = config.get('CPR_TRADING_RANGE', {})
+        self.cpr_trading_range_enabled = cpr_range_config.get('ENABLED', False)
+        self.cpr_today = None  # Set by workflow after CPR computation (band_S2_lower, band_R2_upper)
+        if self.cpr_trading_range_enabled:
+            self.logger.info("CPR_TRADING_RANGE ENABLED - Entry only when NIFTY is within [band_S2_lower, band_R2_upper]")
+        else:
+            self.logger.info("CPR_TRADING_RANGE DISABLED - No NIFTY band filter")
+
         # --- Thread-safety lock ---
         from threading import RLock
         self.lock = RLock()  # Use RLock instead of Lock to allow reentrant locking
@@ -1184,6 +1193,37 @@ class EntryConditionManager:
         
         return is_valid, current_price
 
+    def _validate_cpr_trading_range(self, symbol):
+        """
+        Validate that current NIFTY is within CPR trading range [band_S2_lower, band_R2_upper].
+        Used to block entries when NIFTY is outside the band (e.g. much below S2 or above R2).
+        Returns (is_valid, nifty_price). If CPR range is disabled or cpr_today not set, returns (True, nifty_price).
+        """
+        if not self.cpr_trading_range_enabled:
+            return True, None
+        cpr = getattr(self, 'cpr_today', None)
+        if not cpr:
+            self.logger.debug("CPR_TRADING_RANGE: cpr_today not set - skipping NIFTY band check")
+            return True, None
+        cpr_lower = cpr.get('band_S2_lower')
+        cpr_upper = cpr.get('band_R2_upper')
+        if cpr_lower is None or cpr_upper is None:
+            self.logger.warning("CPR_TRADING_RANGE: band_S2_lower or band_R2_upper missing in cpr_today - skipping check")
+            return True, None
+        nifty = self._get_current_nifty_price()
+        if nifty is None:
+            self.logger.warning("[CPR TRADING RANGE] Could not get current NIFTY price - blocking trade for safety")
+            return False, None
+        is_valid = cpr_lower <= nifty <= cpr_upper
+        if not is_valid:
+            self.logger.info(
+                f"[CPR TRADING RANGE] Trade NOT taken for {symbol}: NIFTY {nifty:.2f} is outside allowed range "
+                f"[band_S2_lower={cpr_lower:.2f}, band_R2_upper={cpr_upper:.2f}] - entry signal ignored"
+            )
+        else:
+            self.logger.debug(f"CPR trading range: NIFTY {nifty:.2f} within [{cpr_lower:.2f}, {cpr_upper:.2f}] - trade allowed")
+        return is_valid, nifty
+
     def _execute_neutral_trade(self, symbol, option_type, entry_type, ticker_handler):
         """
         Execute one NEUTRAL trade (CE or PE). Validates time zone and price zone, dispatches event, places order.
@@ -1199,6 +1239,10 @@ class EntryConditionManager:
             disabled_zone = self._get_current_time_zone()
             zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
             self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {symbol} at {current_time_str}{zone_info}")
+            return False
+        # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+        cpr_valid, nifty_price = self._validate_cpr_trading_range(symbol)
+        if not cpr_valid:
             return False
         is_valid, current_price = self._validate_price_zone(symbol, ticker_handler)
         if not is_valid:
