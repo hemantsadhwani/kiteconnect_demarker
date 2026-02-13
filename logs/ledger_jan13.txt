@@ -1,4 +1,0 @@
-#DATE: 2026-01-13
-symbol,entry_time,entry_price,exit_time,exit_price,pnl_percent,trade_status,exit_reason
-NIFTY2611325750CE,11:08:01,59.55,11:16:00,72.9,22.42,EXECUTED,MA_TRAILING_EXIT
-NIFTY2611325700CE,12:39:01,44.3,12:40:39,40.5,-8.58,EXECUTED,SL

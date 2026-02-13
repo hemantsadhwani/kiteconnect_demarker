@@ -54,10 +54,11 @@ class Event:
         return self.__str__()
 
 
-# Event types that must be processed with minimal latency (trade lifecycle)
+# Event types that must be processed with minimal latency (trade lifecycle, minimal slippage)
 HIGH_PRIORITY_EVENT_TYPES = frozenset({
     EventType.TRADE_EXECUTED,
     EventType.TRADE_ENTRY_INITIATED,
+    EventType.EXIT_SIGNAL,  # SL/TP/EXIT_WEAK_SIGNAL etc. - process before TICK_UPDATE for less slippage
 })
 
 

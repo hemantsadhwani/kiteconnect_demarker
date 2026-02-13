@@ -220,6 +220,22 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
         return {
             'swing_low': df['low'].rolling(window=self.config['SWING_LOW_PERIOD']).min()
         }
+
+    def _calculate_demarker(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
+        """
+        DeMarker indicator matching backtesting (indicators_backtesting.calculate_demarker).
+        Formula: high_diff = high > high[1] ? high - high[1] : 0; low_diff = low < low[1] ? low[1] - low : 0;
+        dem = sum_high / (sum_high + sum_low) over period.
+        """
+        demarker_config = self.config.get('DEMARKER', {})
+        period = int(demarker_config.get('PERIOD', 14))
+        high_diff = np.where(df['high'] > df['high'].shift(1), df['high'] - df['high'].shift(1), 0.0)
+        low_diff = np.where(df['low'] < df['low'].shift(1), df['low'].shift(1) - df['low'], 0.0)
+        sum_high = pd.Series(high_diff, index=df.index).rolling(window=period, min_periods=1).sum()
+        sum_low = pd.Series(low_diff, index=df.index).rolling(window=period, min_periods=1).sum()
+        total = sum_high + sum_low
+        dem = np.where(total != 0, sum_high / total, 0.0)
+        return {'demarker': np.round(dem.astype(float), 4)}
     
     def calculate_all_concurrent(self, df: pd.DataFrame, token_type: str = None) -> pd.DataFrame:
         """
@@ -236,7 +252,7 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
         start_time = time.time()
         result_df = df.copy()
         
-        # Define indicator calculation tasks
+        # Define indicator calculation tasks (DeMarker for EXIT_WEAK_SIGNAL and entry logic)
         indicator_tasks = [
             ('supertrend', self._calculate_supertrend),
             ('wpr', self._calculate_wpr),
@@ -244,6 +260,8 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
             ('fast_slow_ma', self._calculate_fast_slow_ma),
             ('swing_low', self._calculate_swing_low)
         ]
+        if self.config.get('DEMARKER'):
+            indicator_tasks.append(('demarker', self._calculate_demarker))
         
         # Execute indicators concurrently
         with ThreadPoolExecutor(max_workers=len(indicator_tasks)) as executor:

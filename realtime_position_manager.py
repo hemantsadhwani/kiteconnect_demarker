@@ -29,6 +29,10 @@ class PositionInfo:
     supertrend_sl_active: bool = False
     ma_trailing_active: bool = False
     
+    # EXIT_WEAK_SIGNAL (R1-R2 only): high-water and one-time 7% check
+    high_water_ltp: Optional[float] = None
+    weak_signal_7pct_checked: bool = False
+    
     # Last update timestamps
     last_sl_update: Optional[datetime] = None
     last_tp_check: Optional[datetime] = None
@@ -69,6 +73,11 @@ class RealTimePositionManager:
         gap_config = pm_config.get('GAP_DETECTION', {})
         self.gap_threshold_percent: float = gap_config.get('GAP_THRESHOLD_PERCENT', 2.0)
         self.gap_detection_enabled: bool = gap_config.get('ENABLED', True)
+        # EXIT_WEAK_SIGNAL (R1-R2 zone only)
+        trade_settings = config.get('TRADE_SETTINGS', {})
+        self.exit_weak_signal_enabled: bool = trade_settings.get('EXIT_WEAK_SIGNAL', False)
+        self.exit_weak_signal_profit_pct: float = float(trade_settings.get('EXIT_WEAK_SIGNAL_PROFIT_PCT', 7.0))
+        self.exit_weak_signal_demarker_r: float = float(trade_settings.get('EXIT_WEAK_SIGNAL_DEMARKER_R_BAND', 0.60))
         
         # Background task for periodic checks
         self.periodic_check_task: Optional[asyncio.Task] = None
@@ -367,6 +376,13 @@ class RealTimePositionManager:
         trade = self.state_manager.get_trade(symbol)
         position = self.active_positions[symbol]
         
+        # Update high-water LTP for EXIT_WEAK_SIGNAL (R1-R2)
+        try:
+            cur = position.high_water_ltp or position.entry_price
+            position.high_water_ltp = max(cur, ltp)
+        except Exception:
+            position.high_water_ltp = max(position.entry_price, ltp)
+        
         if trade:
             # CRITICAL: Sync state from metadata to ensure position manager has latest flags
             trade_metadata = trade.get('metadata', {})
@@ -399,6 +415,53 @@ class RealTimePositionManager:
                 # Double-check position still exists
                 if symbol not in self.active_positions:
                     return
+                
+                # 0. EXIT_WEAK_SIGNAL (R1-R2 only): when high touches 7%, check DeMarker; exit at 7% or activate trailing
+                if (self.exit_weak_signal_enabled
+                    and position.metadata.get('entry_band_weak_signal') == 'R1_R2'
+                    and not position.weak_signal_7pct_checked):
+                    threshold_price = position.entry_price * (1 + self.exit_weak_signal_profit_pct / 100)
+                    high = position.high_water_ltp or ltp
+                    if high >= threshold_price:
+                        position.weak_signal_7pct_checked = True
+                        demarker_val = None
+                        token = self.symbol_token_map.get(symbol)
+                        if token and self.ticker_handler:
+                            try:
+                                df_ind = self.ticker_handler.get_indicators(token)
+                                if not df_ind.empty and 'demarker' in df_ind.columns:
+                                    demarker_val = df_ind.iloc[-1].get('demarker')
+                                    if demarker_val is not None and pd.notna(demarker_val):
+                                        demarker_val = float(demarker_val)
+                            except Exception as e:
+                                logger.debug(f"Could not get DeMarker for {symbol}: {e}")
+                        # Debug log only for R1-R2 entries when high touched 7%
+                        logger.info(f"R1-R2 trade {symbol}: high touched {self.exit_weak_signal_profit_pct}%%, DeMarker={demarker_val}")
+                        if demarker_val is not None and demarker_val < self.exit_weak_signal_demarker_r:
+                            if symbol in self.exit_signals_dispatched:
+                                return
+                            self.exit_signals_dispatched.add(symbol)
+                            logger.info(f"[EXIT_WEAK_SIGNAL] Exiting at {self.exit_weak_signal_profit_pct}%%: {symbol} (DeMarker={demarker_val:.2f} < {self.exit_weak_signal_demarker_r})")
+                            self.event_dispatcher.dispatch_event(
+                                Event(EventType.EXIT_SIGNAL, {
+                                    'symbol': symbol,
+                                    'exit_reason': 'EXIT_WEAK_SIGNAL',
+                                    'trigger_price': threshold_price,
+                                    'order_type': 'MARKET',
+                                    'priority': 'MEDIUM'
+                                }, source='position_manager')
+                            )
+                            return
+                        # DeMarker >= threshold or unavailable: activate MA trailing
+                        position.ma_trailing_active = True
+                        position.tp_price = None
+                        position.metadata['dynamic_trailing_ma_active'] = True
+                        position.metadata['weak_signal_7pct_checked'] = True
+                        self.state_manager.update_trade_metadata(symbol, {
+                            'dynamic_trailing_ma_active': True,
+                            'weak_signal_7pct_checked': True
+                        })
+                        logger.info(f"[EXIT_WEAK_SIGNAL] R1-R2 {symbol}: DeMarker >= {self.exit_weak_signal_demarker_r}, MA trailing activated")
                 
                 # 1. Check Stop Loss (highest priority) - checked on EVERY TICK (mid-candle)
                 # This includes both Fixed SL and Trailing SL (SuperTrend SL)
@@ -750,7 +813,9 @@ class RealTimePositionManager:
                 trade_type=trade_type,
                 metadata=metadata,
                 supertrend_sl_active=metadata.get('supertrend_sl_active', False),
-                ma_trailing_active=metadata.get('dynamic_trailing_ma_active', False)
+                ma_trailing_active=metadata.get('dynamic_trailing_ma_active', False),
+                high_water_ltp=entry_price,
+                weak_signal_7pct_checked=metadata.get('weak_signal_7pct_checked', False)
             )
             
             # Clear any old exit signal tracking for this symbol (in case of re-entry)

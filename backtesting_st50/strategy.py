@@ -319,7 +319,7 @@ class Entry2BacktestStrategyFixed:
         self.cpr_trading_range_enabled = cpr_range_config.get('ENABLED', False)
         self.cpr_upper_col = (cpr_range_config.get('CPR_UPPER') or 'band_R2_upper').strip()
         self.cpr_lower_col = (cpr_range_config.get('CPR_LOWER') or 'band_S2_lower').strip()
-        self._cpr_by_date = {}
+        self._cpr_by_date = {}  # Also used by EXIT_WEAK_SIGNAL for raw R1, S1, R2, S2 (zone detection)
         if self.cpr_trading_range_enabled:
             cpr_path = self.backtesting_dir / 'analytics' / 'cpr_dates.csv'
             if cpr_path.exists():
@@ -343,8 +343,38 @@ class Entry2BacktestStrategyFixed:
                 logger.warning(f"CPR_TRADING_RANGE: {cpr_path} not found; run grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py; range check disabled")
                 self.cpr_trading_range_enabled = False
         
-        # Weak signal exit management
+        # Weak signal exit management: 7% + DeMarker check for entries in [S1,S2] or [R1,R2] (raw pivot levels)
         self.exit_weak_signal = entry2_config.get('EXIT_WEAK_SIGNAL', False)
+        self.exit_weak_signal_demarker_r = float(entry2_config.get('EXIT_WEAK_SIGNAL_DEMARKER_R_BAND', 0.60))
+        self.exit_weak_signal_profit_pct = float(entry2_config.get('EXIT_WEAK_SIGNAL_PROFIT_PCT', 7.0))
+        if self.exit_weak_signal:
+            logger.info(f"EXIT_WEAK_SIGNAL: enabled for R1-R2 zone only (demarker<{self.exit_weak_signal_demarker_r}, profit threshold {self.exit_weak_signal_profit_pct}%)")
+        
+        # Load raw CPR levels (R1, S1, R2, S2) for EXIT_WEAK_SIGNAL zone detection (between S1 and S2, or between R1 and R2)
+        if self.exit_weak_signal:
+            cpr_path = self.backtesting_dir / 'analytics' / 'cpr_dates.csv'
+            raw_cols = ('R1', 'S1', 'R2', 'S2')
+            if cpr_path.exists():
+                try:
+                    cpr_df = pd.read_csv(cpr_path)
+                    if 'date' in cpr_df.columns and all(c in cpr_df.columns for c in raw_cols):
+                        for _, row in cpr_df.iterrows():
+                            d = str(pd.to_datetime(row['date']).date())
+                            if self._cpr_by_date.get(d) is None:
+                                self._cpr_by_date[d] = {}
+                            self._cpr_by_date[d].update({
+                                'R1': float(row['R1']),
+                                'S1': float(row['S1']),
+                                'R2': float(row['R2']),
+                                'S2': float(row['S2']),
+                            })
+                        logger.info(f"EXIT_WEAK_SIGNAL: Loaded raw CPR (R1,S1,R2,S2) for {len(self._cpr_by_date)} dates from {cpr_path.name}")
+                    else:
+                        logger.warning(f"EXIT_WEAK_SIGNAL: cpr_dates.csv missing date or R1/S1/R2/S2 columns; weak signal disabled")
+                except Exception as e:
+                    logger.warning(f"EXIT_WEAK_SIGNAL: Failed to load cpr_dates.csv: {e}; weak signal disabled")
+            else:
+                logger.warning(f"EXIT_WEAK_SIGNAL: {cpr_path} not found; weak signal disabled")
         
         # Define indicators_config_path for loading thresholds and indicators
         indicators_config_path = self.backtesting_dir / "indicators_config.yaml"
@@ -2187,32 +2217,6 @@ class Entry2BacktestStrategyFixed:
         
         return True  # Validation passed
 
-    def _is_red_candle(self, df: pd.DataFrame, index: int) -> bool:
-        """Check if a candle is red (close < open)"""
-        if index >= len(df):
-            return False
-        
-        row = df.iloc[index]
-        open_price = row.get('open')
-        close_price = row.get('close')
-        
-        if pd.isna(open_price) or pd.isna(close_price):
-            return False
-        
-        return close_price < open_price
-
-    def _check_weak_signal_exit(self, df: pd.DataFrame, entry_bar_index: int) -> bool:
-        """Check if we should exit due to weak signal (entry bar closed red)"""
-        if not self.exit_weak_signal:
-            return False
-        
-        # Check if the entry bar (where we actually entered) closed red
-        if self._is_red_candle(df, entry_bar_index):
-            logger.info(f"Weak signal detected: Entry bar at index {entry_bar_index} closed red. Exiting immediately.")
-            return True
-        
-        return False
-
     def _check_wpr9_invalidation(self, df: pd.DataFrame, bar_index: int) -> bool:
         """Check if WPR_9 has gone below the invalidation threshold (invalidation exit)"""
         if not self.wpr9_invalidation:
@@ -2348,39 +2352,44 @@ class Entry2BacktestStrategyFixed:
         execution_index = current_index + 1 if current_index + 1 < len(df) else current_index
         execution_row = df.iloc[execution_index]
 
-        # CPR trading range: allow entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER
+        # CPR trading range: allow entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
+        # Strict: if CPR is enabled but we cannot verify (no CPR bounds, no Nifty file, or no Nifty price), skip entry
+        # so that analytics zones outside [band_S2_lower, band_R2_upper] stay 0.
         if self.cpr_trading_range_enabled and getattr(self, '_cpr_by_date', None):
             try:
                 exec_date = execution_row.get('date')
-                if exec_date is not None and not pd.isna(exec_date):
-                    current_date = pd.to_datetime(exec_date).date() if hasattr(exec_date, 'date') else pd.to_datetime(exec_date).date()
-                    date_str = str(current_date)
-                    cpr_bounds = self._cpr_by_date.get(date_str)
-                    if cpr_bounds is not None:
-                        if isinstance(exec_date, pd.Timestamp):
-                            entry_time_str = exec_date.strftime('%H:%M:%S')
-                        else:
-                            entry_time_str = str(exec_date).strip().split()[-1][:8] if ' ' in str(exec_date) else '09:15:00'
-                        nifty_file = self._get_nifty_file_path(self.csv_file_path, current_date) if hasattr(self, 'csv_file_path') and self.csv_file_path else None
-                        if nifty_file and nifty_file.exists():
-                            nifty_price = self._get_nifty_price_at_time(nifty_file, entry_time_str, target_date=current_date)
-                            if nifty_price is not None:
-                                cpr_lower = cpr_bounds['cpr_lower']
-                                cpr_upper = cpr_bounds['cpr_upper']
-                                if nifty_price < cpr_lower or nifty_price > cpr_upper:
-                                    logger.info(
-                                        f"CPR_TRADING_RANGE: Skip entry {signal_type} at bar {current_index}: "
-                                        f"Nifty {nifty_price:.2f} outside [{cpr_lower:.2f}, {cpr_upper:.2f}]"
-                                    )
-                                    return
-                            else:
-                                logger.debug(f"CPR_TRADING_RANGE: No Nifty price at {entry_time_str} for {date_str}; allowing entry")
-                        else:
-                            logger.debug(f"CPR_TRADING_RANGE: No Nifty file for {date_str}; allowing entry")
-                    else:
-                        logger.debug(f"CPR_TRADING_RANGE: No CPR bounds for {date_str}; allowing entry")
+                if exec_date is None or pd.isna(exec_date):
+                    logger.debug(f"CPR_TRADING_RANGE: No execution date; skipping entry (strict)")
+                    return
+                current_date = pd.to_datetime(exec_date).date() if hasattr(exec_date, 'date') else pd.to_datetime(exec_date).date()
+                date_str = str(current_date)
+                cpr_bounds = self._cpr_by_date.get(date_str)
+                if cpr_bounds is None:
+                    logger.debug(f"CPR_TRADING_RANGE: No CPR bounds for {date_str}; skipping entry (strict)")
+                    return
+                if isinstance(exec_date, pd.Timestamp):
+                    entry_time_str = exec_date.strftime('%H:%M:%S')
+                else:
+                    entry_time_str = str(exec_date).strip().split()[-1][:8] if ' ' in str(exec_date) else '09:15:00'
+                nifty_file = self._get_nifty_file_path(self.csv_file_path, current_date) if hasattr(self, 'csv_file_path') and self.csv_file_path else None
+                if not nifty_file or not nifty_file.exists():
+                    logger.debug(f"CPR_TRADING_RANGE: No Nifty file for {date_str}; skipping entry (strict)")
+                    return
+                nifty_price = self._get_nifty_price_at_time(nifty_file, entry_time_str, target_date=current_date)
+                if nifty_price is None:
+                    logger.debug(f"CPR_TRADING_RANGE: No Nifty price at {entry_time_str} for {date_str}; skipping entry (strict)")
+                    return
+                cpr_lower = cpr_bounds['cpr_lower']
+                cpr_upper = cpr_bounds['cpr_upper']
+                if nifty_price < cpr_lower or nifty_price > cpr_upper:
+                    logger.info(
+                        f"CPR_TRADING_RANGE: Skip entry {signal_type} at bar {current_index}: "
+                        f"Nifty {nifty_price:.2f} outside [{cpr_lower:.2f}, {cpr_upper:.2f}]"
+                    )
+                    return
             except Exception as e:
-                logger.warning(f"CPR_TRADING_RANGE check failed: {e}; allowing entry")
+                logger.warning(f"CPR_TRADING_RANGE check failed: {e}; skipping entry (strict)")
+                return
 
         # CRITICAL FIX: Use execution time candle price, not signal candle price
         # In production: Signal detected at candle T (e.g., 13:58:00) -> Trade executes at T+1 minute + 1 second (e.g., 13:59:01)
@@ -2417,9 +2426,39 @@ class Entry2BacktestStrategyFixed:
         # This ensures we skip exit checks on the execution candle itself
         # Also store signal_bar_index for weak signal exit check (which should check the signal candle, not execution candle)
         self.entry_bar_index = current_index + 1 if current_index + 1 < len(df) else current_index
-        self.signal_bar_index = current_index  # Store signal candle index for weak signal exit check
+        self.signal_bar_index = current_index  # Store signal candle index (legacy)
         self.entry_signal = True
         self.entry_type = signal_type  # Track which entry type (Entry1, Entry2, Entry3)
+        
+        # EXIT_WEAK_SIGNAL: determine zone (between S1 and S2, or between R1 and R2) from Nifty at entry using raw pivot levels
+        self.entry_band_weak_signal = None  # 'S1_S2' | 'R1_R2' | None
+        self.weak_signal_7pct_checked = False
+        if self.exit_weak_signal and getattr(self, '_cpr_by_date', None):
+            try:
+                exec_date = execution_row.get('date')
+                if exec_date is not None and not pd.isna(exec_date):
+                    current_date = pd.to_datetime(exec_date).date() if hasattr(exec_date, 'date') else pd.to_datetime(exec_date).date()
+                    date_str = str(current_date)
+                    cpr_bounds = self._cpr_by_date.get(date_str)
+                    if cpr_bounds and all(k in cpr_bounds for k in ('R1', 'S1', 'R2', 'S2')):
+                        if isinstance(exec_date, pd.Timestamp):
+                            entry_time_str = exec_date.strftime('%H:%M:%S')
+                        else:
+                            entry_time_str = str(exec_date).strip().split()[-1][:8] if ' ' in str(exec_date) else '09:15:00'
+                        nifty_file = self._get_nifty_file_path(self.csv_file_path, current_date) if hasattr(self, 'csv_file_path') and self.csv_file_path else None
+                        nifty_at_entry = None
+                        if nifty_file and nifty_file.exists():
+                            nifty_at_entry = self._get_nifty_price_at_time(nifty_file, entry_time_str, target_date=current_date)
+                        if nifty_at_entry is not None:
+                            s1, s2 = cpr_bounds['S1'], cpr_bounds['S2']  # raw pivots: S2 < S1
+                            r1, r2 = cpr_bounds['R1'], cpr_bounds['R2']  # raw pivots: R1 < R2
+                            if s2 < nifty_at_entry < s1:
+                                self.entry_band_weak_signal = 'S1_S2'
+                            elif r1 < nifty_at_entry < r2:
+                                self.entry_band_weak_signal = 'R1_R2'
+                            logger.debug(f"EXIT_WEAK_SIGNAL: Nifty at entry={nifty_at_entry:.2f}, entry_band_weak_signal={self.entry_band_weak_signal}")
+            except Exception as e:
+                logger.warning(f"EXIT_WEAK_SIGNAL: Failed to set entry zone: {e}; entry_band_weak_signal=None")
         self.current_stop_loss_percent = self._determine_stop_loss_percent(entry_price)
         self.sl_to_entry_armed = False
         
@@ -2627,6 +2666,8 @@ class Entry2BacktestStrategyFixed:
         self.is_dynamic_trailing_active = False
         self.is_dynamic_trailing_ma_active = False
         self.current_stop_loss_percent = None
+        self.entry_band_weak_signal = None
+        self.weak_signal_7pct_checked = False
         
         # CRITICAL FIX: Update last_entry_bar to exit bar for cooldown period tracking
         # This ensures the next bar (current_index + 1) can be evaluated for a new trigger.
@@ -2653,6 +2694,7 @@ class Entry2BacktestStrategyFixed:
             if deferred_bar is not None and deferred_bar <= current_index:
                 self.entry2_last_signal_index[symbol] = deferred_trigger if deferred_trigger is not None else deferred_bar
                 self._enter_position(df, deferred_bar, "Entry2")
+                # Mark entry at signal bar (deferred_bar) to match prior behavior / trade count
                 if 'entry2_entry_type' in df.columns:
                     df.at[deferred_bar, 'entry2_entry_type'] = 'Entry'
                 if 'entry2_signal' in df.columns:
@@ -2770,6 +2812,8 @@ class Entry2BacktestStrategyFixed:
             # CRITICAL: Ensure is_dynamic_trailing_active is reset and respects config
             self.is_dynamic_trailing_active = False
             self.is_dynamic_trailing_ma_active = False
+            self.entry_band_weak_signal = None
+            self.weak_signal_7pct_checked = False
             if self.dynamic_trailing_wpr9:
                 logger.debug(f"DYNAMIC_TRAILING_WPR9 is enabled for {csv_file_path.name}")
             else:
@@ -2919,17 +2963,6 @@ class Entry2BacktestStrategyFixed:
                         elif pd.notna(current_low):
                             logger.debug(f"[SL DEBUG] {time_str} (bar {i}): Fixed SL check SKIPPED - SuperTrend SL is active (supertrend_stop_loss_active={self.supertrend_stop_loss_active})")
                     
-                    # Entry2-specific exit checks (only for Entry2 positions)
-                    if self.entry_type == 'Entry2':
-                        # Check for weak signal exit (check if signal bar closed red)
-                        # CRITICAL: Check signal_bar_index (signal candle), not entry_bar_index (execution candle)
-                        if i == self.entry_bar_index + 1 and hasattr(self, 'signal_bar_index') and self._check_weak_signal_exit(df, self.signal_bar_index):
-                            # Exit at current bar's open (next candle after entry)
-                            exit_price = df.iloc[i]['open']
-                            logger.info(f"Weak signal exit: Exited at {exit_price:.2f}")
-                            self._exit_position(df, i, "Weak Signal Exit", exit_price)
-                            continue  # Skip other exit checks and entry logic
-                    
                     # Update highest price seen in this trade (CRITICAL: Track across all candles, not just current bar)
                     # This must match backtest_reversal_strategy.py logic exactly: if high > self.highest_price
                     current_high = current_row.get('high', None)
@@ -2940,6 +2973,30 @@ class Entry2BacktestStrategyFixed:
                         # Update if current high is higher than tracked highest
                         if pd.notna(self.highest_price_in_trade) and current_high > self.highest_price_in_trade:
                             self.highest_price_in_trade = current_high
+                    
+                    # Entry2-specific: EXIT_WEAK_SIGNAL: only for entry in [R1,R2] (raw levels). When high >= 7%, check DeMarker; if < 0.60 exit as weak else start trailing.
+                    # S1-S2 zone is not used for weak-signal exit.
+                    if (self.entry_type == 'Entry2' and self.exit_weak_signal
+                            and getattr(self, 'entry_band_weak_signal', None) == 'R1_R2'
+                            and not getattr(self, 'weak_signal_7pct_checked', True)):
+                        if pd.notna(self.highest_price_in_trade) and pd.notna(self.entry_price):
+                            profit_from_high = ((self.highest_price_in_trade - self.entry_price) / self.entry_price) * 100
+                            if profit_from_high >= self.exit_weak_signal_profit_pct:
+                                self.weak_signal_7pct_checked = True
+                                current_demarker = current_row.get('demarker', None)
+                                if pd.notna(current_demarker):
+                                    is_weak = current_demarker < self.exit_weak_signal_demarker_r
+                                    if is_weak:
+                                        # Lock in EXIT_WEAK_SIGNAL_PROFIT_PCT% to match simulation (exit at 7%, not bar open)
+                                        exit_price = float(self.entry_price * (1 + self.exit_weak_signal_profit_pct / 100))
+                                        logger.info(f"Weak signal exit (zone {self.entry_band_weak_signal}): high reached {profit_from_high:.2f}%, DeMarker={current_demarker:.4f} below threshold. Exiting at {exit_price:.2f} ({self.exit_weak_signal_profit_pct}% TP)")
+                                        self._exit_position(df, i, "Weak Signal Exit", float(exit_price))
+                                        continue
+                                    # Not weak: start trailing (DYNAMIC_TRAILING_MA)
+                                    self.is_dynamic_trailing_ma_active = True
+                                    logger.info(f"EXIT_WEAK_SIGNAL: Zone {self.entry_band_weak_signal} trade passed weak-signal check (DeMarker={current_demarker:.4f}). Activating DYNAMIC_TRAILING_MA at bar {i}.")
+                                else:
+                                    logger.debug(f"EXIT_WEAK_SIGNAL: DeMarker missing at bar {i}; skipping weak-signal check for this bar")
                     
                     # Entry2-specific: DYNAMIC_TRAILING_MA: Check and activate when highest price reaches threshold
                     # FIXED: Now uses highest_price_in_trade instead of current bar's high only
@@ -3146,7 +3203,7 @@ class Entry2BacktestStrategyFixed:
                             # Actual execution price and bar index are handled inside _enter_position
                             # (which uses signal_bar_index+1 as the execution candle).
                             self._enter_position(df, signal_bar_index, "Entry2")
-                            # Mark the trade entry in the DataFrame (only if columns exist)
+                            # Mark the trade entry at SIGNAL bar (reverted from execution bar to restore prior trade count)
                             if 'entry2_entry_type' in df.columns:
                                 df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
                             if 'entry2_pnl' in df.columns:

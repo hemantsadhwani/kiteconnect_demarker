@@ -519,6 +519,7 @@ class StrategyExecutor:
             except Exception as e:
                 self.logger.warning(f"Could not check margin before placing order for {symbol}: {e}. Proceeding with order placement...")
 
+            # Entry: MARKET only (evaluation is per-candle/intra-candle; when triggered we execute immediately, no blocking)
             order_params = {
                 "tradingsymbol": symbol,
                 "exchange": self.api.EXCHANGE_NFO,
@@ -1188,6 +1189,25 @@ class StrategyExecutor:
             # CRITICAL: Preserve supertrend_sl_active if it was already set
             if existing_metadata.get('supertrend_sl_active', False):
                 metadata_updates['supertrend_sl_active'] = True
+
+            # EXIT_WEAK_SIGNAL: set entry_band_weak_signal = 'R1_R2' when Nifty at entry is between R1 and R2
+            if is_entry2_trade and trade_settings.get('EXIT_WEAK_SIGNAL', False):
+                trading_bot = getattr(self.ticker_handler, 'trading_bot', None) if self.ticker_handler else None
+                cpr_today = getattr(trading_bot, 'cpr_today', None) if trading_bot else None
+                if cpr_today and isinstance(cpr_today, dict):
+                    r1, r2 = cpr_today.get('R1'), cpr_today.get('R2')
+                    if r1 is not None and r2 is not None:
+                        try:
+                            quote = self.api.quote(["NSE:NIFTY 50"])
+                            nifty_row = quote.get("NSE:NIFTY 50", {})
+                            nifty_at_entry = nifty_row.get("last_price")
+                            if nifty_at_entry is not None:
+                                nifty_at_entry = float(nifty_at_entry)
+                                if r1 < nifty_at_entry < r2:
+                                    metadata_updates['entry_band_weak_signal'] = 'R1_R2'
+                                    self.logger.info(f"[EXIT_WEAK_SIGNAL] Entry in R1-R2 zone: Nifty at entry={nifty_at_entry:.2f} (R1={r1:.2f}, R2={r2:.2f})")
+                        except Exception as _e:
+                            self.logger.debug(f"Could not get Nifty quote for R1-R2 check: {_e}")
             
             # CRITICAL: Do NOT set dynamic_trailing_ma_active here!
             # It should only be activated when price reaches DYNAMIC_TRAILING_MA_THRESH (7%)

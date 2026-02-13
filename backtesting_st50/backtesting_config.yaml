@@ -14,7 +14,7 @@ BACKTESTING_ANALYSIS:
   DYNAMIC_OTM: ENABLE
   PRICE_ZONES:
     DYNAMIC_ATM:
-      HIGH_PRICE: 220   # was 220; JAN28+ ATM CE/PE often 250-300+, raise so sentiment output is not empty
+      HIGH_PRICE: 200   # was 220; JAN28+ ATM CE/PE often 250-300+, raise so sentiment output is not empty
       LOW_PRICE: 40
     DYNAMIC_OTM:
       HIGH_PRICE: 200
@@ -192,7 +192,7 @@ ENTRY2:
   # DeMarker/StochRSI thresholds come from indicators_config.yaml (THRESHOLDS.DEMARKER_OVERSOLD, STOCH_RSI_OVERSOLD)
   DEMARKER_CONFIRMATION_WINDOW: 3   # Used when TRIGGER=DEMARKER (current bar + next 2 bars)
   WPR_CONFIRMATION_WINDOW: 4   # Used when TRIGGER=WPR (legacy 4-bar window for W%R + StochRSI confirmation)
-  SL_MODE: "Fixed Percentage"  # "Fixed Percentage" | "Swing Low"
+  SL_MODE: "Swing Low"  # "Fixed Percentage" | "Swing Low"
   # Legacy WPR-based trigger (set TRIGGER to "WPR" to use old logic)
   TRIGGER: "WPR"       # "DEMARKER" | "WPR"
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
@@ -210,7 +210,11 @@ ENTRY2:
     BETWEEN_THRESHOLD: 13
     BELOW_THRESHOLD: 15
   SKIP_FIRST: false
-  EXIT_WEAK_SIGNAL: false
+  # EXIT_WEAK_SIGNAL: only for entries between R1 and R2 (R1 < Nifty < R2). When high >= EXIT_WEAK_SIGNAL_PROFIT_PCT%,
+  # check DeMarker: if < R_BAND exit as weak signal (7% TP); else start DYNAMIC_TRAILING_MA. S1-S2 zone not used.
+  EXIT_WEAK_SIGNAL: true
+  EXIT_WEAK_SIGNAL_PROFIT_PCT: 7.0      # profit % (from entry) at which to check weak signal
+  EXIT_WEAK_SIGNAL_DEMARKER_R_BAND: 0.60 # R1–R2 zone only: exit if demarker < this
   DYNAMIC_TRAILING_WPR9: false
   DYNAMIC_TRAILING_MA: true
   DYNAMIC_TRAILING_MA_THRESH: 7

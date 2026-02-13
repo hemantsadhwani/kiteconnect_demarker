@@ -9,7 +9,7 @@ import yaml
 import json
 import signal
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -300,6 +300,8 @@ class AsyncTradingBot:
         self.entry_condition_check_task = None
         self.risk_watchdog_task = None
         self.drawdown_watchdog_task = None
+        # CPR for today (set when CPR computed at init; used for R1-R2 entry band and EXIT_WEAK_SIGNAL)
+        self.cpr_today = None
 
     # Modify the initialize method to call the new method
     async def initialize(self):
@@ -310,8 +312,11 @@ class AsyncTradingBot:
             # Load configuration + symbols
             await self._load_configuration()
 
-            # Initialize Kite API
+            # Initialize Kite API (required for CPR fetch)
             await self._initialize_kite_api()
+
+            # Compute CPR and Fib bands from previous day Nifty OHLC and print trading range
+            await self._compute_and_print_cpr_trading_range_on_init()
 
             # Initialize trailing max drawdown components (before state manager)
             await self._initialize_trailing_drawdown()
@@ -337,6 +342,12 @@ class AsyncTradingBot:
             # This allows commands to be processed even while waiting for market
             await self.event_dispatcher.start()
             logger.info("[EVENT] Event dispatcher started early - commands can be processed now")
+
+            # Exit after init: skip WebSocket and market wait (used for testing CPR etc.)
+            if getattr(self, 'exit_after_init', False):
+                self.is_initialized = True
+                logger.info("[EXIT-AFTER-INIT] Skipping WebSocket and market wait. Initialization complete.")
+                return
 
             # Initialize WebSocket handler (this may wait for market open)
             await self._initialize_websocket_handler()
@@ -737,6 +748,131 @@ class AsyncTradingBot:
             logger.info(f"  - Old: ENABLED={old_enabled}, MANUAL_MARKET_SENTIMENT={old_manual}")
             logger.info(f"  - New: MODE={new_mode}" + (f", MANUAL_SENTIMENT={new_manual_sentiment}" if new_manual_sentiment else ""))
             logger.info(f"[MIGRATION] Old fields (ENABLED, MANUAL_MARKET_SENTIMENT) are deprecated but kept for backward compatibility")
+
+    async def _compute_and_print_cpr_trading_range_on_init(self):
+        """Compute CPR and CPR Fib bands from previous trading day Nifty OHLC (Kite API) and print CPR_UPPER/CPR_LOWER for verification."""
+        try:
+            cpr_config = self.config.get('CPR_TRADING_RANGE', {})
+            if not cpr_config.get('ENABLED', False):
+                return
+            if not self.kite:
+                logger.warning("CPR_TRADING_RANGE: Kite not initialized, skipping CPR computation")
+                return
+            upper_col = (cpr_config.get('CPR_UPPER') or 'band_R2_upper').strip()
+            lower_col = (cpr_config.get('CPR_LOWER') or 'band_S2_lower').strip()
+
+            # Previous trading day (skip weekend)
+            today = datetime.now().date()
+            prev = today
+            for _ in range(10):
+                prev = prev - timedelta(days=1)
+                if prev.weekday() < 5:  # Monday=0, Friday=4
+                    break
+
+            # Fetch Nifty 50 daily candle for previous trading day
+            NIFTY50_TOKEN = 256265
+            from_date = datetime(prev.year, prev.month, prev.day)
+            to_date = datetime(prev.year, prev.month, prev.day, 23, 59, 59)
+            data = await asyncio.to_thread(
+                self.kite.historical_data,
+                instrument_token=NIFTY50_TOKEN,
+                from_date=from_date,
+                to_date=to_date,
+                interval="day",
+            )
+            if not data or len(data) == 0:
+                logger.warning(f"CPR_TRADING_RANGE: No Nifty OHLC for {prev}, cannot compute CPR")
+                return
+            candle = data[0]
+            high = float(candle["high"])
+            low = float(candle["low"])
+            close = float(candle["close"])
+
+            # CPR levels (same formulas as generate_cpr_dates.py)
+            pivot = (high + low + close) / 3
+            prev_range = high - low
+            r1 = (2 * pivot) - low
+            s1 = (2 * pivot) - high
+            r2 = pivot + prev_range
+            s2 = pivot - prev_range
+            r3 = high + 2 * (pivot - low)
+            s3 = low - 2 * (high - pivot)
+            r4 = r3 + (r2 - r1)
+            s4 = s3 - (s1 - s2)
+            cpr = {"P": pivot, "R1": r1, "R2": r2, "R3": r3, "R4": r4, "S1": s1, "S2": s2, "S3": s3, "S4": s4}
+
+            # Type 2 Fib bands (band_R2_upper, band_S2_lower, etc.)
+            def _fib(low, high):
+                span = high - low
+                b382 = round(low + 0.382 * span, 2)
+                b618 = round(low + 0.618 * span, 2)
+                return (min(b382, b618), max(b382, b618))
+
+            def _mid(low, high):
+                return (min(low, high), max(low, high))
+
+            P, R1, R2, R3, R4 = cpr["P"], cpr["R1"], cpr["R2"], cpr["R3"], cpr["R4"]
+            S1, S2, S3, S4 = cpr["S1"], cpr["S2"], cpr["S3"], cpr["S4"]
+            s5_approx = S4 - (S3 - S4)
+            r5_approx = R4 + (R4 - R3)
+            bands = {}
+            lo, hi = _mid((S1 + P) / 2, (P + R1) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_Pivot_lower"], bands["band_Pivot_upper"] = lv, uv
+            lo, hi = _mid((S2 + S1) / 2, (S1 + P) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_S1_lower"], bands["band_S1_upper"] = lv, uv
+            lo, hi = _mid((S3 + S2) / 2, (S2 + S1) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_S2_lower"], bands["band_S2_upper"] = lv, uv
+            lo, hi = _mid((S4 + S3) / 2, (S3 + S2) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_S3_lower"], bands["band_S3_upper"] = lv, uv
+            lo, hi = _mid((s5_approx + S4) / 2, (S4 + S3) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_S4_lower"], bands["band_S4_upper"] = lv, uv
+            lo, hi = _mid((P + R1) / 2, (R1 + R2) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_R1_lower"], bands["band_R1_upper"] = lv, uv
+            lo, hi = _mid((R1 + R2) / 2, (R2 + R3) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_R2_lower"], bands["band_R2_upper"] = lv, uv
+            lo, hi = _mid((R2 + R3) / 2, (R3 + R4) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_R3_lower"], bands["band_R3_upper"] = lv, uv
+            lo, hi = _mid((R3 + R4) / 2, (R4 + r5_approx) / 2)
+            lv, uv = _fib(lo, hi)
+            bands["band_R4_lower"], bands["band_R4_upper"] = lv, uv
+
+            cpr_upper = bands.get(upper_col)
+            cpr_lower = bands.get(lower_col)
+            if cpr_upper is None or cpr_lower is None:
+                logger.warning(f"CPR_TRADING_RANGE: missing {upper_col} or {lower_col} in computed bands")
+                return
+
+            # Print CPR and CPR-derived bands for verification at startup
+            logger.info("=" * 60)
+            logger.info("[CPR] CPR and bands (from previous day Nifty OHLC %s)", prev)
+            logger.info("[CPR] Prev day OHLC: H=%.2f L=%.2f C=%.2f", high, low, close)
+            logger.info("[CPR] Pivot levels: P=%.2f  R1=%.2f  R2=%.2f  S1=%.2f  S2=%.2f", pivot, r1, r2, s1, s2)
+            logger.info("[CPR] Type 2 bands (38.2%%/61.8%%):")
+            for name in ["Pivot", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4"]:
+                lo, up = bands.get(f"band_{name}_lower"), bands.get(f"band_{name}_upper")
+                if lo is not None and up is not None:
+                    logger.info("  band_%s: lower=%.2f  upper=%.2f", name, lo, up)
+            logger.info("[CPR] Trading range (config CPR_LOWER / CPR_UPPER):")
+            logger.info("  band_S2_lower = %.2f", cpr_lower)
+            logger.info("  band_R2_upper = %.2f", cpr_upper)
+            logger.info("=" * 60)
+
+            # Store for live use: entry-band check (R1-R2) and EXIT_WEAK_SIGNAL
+            self.cpr_today = {
+                "R1": r1, "R2": r2, "S1": s1, "S2": s2,
+                "band_S2_lower": cpr_lower, "band_R2_upper": cpr_upper,
+            }
+        except Exception as e:
+            logger.warning(f"CPR_TRADING_RANGE: could not compute/print levels: {e}")
+            self.cpr_today = None
 
     async def _load_configuration(self):
         """Load configuration from YAML file"""
@@ -1800,9 +1936,19 @@ class AsyncTradingBot:
 
 async def main():
     """Main entry point for the async trading bot"""
+    import sys
+    exit_after_init = "--exit-after-init" in sys.argv
+
     # Create the bot instance
     bot = AsyncTradingBot()
-    
+
+    if exit_after_init:
+        logger.info("[EXIT-AFTER-INIT] Initializing bot then exiting (no main loop)...")
+        bot.exit_after_init = True
+        await bot.initialize()
+        logger.info("[EXIT-AFTER-INIT] Initialization complete. Exiting.")
+        return
+
     # Setup platform-independent signal handling
     try:
         import platform

@@ -2328,8 +2328,13 @@ class ConsolidatedDynamicOTMAnalysis:
                 # If EOD exit is enabled, use the configured EOD exit time
                 exit_bar = None
                 if eod_exit_enabled and not eod_exit_processed:
+                    # Align timezone: dataframe 'date' may be tz-aware (e.g. UTC+05:30); eod_exit_datetime is built naive
+                    eod_dt_compare = eod_exit_datetime
+                    df_tz = df_symbol_full['date'].dt.tz
+                    if df_tz is not None and eod_dt_compare.tzinfo is None:
+                        eod_dt_compare = eod_dt_compare.tz_localize(df_tz)
                     # Find the candle at EOD exit time
-                    eod_candles = df_symbol_full[df_symbol_full['date'] <= eod_exit_datetime]
+                    eod_candles = df_symbol_full[df_symbol_full['date'] <= eod_dt_compare]
                     if not eod_candles.empty:
                         exit_bar = eod_candles.iloc[-1]
                         eod_exit_datetime_actual = exit_bar['date']

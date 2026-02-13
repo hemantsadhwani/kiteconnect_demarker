@@ -3,8 +3,13 @@ Report DYNAMIC_ATM trades by CPR zones: Below S1, Above R1, Between R1 and S1.
 
 For each zone: number of trades, wins, win rate, total PnL (%).
 Uses entry2_dynamic_atm_mkt_sentiment_trades.csv only (DYNAMIC_ATM).
-R1/S1 from previous trading day OHLC (formula matches grid_search_tools/market_sentiment_analytics/cpr.py).
-Nifty at entry from 1min data.
+CPR (R1, S1, R2, S2) from *previous trading day* OHLC:
+  - Prefer: previous day's Nifty 1min file (PDH=max(high), PDL=min(low), PDC=last close).
+  - Fallback: get_previous_day_ohlc (Kite or other).
+Formula matches Floor Pivot: pivot=(H+L+C)/3, R1=2*pivot-L, S1=2*pivot-H, R2=pivot+range, S2=pivot-range.
+Zones use RAW levels (not band_S1_lower etc.). For band-based zones use analyze_trades_above_r1_below_s1.py
+(reads analytics/cpr_dates.csv with Type 2 bands from generate_cpr_dates.py).
+Nifty at entry from current day 1min data.
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ def calculate_cpr_levels(prev_day_high: float, prev_day_low: float, prev_day_clo
     CPR levels from previous trading day OHLC.
     Formula matches grid_search_tools/market_sentiment_analytics/cpr.py (Floor Pivot).
     Returns dict with R1, S1, R2, S2, PIVOT.
+    Standard order: S2 < S1 < PIVOT < R1 < R2.
     """
     pivot = (prev_day_high + prev_day_low + prev_day_close) / 3
     prev_day_range = prev_day_high - prev_day_low
@@ -64,6 +70,18 @@ def calculate_cpr_levels(prev_day_high: float, prev_day_low: float, prev_day_clo
     r2 = pivot + prev_day_range
     s2 = pivot - prev_day_range
     return {"R1": r1, "S1": s1, "R2": r2, "S2": s2, "PIVOT": pivot}
+
+
+def _validate_cpr_order(cpr: Dict[str, float], date_str: str) -> bool:
+    """Check standard CPR order S2 < S1 < R1 < R2. Log warning if violated. Returns True if valid."""
+    r1, s1, r2, s2 = cpr["R1"], cpr["S1"], cpr["R2"], cpr["S2"]
+    ok = s2 < s1 < r1 < r2
+    if not ok:
+        logger.warning(
+            "CPR order check failed for %s: expected S2 < S1 < R1 < R2; got S2=%.2f S1=%.2f R1=%.2f R2=%.2f",
+            date_str, s2, s1, r1, r2,
+        )
+    return ok
 
 
 def get_previous_trading_day_ohlc_from_1min(
@@ -443,6 +461,20 @@ def main() -> None:
     all_days = config.get("BACKTESTING_EXPIRY", {}).get("BACKTESTING_DAYS", []) or config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
     print(f"BACKTESTING_DAYS: {len(all_days)} dates in config. Processing {len(pairs)} dates with trades files.\n")
 
+    # Optional: load cpr_dates.csv for cross-check (CPR from Kite daily vs 1min prev-day OHLC)
+    cpr_csv_by_date: Dict[str, Dict[str, float]] = {}
+    cpr_csv_path = script_dir.parent / "analytics" / "cpr_dates.csv"
+    if cpr_csv_path.exists():
+        try:
+            cpr_df = pd.read_csv(cpr_csv_path)
+            if "date" in cpr_df.columns and "R1" in cpr_df.columns and "S1" in cpr_df.columns:
+                for _, row in cpr_df.iterrows():
+                    d = str(pd.to_datetime(row["date"]).date())
+                    cpr_csv_by_date[d] = {"R1": float(row["R1"]), "S1": float(row["S1"]), "R2": float(row["R2"]), "S2": float(row["S2"])}
+                logger.info("Loaded analytics/cpr_dates.csv for CPR cross-check (%d dates)", len(cpr_csv_by_date))
+        except Exception as e:
+            logger.debug("Could not load cpr_dates.csv for cross-check: %s", e)
+
     below_s1_pnl: List[float] = []
     below_s1_wins: List[bool] = []
     above_r1_pnl: List[float] = []
@@ -452,19 +484,25 @@ def main() -> None:
     below_s1_trades: List[Dict] = []
     above_r1_trades: List[Dict] = []
     between_r1_s1_trades: List[Dict] = []
-    # Extended zones (R2, S2)
+    # Extended zones (R2, S2) — also keep trade lists for CSV export
     below_s2_pnl: List[float] = []
     below_s2_wins: List[bool] = []
+    below_s2_trades: List[Dict] = []
     s2_to_s1_pnl: List[float] = []
     s2_to_s1_wins: List[bool] = []
+    s2_to_s1_trades: List[Dict] = []
     r1_to_r2_pnl: List[float] = []
     r1_to_r2_wins: List[bool] = []
+    r1_to_r2_trades: List[Dict] = []
     above_r2_pnl: List[float] = []
     above_r2_wins: List[bool] = []
+    above_r2_trades: List[Dict] = []
     skipped_dates: List[Tuple[str, str]] = []  # (date, reason)
     total_trades_all = 0
     total_dynamic_atm = 0
     total_with_nifty_and_pnl = 0
+    # Store first 3 dates' 1min CPR for cross-check with cpr_dates.csv
+    cpr_1min_sample: List[Tuple[str, Dict[str, float]]] = []
 
     for date_str, trades_path in pairs:
         data_dir = trades_path.parent
@@ -482,6 +520,9 @@ def main() -> None:
             skipped_dates.append((date_str, "no prev day OHLC"))
             continue
         cpr = calculate_cpr_levels(prev_h, prev_l, prev_c)
+        _validate_cpr_order(cpr, date_str)
+        if len(cpr_1min_sample) < 3:
+            cpr_1min_sample.append((date_str, {"R1": cpr["R1"], "S1": cpr["S1"], "R2": cpr["R2"], "S2": cpr["S2"]}))
         r1, s1 = cpr["R1"], cpr["S1"]
         r2, s2 = cpr["R2"], cpr["S2"]
         try:
@@ -612,9 +653,11 @@ def main() -> None:
                 if nifty_at_entry <= s2:
                     below_s2_pnl.append(float(pnl_val))
                     below_s2_wins.append(float(pnl_val) > 0)
+                    below_s2_trades.append(rec)
                 else:
                     s2_to_s1_pnl.append(float(pnl_val))
                     s2_to_s1_wins.append(float(pnl_val) > 0)
+                    s2_to_s1_trades.append(rec)
             elif nifty_at_entry > r1:
                 above_r1_pnl.append(float(pnl_val))
                 above_r1_wins.append(float(pnl_val) > 0)
@@ -623,14 +666,31 @@ def main() -> None:
                 if nifty_at_entry >= r2:
                     above_r2_pnl.append(float(pnl_val))
                     above_r2_wins.append(float(pnl_val) > 0)
+                    above_r2_trades.append(rec)
                 else:
                     r1_to_r2_pnl.append(float(pnl_val))
                     r1_to_r2_wins.append(float(pnl_val) > 0)
+                    r1_to_r2_trades.append(rec)
             else:
                 between_r1_s1_pnl.append(float(pnl_val))
                 between_r1_s1_wins.append(float(pnl_val) > 0)
                 rec["zone"] = "Between R1 and S1"
                 between_r1_s1_trades.append(rec)
+
+    # CPR cross-check: 1min prev-day OHLC vs analytics/cpr_dates.csv (Kite daily)
+    if cpr_1min_sample and cpr_csv_by_date:
+        print("CPR cross-check (this script uses prev-day 1min OHLC; cpr_dates.csv uses Kite daily):")
+        for date_str, cpr_1min in cpr_1min_sample:
+            csv_cpr = cpr_csv_by_date.get(date_str)
+            if csv_cpr:
+                dr1 = abs(cpr_1min["R1"] - csv_cpr["R1"])
+                ds1 = abs(cpr_1min["S1"] - csv_cpr["S1"])
+                dr2 = abs(cpr_1min["R2"] - csv_cpr["R2"])
+                ds2 = abs(cpr_1min["S2"] - csv_cpr["S2"])
+                print(f"  {date_str}: R1 diff={dr1:.2f} S1 diff={ds1:.2f} R2 diff={dr2:.2f} S2 diff={ds2:.2f}  (1min R1={cpr_1min['R1']:.2f} S1={cpr_1min['S1']:.2f} | CSV R1={csv_cpr['R1']:.2f} S1={csv_cpr['S1']:.2f})")
+            else:
+                print(f"  {date_str}: not in cpr_dates.csv")
+        print()
 
     # Report — DYNAMIC_ATM only, zones: Below S1, Above R1, Between R1 and S1
     print(f"Total trades in files: {total_trades_all}")
@@ -688,11 +748,11 @@ def main() -> None:
         for d, reason in skipped_dates:
             print(f"  {d} ({reason})")
 
-    # Save CSVs (analytics folder) — always write all three so Combined = Below S1 + Above R1 + Between R1&S1
+    # Save CSVs (analytics folder)
     out_dir = script_dir
-    # Use columns from any non-empty list so empty files have same header
-    sample = between_r1_s1_trades or below_s1_trades or above_r1_trades
+    sample = between_r1_s1_trades or below_s1_trades or above_r1_trades or s2_to_s1_trades or r1_to_r2_trades or below_s2_trades or above_r2_trades
     empty_df = pd.DataFrame(columns=list(sample[0].keys())) if sample else pd.DataFrame()
+
     out_below = out_dir / "trades_dynamic_atm_below_s1.csv"
     (pd.DataFrame(below_s1_trades) if below_s1_trades else empty_df).to_csv(out_below, index=False)
     print(f"\nSaved {len(below_s1_trades)} Below S1 trades to {out_below}")
@@ -702,6 +762,19 @@ def main() -> None:
     out_bet = out_dir / "trades_dynamic_atm_between_r1_s1.csv"
     (pd.DataFrame(between_r1_s1_trades) if between_r1_s1_trades else empty_df).to_csv(out_bet, index=False)
     print(f"Saved {len(between_r1_s1_trades)} Between R1 and S1 trades to {out_bet}")
+
+    out_below_s2 = out_dir / "trades_dynamic_atm_below_s2.csv"
+    (pd.DataFrame(below_s2_trades) if below_s2_trades else empty_df).to_csv(out_below_s2, index=False)
+    print(f"Saved {len(below_s2_trades)} Below S2 trades to {out_below_s2}")
+    out_above_r2 = out_dir / "trades_dynamic_atm_above_r2.csv"
+    (pd.DataFrame(above_r2_trades) if above_r2_trades else empty_df).to_csv(out_above_r2, index=False)
+    print(f"Saved {len(above_r2_trades)} Above R2 trades to {out_above_r2}")
+    out_s1_s2 = out_dir / "trades_dynamic_atm_between_s1_s2.csv"
+    (pd.DataFrame(s2_to_s1_trades) if s2_to_s1_trades else empty_df).to_csv(out_s1_s2, index=False)
+    print(f"Saved {len(s2_to_s1_trades)} Between S1 and S2 trades to {out_s1_s2}")
+    out_r1_r2 = out_dir / "trades_dynamic_atm_between_r1_r2.csv"
+    (pd.DataFrame(r1_to_r2_trades) if r1_to_r2_trades else empty_df).to_csv(out_r1_r2, index=False)
+    print(f"Saved {len(r1_to_r2_trades)} Between R1 and R2 trades to {out_r1_r2}")
     print()
 
 

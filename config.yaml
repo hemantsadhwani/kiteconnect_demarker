@@ -35,6 +35,10 @@ TRADE_SETTINGS:
   # Dynamic Trailing MA Configuration (Stage 3)
   DYNAMIC_TRAILING_MA: true # Enable MA-based dynamic trailing for Entry2 trades
   DYNAMIC_TRAILING_MA_THRESH: 7 # Percentage above entry to activate MA trailing (e.g., 7%)
+  # EXIT_WEAK_SIGNAL (R1-R2 zone only): when high >= 7%, if DeMarker < R_BAND exit at 7% else start trailing
+  EXIT_WEAK_SIGNAL: true
+  EXIT_WEAK_SIGNAL_PROFIT_PCT: 7.0
+  EXIT_WEAK_SIGNAL_DEMARKER_R_BAND: 0.60
   # Entry Conditions - Separate for CE and PE
   # Entry1: Fast reversal (WPR9)
   # Entry2: Multi-signal confirmation (configurable window via ENTRY2_CONFIRMATION_WINDOW)
@@ -70,7 +74,7 @@ TRADE_SETTINGS:
 MARK2MARKET:
   ENABLE: true  # Enable/disable trailing stop logic
   CAPITAL: 15000  # Starting daily capital
-  LOSS_MARK: 50  # Percentage drop from High-Water Mark to trigger stop
+  LOSS_MARK: 30  # Percentage drop from High-Water Mark to trigger stop
   PER_DAY: true  # Each day starts fresh with CAPITAL, tracks day's high, stops if drops LOSS_MARK% from day's high 
 
 # Bot Operational Settings
@@ -83,6 +87,14 @@ TRADING_HOURS:
 MARKET_CLOSE:
   HOUR: 15
   MINUTE: 14
+
+# CPR-derived trading range: entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
+# CPR and Fib bands are computed on bot init from previous trading day Nifty OHLC (Kite API).
+# CPR_UPPER and CPR_LOWER are printed at startup for verification.
+CPR_TRADING_RANGE:
+  ENABLED: true
+  CPR_UPPER: "band_R2_upper"   # band column name
+  CPR_LOWER: "band_S2_lower"   # band column name
 
 CPR_WIDTH_FILTER:
   ENABLED: false
@@ -116,7 +128,7 @@ SUBSCRIBE_TOKENS_FILE_PATH: "output/subscribe_tokens.json"
 INDICATORS:
   SUPERTREND:
     ATR_LENGTH: 10
-    FACTOR: 2
+    FACTOR: 2.5
   WPR_FAST_LENGTH: 9
   WPR_SLOW_LENGTH: 28
   SToch_RSI:
@@ -131,6 +143,8 @@ INDICATORS:
     MA: sma
     LENGTH: 13
   SWING_LOW_PERIOD: 5
+  DEMARKER:
+    PERIOD: 14  # Same as backtesting (run_indicators.py / indicators_backtesting.py)
 
 # Threshold Configuration for Entry Conditions
 # NOTE: THRESHOLDS are now in backtesting/indicators_config.yaml (preferred location)
