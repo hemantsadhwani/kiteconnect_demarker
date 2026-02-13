@@ -58,9 +58,11 @@ def _load_config():
                 # Load market sentiment filter config
                 sentiment_filter_config = config.get('MARKET_SENTIMENT_FILTER', {})
                 sentiment_filter_enabled = sentiment_filter_config.get('ENABLED', True)  # Default to True for backward compatibility
-                sentiment_mode = sentiment_filter_config.get('MODE', 'AUTO').upper()  # AUTO or MANUAL
+                sentiment_mode = sentiment_filter_config.get('MODE', 'AUTO').upper()  # AUTO, MANUAL, or HYBRID
                 sentiment_version = sentiment_filter_config.get('SENTIMENT_VERSION', 'v2')  # Default to v2 (used when MODE=AUTO)
                 manual_sentiment = sentiment_filter_config.get('MANUAL_SENTIMENT', 'NEUTRAL').upper()  # NEUTRAL, BULLISH, BEARISH (used when MODE=MANUAL)
+                # HYBRID: strict sentiment only when Nifty at entry is in this zone (e.g. R1_S1 = between R1 and S1); outside zone allow all (NEUTRAL)
+                hybrid_strict_zone = (sentiment_filter_config.get('HYBRID_STRICT_ZONE') or 'R1_S1').strip().upper()
                 
                 return {
                     'price_zones': {
@@ -73,6 +75,7 @@ def _load_config():
                     'sentiment_mode': sentiment_mode,
                     'sentiment_version': sentiment_version,
                     'manual_sentiment': manual_sentiment,
+                    'sentiment_hybrid_strict_zone': hybrid_strict_zone,
                 }
             except Exception as e:
                 logger.warning(f"Could not load config from {config_path}: {e}")
@@ -88,12 +91,76 @@ def _load_config():
         'sentiment_mode': 'AUTO',  # Default to AUTO
         'sentiment_version': 'v2',  # Default to v2
         'manual_sentiment': 'NEUTRAL',  # Default to NEUTRAL
+        'sentiment_hybrid_strict_zone': 'R1_S1',
     }
 
 def _load_price_zones_config():
     """Load PRICE_ZONES configuration from backtesting_config.yaml (backward compatibility)"""
     config = _load_config()
     return config['price_zones']
+
+def _ensure_nifty_time_column(nifty_df: pd.DataFrame) -> pd.DataFrame:
+    """Ensure nifty_df has 'time' column from 'date' for minute lookup."""
+    if nifty_df.empty or 'date' not in nifty_df.columns:
+        return nifty_df
+    df = nifty_df.copy()
+    df['date'] = pd.to_datetime(df['date'], utc=False)
+    if 'time' not in df.columns:
+        df['time'] = df['date'].dt.time
+    return df
+
+
+def _nifty_price_at_entry(nifty_df: pd.DataFrame, entry_time_dt) -> float:
+    """Get Nifty close at entry time (minute match). Returns None if not found."""
+    if nifty_df is None or nifty_df.empty or entry_time_dt is None:
+        return None
+    df = _ensure_nifty_time_column(nifty_df)
+    if 'time' not in df.columns or 'close' not in df.columns:
+        return None
+    t = entry_time_dt.time() if hasattr(entry_time_dt, 'time') else entry_time_dt
+    from datetime import time as dt_time
+    t_candle = dt_time(t.hour, t.minute, 0)
+    row = df[df['time'] == t_candle]
+    if not row.empty:
+        return float(row.iloc[0]['close'])
+    # Nearest minute within 2 minutes
+    work = df.copy()
+    work['_secs'] = work['time'].apply(lambda x: x.hour * 3600 + x.minute * 60 + (getattr(x, 'second', 0) or 0))
+    entry_secs = t.hour * 3600 + t.minute * 60
+    work['_diff'] = abs(work['_secs'] - entry_secs)
+    work = work[work['_diff'] <= 120]
+    if work.empty:
+        return None
+    nearest = work.loc[work['_diff'].idxmin()]
+    return float(nearest['close'])
+
+
+def _load_cpr_r1_s1_for_date(trade_date: str) -> tuple:
+    """Load R1, S1 for trade_date from analytics/cpr_dates.csv. Returns (R1, S1) or (None, None)."""
+    script_dir = Path(__file__).resolve().parent
+    cpr_path = script_dir / 'analytics' / 'cpr_dates.csv'
+    if not cpr_path.exists():
+        return (None, None)
+    try:
+        cpr_df = pd.read_csv(cpr_path)
+        if 'date' not in cpr_df.columns or 'R1' not in cpr_df.columns or 'S1' not in cpr_df.columns:
+            return (None, None)
+        cpr_df['_date'] = pd.to_datetime(cpr_df['date']).dt.strftime('%Y-%m-%d')
+        row = cpr_df[cpr_df['_date'] == trade_date]
+        if row.empty:
+            return (None, None)
+        return (float(row.iloc[0]['R1']), float(row.iloc[0]['S1']))
+    except Exception as e:
+        logger.debug(f"Could not load CPR for {trade_date}: {e}")
+        return (None, None)
+
+
+def _is_in_r1_s1_zone(nifty_at_entry: float, r1: float, s1: float) -> bool:
+    """True if S1 <= Nifty at entry <= R1 (inclusive)."""
+    if nifty_at_entry is None or r1 is None or s1 is None:
+        return False
+    return float(s1) <= float(nifty_at_entry) <= float(r1)
+
 
 def _is_time_zone_enabled(entry_time_dt, time_filter_enabled, time_zones):
     """Check if entry time falls within an enabled time zone"""
@@ -361,6 +428,25 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         logger.error(f"Could not convert day_label to date: {day_label}")
         return None
 
+    # HYBRID mode: load Nifty 1min and CPR R1/S1 for zone-based effective sentiment
+    hybrid_nifty_df = None
+    hybrid_r1, hybrid_s1 = None, None
+    if config.get('sentiment_mode') == 'HYBRID':
+        hybrid_strict_zone = (config.get('sentiment_hybrid_strict_zone') or 'R1_S1').strip().upper()
+        if hybrid_strict_zone == 'R1_S1':
+            nifty_path = base_dir / f"nifty50_1min_data_{day_label.lower()}.csv"
+            if nifty_path.exists():
+                try:
+                    hybrid_nifty_df = pd.read_csv(nifty_path)
+                except Exception as e:
+                    logger.warning(f"HYBRID: Could not load nifty file {nifty_path.name}: {e}")
+            else:
+                logger.warning(f"HYBRID: Nifty file not found: {nifty_path}")
+            hybrid_r1, hybrid_s1 = _load_cpr_r1_s1_for_date(trade_date)
+            if hybrid_r1 is None or hybrid_s1 is None:
+                logger.warning(f"HYBRID: No CPR R1/S1 for {trade_date}; strict zone check will treat all as outside R1-S1 (NEUTRAL)")
+        # Other zones (e.g. R2_S2) can be added later; for now only R1_S1
+
     # Convert entry_time to datetime for sentiment matching, but keep original format for output
     ce_trades['entry_time_dt'] = pd.to_datetime(trade_date + ' ' + ce_trades['entry_time'].astype(str)).dt.tz_localize('Asia/Kolkata')
     pe_trades['entry_time_dt'] = pd.to_datetime(trade_date + ' ' + pe_trades['entry_time'].astype(str)).dt.tz_localize('Asia/Kolkata')
@@ -423,6 +509,8 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         logger.info(f"Market sentiment filter DISABLED - including all trades regardless of sentiment (Entry1 behavior)")
     elif sentiment_mode == 'MANUAL':
         logger.info(f"Market sentiment filter ENABLED - MANUAL mode with sentiment: {manual_sentiment}")
+    elif sentiment_mode == 'HYBRID':
+        logger.info(f"Market sentiment filter ENABLED - HYBRID mode, strict sentiment in zone: {config.get('sentiment_hybrid_strict_zone', 'R1_S1')}, NEUTRAL outside")
     else:
         logger.info(f"Market sentiment filter ENABLED - AUTO mode, SENTIMENT_VERSION={sentiment_version}")
     
@@ -508,11 +596,26 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
             else:
                 matching_transition = 'STABLE'  # Manual mode doesn't use transitions
             
-            # Check if sentiment is available (only required in AUTO mode)
+            # Check if sentiment is available (only required in AUTO mode; in HYBRID required only when in strict zone)
             if sentiment_mode == 'AUTO' and not matching_sentiment:
                 excluded.append({**trade.to_dict(), 'market_sentiment': 'N/A', 'filter_status': 'EXCLUDED (NO_SENTIMENT)'})
                 logger.debug(f"No sentiment found for trade at {entry_time}, skipping")
                 continue
+            
+            # HYBRID: effective sentiment = NEUTRAL outside R1-S1 (allow all), else use actual sentiment in R1-S1
+            effective_sentiment = matching_sentiment  # default for AUTO/MANUAL
+            if sentiment_mode == 'HYBRID':
+                nifty_at_entry = _nifty_price_at_entry(hybrid_nifty_df, entry_time) if hybrid_nifty_df is not None else None
+                in_strict_zone = _is_in_r1_s1_zone(nifty_at_entry, hybrid_r1, hybrid_s1)
+                if not in_strict_zone:
+                    effective_sentiment = 'NEUTRAL'
+                    logger.debug(f"HYBRID: Nifty at entry {nifty_at_entry} outside R1-S1 ({hybrid_r1}/{hybrid_s1}), treating as NEUTRAL at {entry_time}")
+                else:
+                    effective_sentiment = matching_sentiment or 'NEUTRAL'
+                    if not matching_sentiment:
+                        excluded.append({**trade.to_dict(), 'market_sentiment': 'N/A', 'filter_status': 'EXCLUDED (NO_SENTIMENT_IN_STRICT_ZONE)'})
+                        logger.debug(f"No sentiment in HYBRID strict zone for trade at {entry_time}, skipping")
+                        continue
             
             # Apply time zone filter
             if not _is_time_zone_enabled(entry_time, time_filter_enabled, time_zones):
@@ -521,15 +624,16 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                 continue
             
             # Handle DISABLE sentiment - reject all trades (no trades allowed)
-            if matching_sentiment == 'DISABLE':
+            if effective_sentiment == 'DISABLE':
                 excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (DISABLE_SENTIMENT)'})
                 logger.debug(f"DISABLE sentiment: Rejecting trade at {entry_time} (no trades allowed)")
                 continue
             
             # Handle NEUTRAL sentiment - allow both CE and PE trades (all trades allowed)
-            # This applies to both AUTO and MANUAL modes
-            if matching_sentiment == 'NEUTRAL':
-                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED'})
+            # This applies to both AUTO and MANUAL modes; in HYBRID also when outside R1-S1
+            if effective_sentiment == 'NEUTRAL':
+                filter_status = 'INCLUDED (HYBRID_NEUTRAL_ZONE)' if sentiment_mode == 'HYBRID' and effective_sentiment != matching_sentiment else 'INCLUDED'
+                filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': filter_status})
                 logger.debug(f"NEUTRAL sentiment: Including {trade['option_type']} trade at {entry_time} (both CE and PE allowed)")
                 continue
             
@@ -578,26 +682,26 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     logger.warning(f"Unknown sentiment value '{matching_sentiment}' for trade at {entry_time}, skipping")
                     continue
             
-            # AUTO MODE: v5: TRADITIONAL FILTERING (same as v2) so AUTO differs from MANUAL NEUTRAL
-            # BULLISH → CE only; BEARISH → PE only; NEUTRAL handled above (both CE and PE)
-            elif sentiment_mode == 'AUTO' and sentiment_version == 'v5':
-                if matching_sentiment == 'BULLISH':
+            # AUTO / HYBRID (strict zone): v5 TRADITIONAL FILTERING - BULLISH → CE only; BEARISH → PE only
+            elif (sentiment_mode == 'AUTO' or sentiment_mode == 'HYBRID') and sentiment_version == 'v5':
+                sent_label = 'v5' if sentiment_mode == 'AUTO' else 'HYBRID_v5'
+                if effective_sentiment == 'BULLISH':
                     if trade['option_type'] == 'CE':
-                        filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (v5_BULLISH_CE)'})
-                        logger.debug(f"BULLISH sentiment (v5): Including CE trade at {entry_time}")
+                        filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'INCLUDED ({sent_label}_BULLISH_CE)'})
+                        logger.debug(f"BULLISH sentiment ({sent_label}): Including CE trade at {entry_time}")
                     else:
-                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (v5_BULLISH_ONLY_CE)'})
-                        logger.debug(f"BULLISH sentiment (v5): Excluding PE trade at {entry_time} (only CE allowed)")
-                elif matching_sentiment == 'BEARISH':
+                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED ({sent_label}_BULLISH_ONLY_CE)'})
+                        logger.debug(f"BULLISH sentiment ({sent_label}): Excluding PE trade at {entry_time} (only CE allowed)")
+                elif effective_sentiment == 'BEARISH':
                     if trade['option_type'] == 'PE':
-                        filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'INCLUDED (v5_BEARISH_PE)'})
-                        logger.debug(f"BEARISH sentiment (v5): Including PE trade at {entry_time}")
+                        filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'INCLUDED ({sent_label}_BEARISH_PE)'})
+                        logger.debug(f"BEARISH sentiment ({sent_label}): Including PE trade at {entry_time}")
                     else:
-                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (v5_BEARISH_ONLY_PE)'})
-                        logger.debug(f"BEARISH sentiment (v5): Excluding CE trade at {entry_time} (only PE allowed)")
+                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED ({sent_label}_BEARISH_ONLY_PE)'})
+                        logger.debug(f"BEARISH sentiment ({sent_label}): Excluding CE trade at {entry_time} (only PE allowed)")
                 else:
                     excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'EXCLUDED (UNKNOWN_SENTIMENT)'})
-                    logger.warning(f"Unknown sentiment value '{matching_sentiment}' for trade at {entry_time}, skipping")
+                    logger.warning(f"Unknown sentiment value '{effective_sentiment}' for trade at {entry_time}, skipping")
                     continue
             
             # AUTO MODE: v3/v4: TRANSITION-BASED FILTERING (stable = v2-style; transitioning = PE only)

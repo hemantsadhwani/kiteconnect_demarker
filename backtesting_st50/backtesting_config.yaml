@@ -108,6 +108,7 @@ BACKTESTING_EXPIRY:
   - FEB17
 # CPR-derived allowed trading range: trading only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 # Values are read from analytics/cpr_dates.csv (generate with grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py).
+# Worth it: "Above R2" zone has negative PnL; this filter blocks entries above band_R2_upper and below band_S2_lower.
 CPR_TRADING_RANGE:
   ENABLED: true
   CPR_UPPER: "band_R2_upper"   # column name in cpr_dates.csv
@@ -153,8 +154,14 @@ ANALYTICS_OUTPUT:
   INCLUDE_SENTIMENT_COLUMNS: false
 MARKET_SENTIMENT_FILTER:
   ENABLED: true
-  MODE: MANUAL  # AUTO: Use sentiment file from algorithm (v2, v3, etc.) | MANUAL: Use fixed sentiment (NEUTRAL, BULLISH, BEARISH)
-  SENTIMENT_VERSION: v5  # Used when MODE=AUTO (v2, v3, v4, v5)
+  # MODE: AUTO | MANUAL | HYBRID
+  # AUTO: Use sentiment file (BULLISH→CE only, BEARISH→PE only, NEUTRAL→both).
+  # MANUAL: Use fixed MANUAL_SENTIMENT for all trades.
+  # HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (take all trades).
+  # All modes use same backtest entry logic: CPR_TRADING_RANGE blocks entries above band_R2_upper and below band_S2_lower.
+  MODE: MANUAL
+  SENTIMENT_VERSION: v5  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
+  HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
   ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
 MARK2MARKET:
