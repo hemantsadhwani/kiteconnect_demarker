@@ -141,7 +141,7 @@ class EnhancedExpiryAnalysis:
         # Sort expiry weeks chronologically (latest first)
         # Expiry weeks are in format like "NOV25", "NOV18", "OCT20", etc.
         def parse_expiry_week(expiry_week):
-            """Parse expiry week like 'NOV25' into (month, day) tuple for sorting"""
+            """Parse expiry week like 'NOV25' into (year, month, day) for sorting. Latest (e.g. FEB 2026) first."""
             import re
             match = re.match(r'([A-Z]{3})(\d{2})', expiry_week.upper())
             if match:
@@ -152,8 +152,8 @@ class EnhancedExpiryAnalysis:
                 }
                 month = month_map.get(month_str, 0)
                 day = int(day_str)
-                # All JAN expiries are from 2026, all others are from 2025
-                year = 2026 if expiry_week.upper().startswith('JAN') else 2025
+                # 2026 only for JAN and FEB; MAR through DEC = 2025 so FEB/JAN on top, OCT not after FEB
+                year = 2026 if month <= 2 else 2025
                 return (year, month, day)
             return (0, 0, 0)  # Fallback for unrecognized format
         
@@ -1308,26 +1308,24 @@ class EnhancedExpiryAnalysis:
             let html = '';
             
             // Sort expiry weeks chronologically (latest first)
-            // Expiry weeks are in format like "NOV25", "NOV18", "OCT20", etc.
-            // JAN06 is from FY 2026 (latest), all others are from 2025
+            // 2026 only for JAN and FEB; MAR through DEC = 2025 so FEB/JAN on top, OCT not after FEB
             const sortedExpiries = Object.values(expiryData).sort((a, b) => {
                 const monthMap = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
                     'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
                 };
                 const parseExpiry = (expiryWeek) => {
-                    // Parse expiry week like "NOV25" or "NOV04" or "JAN06" or "JAN13"
-                    const match = expiryWeek.toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
+                    const label = (expiryWeek && expiryWeek.expiry_week) ? expiryWeek.expiry_week : String(expiryWeek || '');
+                    const match = label.toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
                     if (match) {
                         const month = monthMap[match[1]] || 0;
                         const day = parseInt(match[2]);
-                        // All JAN expiries (JAN06, JAN13, etc.) are from 2026, all others are from 2025
-                        const year = (expiryWeek.toUpperCase().startsWith('JAN')) ? 2026 : 2025;
-                        return year * 10000 + month * 100 + day; // Sort key with year
+                        const year = month <= 2 ? 2026 : 2025;
+                        return year * 10000 + month * 100 + day;
                     }
                     return 0;
                 };
-                return parseExpiry(b.expiry_week) - parseExpiry(a.expiry_week); // Latest first
+                return parseExpiry(b) - parseExpiry(a); // Latest first
             });
             
             sortedExpiries.forEach(expiry => {
@@ -1542,21 +1540,19 @@ class EnhancedExpiryAnalysis:
             const dailyData = [];
             const dailyLabels = [];
             
-            // Sort expiry weeks chronologically (latest first) - same logic as above
-            // JAN06 is from FY 2026 (latest), all others are from 2025
+            // Sort expiry weeks chronologically (latest first) - 2026 only JAN/FEB; MAR-DEC=2025
             const sortedExpiriesForChart = Object.values(expiryData).sort((a, b) => {
                 const monthMap = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
                     'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
                 };
                 const parseExpiry = (expiryWeek) => {
-                    const match = expiryWeek.toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
+                    const match = String(expiryWeek || '').toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
                     if (match) {
                         const month = monthMap[match[1]] || 0;
                         const day = parseInt(match[2]);
-                        // All JAN expiries (JAN06, JAN13, etc.) are from 2026, all others are from 2025
-                        const year = (expiryWeek.toUpperCase().startsWith('JAN')) ? 2026 : 2025;
-                        return year * 10000 + month * 100 + day; // Sort key with year
+                        const year = month <= 2 ? 2026 : 2025;
+                        return year * 10000 + month * 100 + day;
                     }
                     return 0;
                 };
@@ -1640,21 +1636,19 @@ class EnhancedExpiryAnalysis:
             const tradeDistCtx = document.getElementById('tradeDistributionChart').getContext('2d');
             let staticAtmTrades = 0, staticOtmTrades = 0, dynamicAtmTrades = 0, dynamicOtmTrades = 0;
             
-            // Sort expiry weeks chronologically (latest first) - same logic as above
-            // JAN06 is from FY 2026 (latest), all others are from 2025
+            // Sort expiry weeks chronologically (latest first) - 2026 only JAN/FEB; MAR-DEC=2025
             const sortedExpiriesForDistChart = Object.values(expiryData).sort((a, b) => {
                 const monthMap = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
                     'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
                 };
                 const parseExpiry = (expiryWeek) => {
-                    const match = expiryWeek.toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
+                    const match = String(expiryWeek || '').toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
                     if (match) {
                         const month = monthMap[match[1]] || 0;
                         const day = parseInt(match[2]);
-                        // All JAN expiries (JAN06, JAN13, etc.) are from 2026, all others are from 2025
-                        const year = (expiryWeek.toUpperCase().startsWith('JAN')) ? 2026 : 2025;
-                        return year * 10000 + month * 100 + day; // Sort key with year
+                        const year = month <= 2 ? 2026 : 2025;
+                        return year * 10000 + month * 100 + day;
                     }
                     return 0;
                 };
