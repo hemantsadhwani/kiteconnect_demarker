@@ -1752,14 +1752,30 @@ class ConsolidatedDynamicATMAnalysis:
                             eod_candles = df_symbol_full[df_symbol_full['date'] <= eod_exit_datetime]
                             if not eod_candles.empty:
                                 eod_bar = eod_candles.iloc[-1]  # Get the last candle at or before EOD time
-                                eod_exit_price = eod_bar.get('close', entry_data.get('open', 0.0))
+                                eod_exit_price = float(eod_bar.get('close', entry_data.get('open', 0.0)))
                                 
                                 # Calculate PnL for EOD exit (always calculate, don't use bar's pnl as it may be for a different entry)
-                                entry_price = entry_data.get('open', 0.0)
+                                entry_price = float(entry_data.get('open', 0.0))
                                 # Calculate PnL as percentage: ((exit_price - entry_price) / entry_price) * 100
                                 if entry_price > 0:
                                     eod_pnl = ((eod_exit_price - entry_price) / entry_price) * 100
-                                    logger.debug(f"EOD exit PnL calculated for {symbol}: entry={entry_price:.2f}, exit={eod_exit_price:.2f}, pnl={eod_pnl:.2f}%")
+                                    # Cap EOD exit loss at STOP_LOSS_PERCENT (we would have hit SL before -60%)
+                                    entry_type_config = self.config.get(entry_type.upper(), {})
+                                    sl_config = entry_type_config.get('STOP_LOSS_PERCENT', {})
+                                    if isinstance(sl_config, dict):
+                                        sl_pct = max(
+                                            sl_config.get('ABOVE_THRESHOLD', 7.5),
+                                            sl_config.get('BETWEEN_THRESHOLD', 7.5),
+                                            sl_config.get('BELOW_THRESHOLD', 7.5)
+                                        )
+                                    else:
+                                        sl_pct = float(sl_config) if sl_config else 7.5
+                                    if eod_pnl < -sl_pct:
+                                        eod_exit_price = round(entry_price * (1 - sl_pct / 100.0), 2)
+                                        eod_pnl = -sl_pct
+                                        logger.debug(f"EOD exit capped at SL {sl_pct}% for {symbol}: exit_price={eod_exit_price:.2f}, pnl={eod_pnl:.2f}%")
+                                    else:
+                                        logger.debug(f"EOD exit PnL for {symbol}: entry={entry_price:.2f}, exit={eod_exit_price:.2f}, pnl={eod_pnl:.2f}%")
                                 else:
                                     logger.warning(f"Entry price is 0 for {symbol}, cannot calculate PnL")
                                     eod_pnl = 0.0
@@ -1785,11 +1801,25 @@ class ConsolidatedDynamicATMAnalysis:
                                 logger.warning(f"Could not find candle at EOD exit time {eod_exit_time_str} for {symbol}, using last available candle")
                                 # Fallback to last bar
                                 last_bar = df_symbol_full.iloc[-1]
-                                eod_exit_price = last_bar.get('close', entry_data.get('open', 0.0))
-                                entry_price = entry_data.get('open', 0.0)
+                                eod_exit_price = float(last_bar.get('close', entry_data.get('open', 0.0)))
+                                entry_price = float(entry_data.get('open', 0.0))
                                 # Calculate PnL as percentage: ((exit_price - entry_price) / entry_price) * 100
                                 if entry_price > 0:
                                     eod_pnl = ((eod_exit_price - entry_price) / entry_price) * 100
+                                    # Cap EOD exit loss at STOP_LOSS_PERCENT
+                                    entry_type_config = self.config.get(entry_type.upper(), {})
+                                    sl_config = entry_type_config.get('STOP_LOSS_PERCENT', {})
+                                    if isinstance(sl_config, dict):
+                                        sl_pct = max(
+                                            sl_config.get('ABOVE_THRESHOLD', 7.5),
+                                            sl_config.get('BETWEEN_THRESHOLD', 7.5),
+                                            sl_config.get('BELOW_THRESHOLD', 7.5)
+                                        )
+                                    else:
+                                        sl_pct = float(sl_config) if sl_config else 7.5
+                                    if eod_pnl < -sl_pct:
+                                        eod_exit_price = round(entry_price * (1 - sl_pct / 100.0), 2)
+                                        eod_pnl = -sl_pct
                                 else:
                                     logger.warning(f"Entry price is 0 for {symbol}, cannot calculate PnL")
                                     eod_pnl = 0.0
@@ -2247,45 +2277,9 @@ class ConsolidatedDynamicATMAnalysis:
                         })
                         continue
                     
-                    # Check trailing stop before entering trade (ONLY in second pass when actually executing trades)
-                    # CRITICAL FIX: Only apply trailing stop check in second pass (collect_trades_only=False)
-                    # In first pass (collect_trades_only=True), we're just collecting trade data for slab blocking
-                    # Trailing stop should only block trades when they're actually being executed, not during data collection
-                    # This ensures all trades are collected in first pass, then filtered by trailing stop in second pass
-                    if not collect_trades_only:
-                        # Check if trading is currently active (based on completed trades)
-                        # This matches production behavior where is_trading_allowed() checks completed trades
-                        # We use a worst-case PnL estimate to check if this trade would breach the limit
-                        # Get stop loss percentage from config for worst-case estimate
-                        entry_type_config = self.config.get(entry_type.upper(), {})
-                        stop_loss_config = entry_type_config.get('STOP_LOSS_PERCENT', {})
-                        if isinstance(stop_loss_config, dict):
-                            # Use the highest stop loss percentage as worst-case estimate
-                            worst_case_pnl = -max(
-                                stop_loss_config.get('ABOVE_THRESHOLD', 6.0),
-                                stop_loss_config.get('BETWEEN_THRESHOLD', 7.5),
-                                stop_loss_config.get('BELOW_THRESHOLD', 7.5)
-                            )
-                        else:
-                            # Fallback to default worst-case (10% loss)
-                            worst_case_pnl = -10.0
-                        
-                        can_enter, reason = self.trailing_stop_manager.can_enter_trade(worst_case_pnl)
-                        if not can_enter:
-                            logger.warning(f"Trailing stop blocked {entry_type} trade for {symbol} at {entry_time}: {reason}")
-                            # Track as skipped trade
-                            option_type = 'CE' if symbol.endswith('CE') else 'PE'
-                            skipped_trades.append({
-                                'symbol': symbol,
-                                'option_type': option_type,
-                                'entry_time': entry_time_obj.strftime('%H:%M:%S'),
-                                'exit_time': None,
-                                'entry_price': execution_price if execution_price is not None else None,
-                                'exit_price': None,
-                                'pnl': None,
-                                'trade_status': 'SKIPPED (TRAILING_STOP)'
-                            })
-                            continue
+                    # MARK2MARKET / trailing stop must NOT change the strategy: we always take the trade if
+                    # ACTIVE_TRADE etc. allow it. Accounting (which trades exceed 30% drawdown) is done only
+                    # in apply_trailing_stop.py (Phase 3.5), not here.
                     
                     if trade_state.enter_trade(symbol, entry_time, entry_data):
                         logger.info(f"Successfully entered {entry_type} trade for {symbol} at {entry_time}")
@@ -2572,7 +2566,8 @@ class ConsolidatedDynamicATMAnalysis:
             return trades_data
         
         # This code only runs if collect_trades_only=False
-        # Combine completed trades and skipped trades (like OTM format)
+        # Combine completed trades and skipped (for audit). MARK2MARKET in apply_trailing_stop only
+        # accounts for rows that have exit_time; it does not change the trade list.
         all_trades = list(completed_trades) + skipped_trades
         completed_df = pd.DataFrame(all_trades) if all_trades else pd.DataFrame()
         
@@ -2584,7 +2579,7 @@ class ConsolidatedDynamicATMAnalysis:
                 skipped_by_time[entry_time] = []
             skipped_by_time[entry_time].append(skipped['symbol'])
         
-        # Log summary with insights about skipped trades
+        # Log summary
         logger.info(f"Total trades: {len(completed_trades)} executed, {len(skipped_trades)} skipped, {len(all_trades)} total")
         if skipped_trades:
             logger.info(f"Skipped trades breakdown: {len(skipped_by_time)} unique timestamps had skipped trades")
@@ -2794,13 +2789,16 @@ class ConsolidatedDynamicATMAnalysis:
                 relative_path = f"ATM/{symbol}_strategy.html"
                 return f'=HYPERLINK("{relative_path}", "View")'
             
-            # Ensure trade_status column exists (for skipped trades)
+            # Ensure trade_status column exists and is never empty for skipped rows (so Phase 3 / apply_trailing_stop get the reason)
             if 'trade_status' not in completed_df.columns:
                 completed_df['trade_status'] = 'EXECUTED'  # Default for executed trades
+            # For rows with no exit_time (skipped), ensure trade_status is set so downstream shows exact reason
+            mask_skipped = completed_df['exit_time'].isna() | (completed_df['exit_time'].astype(str).str.strip() == '') | (completed_df['exit_time'].astype(str).str.strip().str.lower() == 'nan')
+            empty_status = completed_df['trade_status'].isna() | (completed_df['trade_status'].astype(str).str.strip() == '') | (completed_df['trade_status'].astype(str).str.strip().str.lower() == 'nan')
+            completed_df.loc[mask_skipped & empty_status, 'trade_status'] = 'SKIPPED (ACTIVE_TRADE_EXISTS)'  # fallback if ever missing
             
-            # Only create symbol links for executed trades
-            executed_mask = completed_df['trade_status'].str.contains('EXECUTED', na=False)
-            completed_df.loc[executed_mask, 'symbol'] = completed_df.loc[executed_mask, 'symbol'].apply(create_symbol_link)
+            # Keep symbol as plain text (no HYPERLINK in symbol column) so CSVs and downstream stay consistent.
+            # Use symbol_html for the View link only.
             completed_df['symbol_html'] = original_symbols.apply(create_symbol_html_link)
             
             ce_trades = completed_df[completed_df['option_type'] == 'CE']

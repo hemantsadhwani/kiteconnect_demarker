@@ -793,30 +793,41 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     # Only include filtered trades in the output file (as per original behavior)
     filtered_df = pd.DataFrame(filtered)
     
+    # Ensure trade_status and trade_status_reason exist and are never NaN (so apply_trailing_stop gets Phase 2 reason)
+    if 'trade_status' not in filtered_df.columns:
+        filtered_df['trade_status'] = ''
+    else:
+        filtered_df['trade_status'] = filtered_df['trade_status'].apply(
+            lambda x: '' if pd.isna(x) or str(x).strip() == '' or str(x).strip().lower() == 'nan' else str(x).strip()
+        )
+    if 'trade_status_reason' not in filtered_df.columns:
+        filtered_df['trade_status_reason'] = ''
+    
     # Log excluded trades for debugging
     if excluded:
         excluded_df = pd.DataFrame(excluded)
         logger.info(f"Excluded {len(excluded_df)} trades: {excluded_df['filter_status'].value_counts().to_dict()}")
     
-    # Apply PRICE_ZONES filter as post-processing (after sentiment filtering)
+    # Apply PRICE_ZONES: keep in-zone trades as-is; include out-of-zone trades with SKIPPED (OUTSIDE_PRICE_BAND) so they appear in CSV with reason
     price_zones_config = _load_price_zones_config()
     strike_type_key = f'DYNAMIC_{kind}'
     price_zone_low, price_zone_high = price_zones_config.get(strike_type_key, (None, None))
     
     sentiment_filtered_count = len(filtered_df)
-    if price_zone_low is not None and price_zone_high is not None:
-        original_count = len(filtered_df)
-        # Filter by entry_price (inclusive range)
-        filtered_df = filtered_df[
-            (pd.to_numeric(filtered_df['entry_price'], errors='coerce') >= price_zone_low) &
-            (pd.to_numeric(filtered_df['entry_price'], errors='coerce') <= price_zone_high)
-        ]
-        filtered_count = original_count - len(filtered_df)
-        if filtered_count > 0:
-            logger.info(f"PRICE_ZONES filter [{price_zone_low}, {price_zone_high}]: Filtered out {filtered_count} trades outside price zone")
-            if len(filtered_df) == 0:
-                logger.warning(f"All {original_count} sentiment-filtered trades were removed by PRICE_ZONES filter")
-                logger.warning(f"Summary: {len(all_trades)} total trades → {sentiment_filtered_count} passed sentiment → 0 passed price zone filter")
+    if price_zone_low is not None and price_zone_high is not None and len(filtered_df) > 0:
+        entry_prices = pd.to_numeric(filtered_df['entry_price'], errors='coerce')
+        in_zone_mask = (entry_prices >= price_zone_low) & (entry_prices <= price_zone_high)
+        out_zone_mask = ~in_zone_mask
+        out_zone_count = out_zone_mask.sum()
+        if out_zone_count > 0:
+            logger.info(f"PRICE_ZONES [{price_zone_low}, {price_zone_high}]: {out_zone_count} trades outside zone will appear as SKIPPED (OUTSIDE_PRICE_BAND)")
+            filtered_df = filtered_df.copy()
+            filtered_df.loc[out_zone_mask, 'trade_status'] = 'SKIPPED (OUTSIDE_PRICE_BAND)'
+            filtered_df.loc[out_zone_mask, 'trade_status_reason'] = f'Entry price outside PRICE_ZONES ({price_zone_low}-{price_zone_high})'
+            if 'filter_status' in filtered_df.columns:
+                filtered_df.loc[out_zone_mask, 'filter_status'] = filtered_df.loc[out_zone_mask, 'filter_status'].astype(str) + '; SKIPPED (OUTSIDE_PRICE_BAND)'
+            if in_zone_mask.sum() == 0:
+                logger.warning(f"All {len(filtered_df)} sentiment-filtered trades are outside price zone (included in output with SKIPPED (OUTSIDE_PRICE_BAND))")
     
     # Drop entry_time_dt column (used only for matching) and ensure entry_time is simple format
     if 'entry_time_dt' in filtered_df.columns:

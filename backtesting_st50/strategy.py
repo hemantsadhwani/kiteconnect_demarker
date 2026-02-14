@@ -464,7 +464,8 @@ class Entry2BacktestStrategyFixed:
             self.entry2_trigger = 'WPR'
         # Use trigger-specific confirmation window: WPR needs 4 bars (W%R28 + StochRSI), DeMarker uses 3
         self.entry2_confirmation_window = _wpr_window if self.entry2_trigger == 'WPR' else _demarker_window
-        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles")
+        self.entry2_delay_bars = max(0, int(entry2_config.get('ENTRY_DELAY_BARS', 0)))
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, delay bars: {self.entry2_delay_bars}")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -1122,6 +1123,28 @@ class Entry2BacktestStrategyFixed:
             # Strict mode: Requires SuperTrend1 to be bearish
             stoch_rsi_condition = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
         
+        # --- DELAYED ENTRY: fire on delay bar if conditions still hold ---
+        if getattr(self, 'entry2_delay_bars', 0) > 0:
+            if not hasattr(self, 'entry2_delayed_signal'):
+                self.entry2_delayed_signal = {}
+            if symbol in self.entry2_delayed_signal:
+                d = self.entry2_delayed_signal[symbol]
+                if current_index >= d['delay_until_bar']:
+                    # Re-check conditions on current bar; enter only if still valid
+                    if (wpr_slow_current > self.wpr_28_oversold) and stoch_rsi_condition:
+                        self.entry2_last_signal_index[symbol] = current_index
+                        logger.info(f"Entry2: *** DELAYED BUY SIGNAL *** at index {current_index} for {symbol} (delay bar, conditions still hold)")
+                        del self.entry2_delayed_signal[symbol]
+                        self._reset_entry2_state_machine(symbol)
+                        return True
+                    else:
+                        logger.debug(f"Entry2: Delayed signal cancelled at index {current_index} for {symbol} (conditions no longer hold: wpr28={wpr_slow_current:.2f}, stoch_ok={stoch_rsi_condition})")
+                        del self.entry2_delayed_signal[symbol]
+                        self._reset_entry2_state_machine(symbol)
+                elif current_index > d['delay_until_bar']:
+                    del self.entry2_delayed_signal[symbol]
+                    self._reset_entry2_state_machine(symbol)
+        
         # --- CHECK FOR NEW TRIGGER (can overwrite existing trigger) ---
         # Allow new trigger to replace existing one if conditions are met
         # IMPROVED LOGIC: Trigger if EITHER W%R(9) OR W%R(28) crosses above threshold
@@ -1216,7 +1239,13 @@ class Entry2BacktestStrategyFixed:
                             # Flag will be cleared in _enter_position() when entry is actually taken
                         
                         logger.debug(f"Entry2: BUY SIGNAL GENERATED at index {current_index} (same candle as trigger, replacing old trigger)")
-                        # CRITICAL FIX: Store signal_bar_index for consistency with confirmation processing branch
+                        if getattr(self, 'entry2_delay_bars', 0) > 0:
+                            if not hasattr(self, 'entry2_delayed_signal'):
+                                self.entry2_delayed_signal = {}
+                            self.entry2_delayed_signal[symbol] = {'delay_until_bar': current_index + self.entry2_delay_bars, 'signal_bar_index': current_index}
+                            logger.info(f"Entry2: Deferring entry to bar {current_index + self.entry2_delay_bars} for {symbol} (same candle as trigger, replacing old trigger)")
+                            self._reset_entry2_state_machine(symbol)
+                            return False
                         signal_bar_index = current_index
                         self.entry2_last_signal_index[symbol] = signal_bar_index
                         logger.info(f"Entry2: *** BUY SIGNAL GENERATED *** at index {current_index} for {symbol} "
@@ -1325,21 +1354,23 @@ class Entry2BacktestStrategyFixed:
                 # If in position, defer entry until after exit (trigger missed while in trade)
                 if self._maybe_defer_entry2_signal(current_index, symbol, state_machine.get('trigger_bar_index')):
                     return False
-                # CRITICAL FIX: Store signal_bar_index for consistency with confirmation processing branch
+                if getattr(self, 'entry2_delay_bars', 0) > 0:
+                    if not hasattr(self, 'entry2_delayed_signal'):
+                        self.entry2_delayed_signal = {}
+                    self.entry2_delayed_signal[symbol] = {'delay_until_bar': current_index + self.entry2_delay_bars, 'signal_bar_index': current_index}
+                    logger.info(f"Entry2: Deferring entry to bar {current_index + self.entry2_delay_bars} for {symbol} (same candle as trigger)")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
                 signal_bar_index = current_index
                 self.entry2_last_signal_index[symbol] = signal_bar_index
                 logger.info(f"Entry2: *** BUY SIGNAL GENERATED *** at index {current_index} for {symbol} "
                             f"(signal bar index={signal_bar_index}, same candle as trigger) - returning True")
-                # CRITICAL: Reset state machine immediately when signal is generated
                 self._reset_entry2_state_machine(symbol)
-                
-                # Enhanced logging for confirmation window expiration
                 current_row = df.iloc[current_index]
                 if hasattr(current_row, 'date'):
                     time_str = pd.to_datetime(current_row['date']).strftime('%H:%M')
                     if time_str in ['13:17', '13:18', '13:19', '13:20', '13:21']:
                         logger.info(f"Entry2: [DEBUG] Confirmation window EXPIRED immediately upon trade entry (same candle as trigger) at index {current_index} ({time_str}) - window={self.entry2_confirmation_window}")
-                
                 return True
         
         # --- PROCESS CONFIRMATION STATE ---
@@ -1420,29 +1451,25 @@ class Entry2BacktestStrategyFixed:
                     if time_str in ['13:17', '13:18', '13:19', '13:20', '13:21']:
                         logger.info(f"Entry2: [DEBUG] *** BUY SIGNAL GENERATED *** at index {current_index} ({time_str}) for {symbol} - returning True")
                 
-                # If in position, defer entry until after exit (trigger missed while in trade)
                 if self._maybe_defer_entry2_signal(current_index, symbol, trigger_bar_index):
                     return False
-                # Determine which bar should be treated as the logical signal bar:
-                # We want the bar where *all* Entry2 conditions are confirmed, i.e. the
-                # candle on which this success branch runs (current_index).
+                if getattr(self, 'entry2_delay_bars', 0) > 0:
+                    if not hasattr(self, 'entry2_delayed_signal'):
+                        self.entry2_delayed_signal = {}
+                    self.entry2_delayed_signal[symbol] = {'delay_until_bar': current_index + self.entry2_delay_bars, 'signal_bar_index': current_index}
+                    logger.info(f"Entry2: Deferring entry to bar {current_index + self.entry2_delay_bars} for {symbol} (confirmations met in window)")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
                 signal_bar_index = current_index
-                # Store for use in the main loop when placing the signal and entering the trade
                 self.entry2_last_signal_index[symbol] = signal_bar_index
-
-                logger.info(f"Entry2: *** BUY SIGNAL GENERATED *** at index {current_index} for {symbol} "
-                            f"(signal bar index={signal_bar_index}) - returning True")
-                # CRITICAL: Reset state machine immediately when signal is generated
+                logger.info(f"Entry2: *** BUY SIGNAL GENERATED *** at index {current_index} for {symbol} (signal bar index={signal_bar_index}) - returning True")
                 self._reset_entry2_state_machine(symbol)
-                
-                # Enhanced logging for confirmation window expiration
                 current_row = df.iloc[current_index]
                 if hasattr(current_row, 'date'):
                     time_str = pd.to_datetime(current_row['date']).strftime('%H:%M')
                     if trigger_bar_index is not None:
                         bars_since_trigger = current_index - trigger_bar_index
                         logger.info(f"Entry2: [DEBUG] Confirmation window EXPIRED immediately upon trade entry at index {current_index} ({time_str}) - trigger was at {trigger_bar_index}, {bars_since_trigger} bars since trigger, window={self.entry2_confirmation_window}")
-                
                 return True
             
             # Window expiration is checked in invalidation section above using trigger_bar_index
@@ -2346,7 +2373,8 @@ class Entry2BacktestStrategyFixed:
         # Previous bar: Fast MA >= Slow MA, Current bar: Fast MA < Slow MA
         return prev_fast_ma >= prev_slow_ma and current_fast_ma < current_slow_ma
 
-    def _enter_position(self, df: pd.DataFrame, current_index: int, signal_type: str):
+    def _enter_position(self, df: pd.DataFrame, current_index: int, signal_type: str) -> bool:
+        """Enter a position. Returns True if position was taken, False if skipped (CPR, NaN price, etc.)."""
         current_row = df.iloc[current_index]
         # Execution bar = next candle (entry happens on next bar)
         execution_index = current_index + 1 if current_index + 1 < len(df) else current_index
@@ -2360,13 +2388,13 @@ class Entry2BacktestStrategyFixed:
                 exec_date = execution_row.get('date')
                 if exec_date is None or pd.isna(exec_date):
                     logger.debug(f"CPR_TRADING_RANGE: No execution date; skipping entry (strict)")
-                    return
+                    return False
                 current_date = pd.to_datetime(exec_date).date() if hasattr(exec_date, 'date') else pd.to_datetime(exec_date).date()
                 date_str = str(current_date)
                 cpr_bounds = self._cpr_by_date.get(date_str)
                 if cpr_bounds is None:
                     logger.debug(f"CPR_TRADING_RANGE: No CPR bounds for {date_str}; skipping entry (strict)")
-                    return
+                    return False
                 if isinstance(exec_date, pd.Timestamp):
                     entry_time_str = exec_date.strftime('%H:%M:%S')
                 else:
@@ -2374,11 +2402,11 @@ class Entry2BacktestStrategyFixed:
                 nifty_file = self._get_nifty_file_path(self.csv_file_path, current_date) if hasattr(self, 'csv_file_path') and self.csv_file_path else None
                 if not nifty_file or not nifty_file.exists():
                     logger.debug(f"CPR_TRADING_RANGE: No Nifty file for {date_str}; skipping entry (strict)")
-                    return
+                    return False
                 nifty_price = self._get_nifty_price_at_time(nifty_file, entry_time_str, target_date=current_date)
                 if nifty_price is None:
                     logger.debug(f"CPR_TRADING_RANGE: No Nifty price at {entry_time_str} for {date_str}; skipping entry (strict)")
-                    return
+                    return False
                 cpr_lower = cpr_bounds['cpr_lower']
                 cpr_upper = cpr_bounds['cpr_upper']
                 if nifty_price < cpr_lower or nifty_price > cpr_upper:
@@ -2386,10 +2414,10 @@ class Entry2BacktestStrategyFixed:
                         f"CPR_TRADING_RANGE: Skip entry {signal_type} at bar {current_index}: "
                         f"Nifty {nifty_price:.2f} outside [{cpr_lower:.2f}, {cpr_upper:.2f}]"
                     )
-                    return
+                    return False
             except Exception as e:
                 logger.warning(f"CPR_TRADING_RANGE check failed: {e}; skipping entry (strict)")
-                return
+                return False
 
         # CRITICAL FIX: Use execution time candle price, not signal candle price
         # In production: Signal detected at candle T (e.g., 13:58:00) -> Trade executes at T+1 minute + 1 second (e.g., 13:59:01)
@@ -2413,8 +2441,8 @@ class Entry2BacktestStrategyFixed:
             logger.warning(f"[ENTRY PRICE FIX] {signal_type}: Next candle not available, using signal candle price {entry_price:.2f}")
         
         if pd.isna(entry_price):
-            return
-        
+            return False
+
         # NOTE: PRICE_ZONES filtering is now applied as post-processing in market sentiment filter scripts
         # This ensures strategy execution remains unchanged and all trades are generated
         
@@ -2498,6 +2526,7 @@ class Entry2BacktestStrategyFixed:
         
         entry_price_rounded = round(entry_price, 2) if pd.notna(entry_price) else 0.0
         logger.info(f"Entry 1 {signal_type}: Entered LONG at {entry_price_rounded:.2f} (bar {current_index})")
+        return True
 
     def _check_entry1_exit_conditions(self, df: pd.DataFrame, current_index: int) -> Tuple[bool, str, float]:
         """Check exit conditions for Entry1: supertrend2 trailing SL (only when bullish) + 6% TP"""
@@ -2693,14 +2722,15 @@ class Entry2BacktestStrategyFixed:
             deferred_trigger = getattr(self, 'deferred_entry2_trigger_bar', None)
             if deferred_bar is not None and deferred_bar <= current_index:
                 self.entry2_last_signal_index[symbol] = deferred_trigger if deferred_trigger is not None else deferred_bar
-                self._enter_position(df, deferred_bar, "Entry2")
-                # Mark entry at signal bar (deferred_bar) to match prior behavior / trade count
-                if 'entry2_entry_type' in df.columns:
-                    df.at[deferred_bar, 'entry2_entry_type'] = 'Entry'
-                if 'entry2_signal' in df.columns:
-                    df.at[deferred_bar, 'entry2_signal'] = 'Entry2'
-                if 'entry2_pnl' in df.columns:
-                    df.at[deferred_bar, 'entry2_pnl'] = 0.0
+                entered = self._enter_position(df, deferred_bar, "Entry2")
+                # Mark entry at signal bar only when we actually took the trade (avoids Entry without Exit)
+                if entered:
+                    if 'entry2_entry_type' in df.columns:
+                        df.at[deferred_bar, 'entry2_entry_type'] = 'Entry'
+                    if 'entry2_signal' in df.columns:
+                        df.at[deferred_bar, 'entry2_signal'] = 'Entry2'
+                    if 'entry2_pnl' in df.columns:
+                        df.at[deferred_bar, 'entry2_pnl'] = 0.0
                 self.deferred_entry2_bar = None
                 self.deferred_entry2_trigger_bar = None
                 logger.info(f"Entry2: Applied deferred entry at bar {deferred_bar} for {symbol} after exit at bar {current_index} (trigger was at bar {deferred_trigger})")
@@ -3135,15 +3165,16 @@ class Entry2BacktestStrategyFixed:
                                     self._reset_entry2_state_machine(symbol)
                                     logger.debug(f"Entry1: Reset Entry2 state machine for {symbol} (Entry2 also detected signal at bar {pending_signal_bar})")
                             
-                            self._enter_position(df, i, pending_entry_type)
-                            # Mark the trade entry in the DataFrame (only if columns exist)
-                            entry_type_lower = pending_entry_type.lower()
-                            entry_type_col = f'{entry_type_lower}_entry_type'
-                            pnl_col = f'{entry_type_lower}_pnl'
-                            if entry_type_col in df.columns:
-                                df.at[i, entry_type_col] = 'Entry'
-                            if pnl_col in df.columns:
-                                df.at[i, pnl_col] = 0.0  # P&L is 0 at entry
+                            entered = self._enter_position(df, i, pending_entry_type)
+                            # Mark the trade entry in the DataFrame only when we actually took the trade
+                            if entered:
+                                entry_type_lower = pending_entry_type.lower()
+                                entry_type_col = f'{entry_type_lower}_entry_type'
+                                pnl_col = f'{entry_type_lower}_pnl'
+                                if entry_type_col in df.columns:
+                                    df.at[i, entry_type_col] = 'Entry'
+                                if pnl_col in df.columns:
+                                    df.at[i, pnl_col] = 0.0  # P&L is 0 at entry
                             # Clear pending confirmation
                             self.entry1_pending_confirmation = None
                         else:
@@ -3192,22 +3223,19 @@ class Entry2BacktestStrategyFixed:
                                             f"({time_str}) for {symbol}: should_enter={should_enter}")
                         
                         if should_enter:
-                            entry2_signal_detected = True
-                            # Mark the signal in the DataFrame ONLY if risk validation passes
-                            # This ensures entry2_signal and entry2_entry_type are always consistent
-                            if 'entry2_signal' in df.columns:
-                                df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
-                            logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
-                            
                             # Entry2 uses the signal bar as the logical signal candle.
-                            # Actual execution price and bar index are handled inside _enter_position
-                            # (which uses signal_bar_index+1 as the execution candle).
-                            self._enter_position(df, signal_bar_index, "Entry2")
-                            # Mark the trade entry at SIGNAL bar (reverted from execution bar to restore prior trade count)
-                            if 'entry2_entry_type' in df.columns:
-                                df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
-                            if 'entry2_pnl' in df.columns:
-                                df.at[signal_bar_index, 'entry2_pnl'] = 0.0  # P&L is 0 at entry
+                            # Actual execution price and bar index are handled inside _enter_position.
+                            # Only mark Entry in CSV when we actually take the trade (avoids Entry without Exit).
+                            entered = self._enter_position(df, signal_bar_index, "Entry2")
+                            if entered:
+                                entry2_signal_detected = True
+                                if 'entry2_signal' in df.columns:
+                                    df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
+                                if 'entry2_entry_type' in df.columns:
+                                    df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
+                                if 'entry2_pnl' in df.columns:
+                                    df.at[signal_bar_index, 'entry2_pnl'] = 0.0  # P&L is 0 at entry
+                                logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
                         else:
                             # Risk validation failed - don't mark signal (signal detected but filtered out)
                             # Enhanced debug logging for missing trades investigation
@@ -3257,6 +3285,28 @@ class Entry2BacktestStrategyFixed:
                         pass
                 else:
                     logger.debug(f"Already in position at index {i}, skipping entry signals")
+            
+            # EOD exit: every entry must have an exit (SL, TP, supertrend, or EOD). If still in position
+            # after the last bar, close at last bar's close (EOD) and write Exit to the strategy CSV.
+            if self.position and len(df) > 0:
+                last_idx = len(df) - 1
+                last_row = df.iloc[last_idx]
+                eod_close = float(last_row.get('close', self.entry_price))
+                # Cap EOD loss at configured stop loss (we would have hit SL before worse)
+                if self.stop_loss_percent_config and isinstance(self.stop_loss_percent_config, dict):
+                    max_sl = max(
+                        self.stop_loss_percent_config.get('ABOVE_THRESHOLD', 7.5),
+                        self.stop_loss_percent_config.get('BETWEEN_THRESHOLD', 7.5),
+                        self.stop_loss_percent_config.get('BELOW_THRESHOLD', 7.5),
+                    )
+                else:
+                    max_sl = 7.5
+                pnl_eod = ((eod_close - self.entry_price) / self.entry_price) * 100
+                if pnl_eod < -max_sl:
+                    eod_close = round(self.entry_price * (1 - max_sl / 100.0), 2)
+                    logger.info(f"EOD exit: capping exit at SL {max_sl}% (raw PnL {pnl_eod:.2f}%)")
+                logger.info(f"EOD exit: closing open position at bar {last_idx} (last bar), price={eod_close:.2f}")
+                self._exit_position(df, last_idx, "EOD Exit", eod_close)
             
             # Save enhanced CSV with strategy columns
             base_name = csv_file_path.stem

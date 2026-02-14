@@ -4,7 +4,7 @@ ANALYSIS:
   CALCULATE_PNL: true
   CALCULATE_WIN_RATE: true
   GENERATE_REPORTS: true
-  GENERATE_STRATEGY_PLOTS: true
+  GENERATE_STRATEGY_PLOTS: false
   INCLUDE_CHARTS: false
   SAVE_CSV_REPORTS: true
   SAVE_JSON_REPORTS: false
@@ -14,10 +14,10 @@ BACKTESTING_ANALYSIS:
   DYNAMIC_OTM: ENABLE
   PRICE_ZONES:
     DYNAMIC_ATM:
-      HIGH_PRICE: 200   # was 220; JAN28+ ATM CE/PE often 250-300+, raise so sentiment output is not empty
+      HIGH_PRICE: 200   # ATM CE/PE often 200-300+; must be high enough so sentiment output is not empty
       LOW_PRICE: 40
     DYNAMIC_OTM:
-      HIGH_PRICE: 200
+      HIGH_PRICE: 400
       LOW_PRICE: 0
     STATIC_ATM:
       HIGH_PRICE: 600
@@ -68,7 +68,7 @@ BACKTESTING_EXPIRY:
   - '2026-01-08'
   - '2026-01-14'
   - '2026-01-23'
-  - '2026-02-01'
+
 
   - '2025-10-24'
   - '2025-11-03'
@@ -80,8 +80,10 @@ BACKTESTING_EXPIRY:
   - '2026-01-12'
   - '2026-01-21'
   - '2026-01-30'
+
   - '2026-02-02'
 
+  - '2026-02-01'
   - '2026-02-04'
   - '2026-02-05'  
   - '2026-02-06'
@@ -164,10 +166,12 @@ MARKET_SENTIMENT_FILTER:
   HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
   ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
+# High-Water Mark trailing stop: stop trading for the day when next trade would breach LOSS_MARK% from day high.
+# Reduces backtest PnL (skips some winners). See docs/MARK2MARKET_IMPACT.md for per-day impact and dates.
 MARK2MARKET:
-  ENABLE: false
+  ENABLE: true
   CAPITAL: 100000
-  LOSS_MARK: 30
+  LOSS_MARK: 35
   PER_DAY: true
 STRATEGY:
   CE_ENTRY_CONDITIONS:
@@ -199,6 +203,8 @@ ENTRY2:
   # DeMarker/StochRSI thresholds come from indicators_config.yaml (THRESHOLDS.DEMARKER_OVERSOLD, STOCH_RSI_OVERSOLD)
   DEMARKER_CONFIRMATION_WINDOW: 3   # Used when TRIGGER=DEMARKER (current bar + next 2 bars)
   WPR_CONFIRMATION_WINDOW: 4   # Used when TRIGGER=WPR (legacy 4-bar window for W%R + StochRSI confirmation)
+  # Delayed entry: 0 = enter on confirmation bar; 1 = enter next bar if conditions still hold (filters momentary spikes)
+  ENTRY_DELAY_BARS: 0
   SL_MODE: "Swing Low"  # "Fixed Percentage" | "Swing Low"
   # Legacy WPR-based trigger (set TRIGGER to "WPR" to use old logic)
   TRIGGER: "WPR"       # "DEMARKER" | "WPR"
