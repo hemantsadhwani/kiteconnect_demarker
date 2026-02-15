@@ -15,7 +15,7 @@ TRADE_SETTINGS:
   REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT:
     ABOVE_THRESHOLD: 13  # Max swing low distance % when entry price > 120
     BETWEEN_THRESHOLD: 13  # Max swing low distance % when entry price is between 70 and 120
-    BELOW_THRESHOLD: 20  # Max swing low distance % when entry price < 70
+    BELOW_THRESHOLD: 15  # Max swing low distance % when entry price < 70
   CONTINUATION_MAX_SUPERTREND_DISTANCE_PERCENT: 6 # Max SuperTrend distance for CONTINUATION entries (useEntry3)
   
   # Trade Settings
@@ -26,12 +26,12 @@ TRADE_SETTINGS:
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (8.0%)
   STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
-    ABOVE_THRESHOLD: 6.0  # Stop loss % when entry price > 120
+    ABOVE_THRESHOLD: 6.5  # Stop loss % when entry price > 120
     BETWEEN_THRESHOLD: 7.5  # Stop loss % when entry price is between 70 and 120
     BELOW_THRESHOLD: 7.5  # Stop loss % when entry price < 70
   # Legacy single value (for backward compatibility, will be overridden by above if both exist)
   # STOP_LOSS_PERCENT: 6.0 # Fixed percentage stop loss (Stage 1) - DEPRECATED: Use STOP_LOSS_PERCENT.ABOVE_THRESHOLD/BELOW_THRESHOLD
-  TAKE_PROFIT_PERCENT: 8.0 # Fixed percentage take profit (Stage 1, redundant if DYNAMIC_TRAILING_MA is active)
+  TAKE_PROFIT_PERCENT: 7.0 # Fixed percentage take profit (Stage 1, redundant if DYNAMIC_TRAILING_MA is active)
   # Dynamic Trailing MA Configuration (Stage 3)
   DYNAMIC_TRAILING_MA: true # Enable MA-based dynamic trailing for Entry2 trades
   DYNAMIC_TRAILING_MA_THRESH: 7 # Percentage above entry to activate MA trailing (e.g., 7%)
@@ -74,7 +74,7 @@ TRADE_SETTINGS:
 MARK2MARKET:
   ENABLE: true  # Enable/disable trailing stop logic
   CAPITAL: 15000  # Starting daily capital
-  LOSS_MARK: 30  # Percentage drop from High-Water Mark to trigger stop
+  LOSS_MARK: 35  # Percentage drop from High-Water Mark to trigger stop
   PER_DAY: true  # Each day starts fresh with CAPITAL, tracks day's high, stops if drops LOSS_MARK% from day's high 
 
 # Bot Operational Settings
@@ -187,7 +187,7 @@ STRIKE_TYPE: ATM  # Options: ATM or OTM
 # Based on backtesting win rate analysis
 PRICE_ZONES:
   DYNAMIC_ATM:
-    LOW_PRICE: 20   # Minimum entry price to take trade
+    LOW_PRICE: 40   # Minimum entry price to take trade
     HIGH_PRICE: 200 # Maximum entry price to take trade
   STATIC_ATM:
     LOW_PRICE: 20    # Minimum entry price (0 = no lower limit)

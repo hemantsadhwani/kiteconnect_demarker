@@ -33,11 +33,12 @@ class TrailingMaxDrawdownManager:
         self.config = config
         self.ledger = ledger
         
-        # Load MARK2MARKET configuration
+        # Load MARK2MARKET configuration (same keys as backtesting: ENABLE, CAPITAL, LOSS_MARK, PER_DAY)
         mark2market = config.get('MARK2MARKET', {})
         self.enabled = mark2market.get('ENABLE', False)
         self.capital = float(mark2market.get('CAPITAL', 100000))
         self.loss_mark = float(mark2market.get('LOSS_MARK', 20))
+        # PER_DAY: config may set it; behaviour is per-day because TradeLedger is cleared each trading day
         
         if self.enabled:
             logger.info(
