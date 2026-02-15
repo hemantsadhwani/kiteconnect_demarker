@@ -105,6 +105,9 @@ CPR_WIDTH_FILTER:
 # When DISABLED: Allows both CE and PE trades simultaneously regardless of sentiment
 MARKET_SENTIMENT_FILTER:
   ENABLED: false  # Set to false to allow both CE and PE trades simultaneously (matches backtesting behavior)
+  # If false: Only one position (CE or PE) can be active at a time; new CE blocked when PE is active and vice versa (can improve win rate).
+  # If true: CE and PE positions can coexist (default; backward compatible).
+  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true
 
 # Time Distribution Filter (No Trade Zones)
 # When enabled, only trades within enabled time zones will be executed

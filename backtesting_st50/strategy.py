@@ -1194,72 +1194,11 @@ class Entry2BacktestStrategyFixed:
             else:
                 trigger_type = "W%R(28)"
             logger.info(f"Entry2: NEW TRIGGER DETECTED at index {current_index} for {symbol}: Triggered by {trigger_type} crossover - W%R(9) {wpr_fast_prev:.2f}->{wpr_fast_current:.2f}, W%R(28) {wpr_slow_prev:.2f}->{wpr_slow_current:.2f}, is_bearish={is_bearish}, current_state={state_machine['state']}")
-            # If we're in AWAITING_CONFIRMATION state, check if new trigger should replace old one
+            # Do NOT replace trigger when already in AWAITING_CONFIRMATION: wait for current trigger to be invalidated
+            # (by confirmation window expiry or WPR9 invalidation) before accepting a new trigger.
             if state_machine['state'] == 'AWAITING_CONFIRMATION':
                 old_trigger_bar_index = state_machine.get('trigger_bar_index')
-                # Replace old trigger if new trigger is more recent (should always be true)
-                if old_trigger_bar_index is None or current_index > old_trigger_bar_index:
-                    logger.debug(f"Entry2: New trigger detected at index {current_index} - replacing old trigger at {old_trigger_bar_index}")
-                    # Reset and start new trigger
-                    state_machine['state'] = 'AWAITING_CONFIRMATION'
-                    state_machine['confirmation_countdown'] = self.entry2_confirmation_window
-                    state_machine['trigger_bar_index'] = current_index
-                    state_machine['wpr_28_confirmed_in_window'] = False
-                    state_machine['stoch_rsi_confirmed_in_window'] = False
-                    logger.debug(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window (T, T+1, ..., T+{self.entry2_confirmation_window-1})")
-                    
-                    # Check for immediate confirmations on trigger candle
-                    wpr_28_crosses_above_trigger = (wpr_slow_prev <= self.wpr_28_oversold) and (wpr_slow_current > self.wpr_28_oversold) and is_bearish
-                    if self.flexible_stochrsi_confirmation:
-                        stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
-                    else:
-                        stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
-                    
-                    # WPR28 confirmation: Only confirm on crossover (not just currently above)
-                    if wpr_28_crosses_above_trigger:
-                        state_machine['wpr_28_confirmed_in_window'] = True
-                        logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (crossed above {self.wpr_28_oversold} from {wpr_slow_prev:.2f} to {wpr_slow_current:.2f}, same candle as trigger, SuperTrend1 bearish)")
-                    elif wpr_slow_current > self.wpr_28_oversold and is_bearish:
-                        logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) but hasn't crossed yet (prev={wpr_slow_prev:.2f}) - same candle as trigger")
-                    
-                    if stoch_rsi_condition_trigger:
-                        state_machine['stoch_rsi_confirmed_in_window'] = True
-                        mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
-                        logger.debug(f"Entry2: StochRSI confirmation at index {current_index} (same candle as trigger, {mode_desc} mode)")
-                    
-                    if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
-                        if self.skip_first:
-                            # CRITICAL: Calculate sentiments at SIGNAL bar (current_row) to match real-time behavior
-                            # In real-time, we calculate sentiments when signal is confirmed, not at entry time
-                            if self._should_skip_first_entry(current_row, current_index, symbol):
-                                self.first_entry_after_switch[symbol] = False
-                                self._reset_entry2_state_machine(symbol)
-                                return False
-                            # Don't clear flag here - keep it until we actually enter or skip
-                            # Flag will be cleared in _enter_position() when entry is actually taken
-                        
-                        logger.debug(f"Entry2: BUY SIGNAL GENERATED at index {current_index} (same candle as trigger, replacing old trigger)")
-                        if getattr(self, 'entry2_delay_bars', 0) > 0:
-                            if not hasattr(self, 'entry2_delayed_signal'):
-                                self.entry2_delayed_signal = {}
-                            self.entry2_delayed_signal[symbol] = {'delay_until_bar': current_index + self.entry2_delay_bars, 'signal_bar_index': current_index}
-                            logger.info(f"Entry2: Deferring entry to bar {current_index + self.entry2_delay_bars} for {symbol} (same candle as trigger, replacing old trigger)")
-                            self._reset_entry2_state_machine(symbol)
-                            return False
-                        signal_bar_index = current_index
-                        self.entry2_last_signal_index[symbol] = signal_bar_index
-                        logger.info(f"Entry2: *** BUY SIGNAL GENERATED *** at index {current_index} for {symbol} "
-                                    f"(signal bar index={signal_bar_index}, same candle as trigger, replacing old trigger) - returning True")
-                        self._reset_entry2_state_machine(symbol)
-                        return True
-                    
-                    # CRITICAL FIX: After replacing trigger, continue to confirmation processing below
-                    # This ensures that confirmations on subsequent candles are properly checked
-                    # Don't return here - let it fall through to confirmation processing section
-                else:
-                    # New trigger is older than existing trigger, ignore it
-                    logger.debug(f"Entry2: Ignoring new trigger at index {current_index} - existing trigger at {old_trigger_bar_index} is more recent")
-                    # Don't return here either - continue to confirmation processing for existing trigger
+                logger.debug(f"Entry2: Ignoring new trigger at index {current_index} - already in AWAITING_CONFIRMATION (trigger at {old_trigger_bar_index}); wait for window expiry or WPR9 invalidation before new trigger")
         
         # --- INVALIDATION CHECKS FOR ACTIVE STATE (HIGHEST PRIORITY) ---
         if state_machine['state'] == 'AWAITING_CONFIRMATION':
@@ -2061,7 +2000,7 @@ class Entry2BacktestStrategyFixed:
         return should_skip
     
     def _maybe_defer_entry2_signal(self, current_index: int, symbol: str, trigger_bar_index: Optional[int]) -> bool:
-        """If in position, store deferred entry (trigger missed while in trade; confirmation will execute after exit). Returns True if deferred (caller should return False); False otherwise."""
+        """If in position, store deferred entry (trigger+confirmation while in trade); enter at this bar after position closes. Returns True if deferred (caller should return False); False otherwise."""
         if self.position is not None:
             self.deferred_entry2_bar = current_index
             self.deferred_entry2_trigger_bar = trigger_bar_index
@@ -2717,13 +2656,12 @@ class Entry2BacktestStrategyFixed:
             else:
                 logger.info(f"Entry2: Preserving state machine for {symbol} after exit at bar {current_index} (trigger at bar {sm.get('trigger_bar_index')} - confirmation can complete on next bar)")
             
-            # Apply deferred Entry2 if trigger/confirmation completed while we were in trade (execute now that we exited)
+            # Apply deferred Entry2 if trigger+confirmation completed while we were in trade (execute now that we exited)
             deferred_bar = getattr(self, 'deferred_entry2_bar', None)
             deferred_trigger = getattr(self, 'deferred_entry2_trigger_bar', None)
             if deferred_bar is not None and deferred_bar <= current_index:
                 self.entry2_last_signal_index[symbol] = deferred_trigger if deferred_trigger is not None else deferred_bar
                 entered = self._enter_position(df, deferred_bar, "Entry2")
-                # Mark entry at signal bar only when we actually took the trade (avoids Entry without Exit)
                 if entered:
                     if 'entry2_entry_type' in df.columns:
                         df.at[deferred_bar, 'entry2_entry_type'] = 'Entry'

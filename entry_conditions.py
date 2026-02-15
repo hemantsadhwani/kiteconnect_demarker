@@ -120,10 +120,16 @@ class EntryConditionManager:
         # When DISABLED: Allows both CE and PE trades simultaneously regardless of sentiment
         sentiment_filter_config = config.get('MARKET_SENTIMENT_FILTER', {})
         self.sentiment_filter_enabled = sentiment_filter_config.get('ENABLED', True)  # Default to True for backward compatibility
+        # ALLOW_MULTIPLE_SYMBOL_POSITIONS: true = CE and PE can coexist; false = only one position at a time (blocks CE when PE active and vice versa)
+        self.allow_multiple_symbol_positions = sentiment_filter_config.get('ALLOW_MULTIPLE_SYMBOL_POSITIONS', True)
         if not self.sentiment_filter_enabled:
             self.logger.info("✅ MARKET_SENTIMENT_FILTER is DISABLED - Both CE and PE trades can occur simultaneously regardless of sentiment")
         else:
             self.logger.info("MARKET_SENTIMENT_FILTER is ENABLED - Trades will be filtered based on sentiment (BULLISH=CE only, BEARISH=PE only, NEUTRAL=both)")
+        if self.allow_multiple_symbol_positions:
+            self.logger.info("ALLOW_MULTIPLE_SYMBOL_POSITIONS=true - CE and PE positions can coexist")
+        else:
+            self.logger.info("ALLOW_MULTIPLE_SYMBOL_POSITIONS=false - Only one position (CE or PE) at a time; may improve win rate")
         
         # Initialize Entry2 state machine (per symbol)
         self.entry2_state_machine = {}
@@ -667,11 +673,9 @@ class EntryConditionManager:
             # Strict mode: Requires SuperTrend1 to be bearish
             stoch_rsi_condition = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
         
-        # --- CHECK FOR NEW TRIGGER (can replace existing trigger when WPR9_INVALIDATION=false) ---
-        # Allow new trigger to replace existing one if conditions are met
-        # This matches backtesting behavior and handles cases where WPR9_INVALIDATION is false
-        # When WPR9_INVALIDATION is false, triggers are not invalidated when W%R9 crosses back below,
-        # so we need to allow new triggers to replace old ones even when in AWAITING_CONFIRMATION state
+        # --- CHECK FOR NEW TRIGGER ---
+        # Do NOT replace trigger when already in AWAITING_CONFIRMATION (match backtesting).
+        # Wait for current trigger to be invalidated (window expiry or WPR9 invalidation) before accepting a new trigger.
         # IMPROVED LOGIC: Trigger if EITHER W%R(9) OR W%R(28) crosses above threshold
         # (whichever occurs first), ensuring the other was below threshold
         # SPECIAL CASE: If both cross on same candle, trigger is detected and W%R(28) confirmation is immediately met
@@ -686,78 +690,14 @@ class EntryConditionManager:
         new_trigger_detected = trigger_from_wpr9_new or trigger_from_wpr28_new or both_cross_same_candle_new
         
         if new_trigger_detected and state_machine['state'] == 'AWAITING_CONFIRMATION':
-            # New trigger detected while in AWAITING_CONFIRMATION state - replace old trigger
+            # Do NOT replace trigger when in AWAITING_CONFIRMATION (aligned with backtesting).
+            # Ignore new trigger; wait for current trigger to be invalidated (window expiry or WPR9 invalidation).
             old_trigger_bar_index = state_machine.get('trigger_bar_index')
-            if old_trigger_bar_index is None or self.current_bar_index > old_trigger_bar_index:
-                if both_cross_same_candle_new:
-                    trigger_type = "both W%R(9) and W%R(28) crossed on same candle"
-                elif trigger_from_wpr9_new:
-                    trigger_type = "W%R(9) crossed and W%R(28) was below threshold"
-                else:
-                    trigger_type = "W%R(28) crossed and W%R(9) was below threshold"
-                self.logger.info(f"Entry2: NEW TRIGGER DETECTED for {symbol} at bar {self.current_bar_index} - replacing old trigger at {old_trigger_bar_index} ({trigger_type}, WPR9_INVALIDATION=false, allowing trigger replacement)")
-                # Reset and start new trigger
-                state_machine['state'] = 'AWAITING_CONFIRMATION'
-                state_machine['confirmation_countdown'] = self.entry2_confirmation_window
-                state_machine['trigger_bar_index'] = self.current_bar_index
-                state_machine['wpr_28_confirmed_in_window'] = False
-                state_machine['stoch_rsi_confirmed_in_window'] = False
-                window_end = self.current_bar_index + self.entry2_confirmation_window
-                self.logger.info(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {self.current_bar_index} (T, T+1, ..., T+{self.entry2_confirmation_window-1}), window expires at bar {window_end}")
-                
-                # CRITICAL: Check for confirmations on the same trigger candle
-                # WPR28 confirmation requires SuperTrend to be bearish (STRICT requirement)
-                if self.debug_entry2:
-                    wpr_28_crosses_above_strict = wpr_28_crosses_above
-                else:
-                    wpr_28_crosses_above_strict = wpr_28_crosses_above and is_bearish
-                
-                if wpr_28_crosses_above_strict:
-                    state_machine['wpr_28_confirmed_in_window'] = True
-                    self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} (same candle as new trigger) - Slow WPR crossed above {self.wpr_28_oversold} ({wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}), SuperTrend1 bearish")
-                elif wpr_slow_current > self.wpr_28_oversold and is_bearish:
-                    # W%R(28) is above threshold but hasn't crossed yet
-                    self.logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) but hasn't crossed yet (prev={wpr_slow_prev:.2f}) - same candle as new trigger")
-                
-                # StochRSI confirmation
-                if self.debug_entry2:
-                    stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
-                elif self.flexible_stochrsi_confirmation:
-                    stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
-                else:
-                    stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
-                
-                if stoch_rsi_condition_trigger:
-                    state_machine['stoch_rsi_confirmed_in_window'] = True
-                    mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
-                    self.logger.info(f"Entry2: [OK] StochRSI confirmation for {symbol} (same candle as new trigger, {mode_desc} mode) - K={stoch_k_current:.2f} > D={stoch_d_current:.2f} and K > {self.stoch_rsi_oversold}")
-                
-                # Check if both confirmations met on same candle
-                if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
-                    # NOTE: SuperTrend check removed at execution time per strategy requirements
-                    # SuperTrend MUST be bearish at trigger detection, but can be bullish/bearish during confirmation window
-                    # Trade executes regardless of SuperTrend state at execution time
-                    
-                    # Check SKIP_FIRST before allowing entry
-                    if self.skip_first and self._should_skip_first_entry(symbol, df_with_indicators):
-                        self.logger.info(f"SKIP_FIRST: Skipping Entry2 signal for {symbol} (new trigger with confirmations on same candle) - both sentiments BEARISH")
-                        # Clear flag when signal is skipped so subsequent signals in same supertrend state can be taken
-                        if symbol in self.first_entry_after_switch:
-                            self.first_entry_after_switch[symbol] = False
-                            # Record when flag was cleared to avoid re-detecting old switches
-                            current_timestamp = df_with_indicators.index[-1] if len(df_with_indicators) > 0 else None
-                            if current_timestamp is not None:
-                                self.first_entry_flag_cleared_at[symbol] = current_timestamp
-                            self.logger.info(f"SKIP_FIRST: Flag cleared for {symbol} - subsequent signals in same supertrend bearish state will be allowed")
-                        self._reset_entry2_state_machine(symbol)
-                        return False
-                    
-                    price_str = self._log_entry_confirmation_prices(symbol)
-                    self.logger.info(f"[TARGET] Entry2: BUY SIGNAL GENERATED for {symbol} (new trigger replaced old one, all conditions met on same candle) - {price_str}")
-                    self._reset_entry2_state_machine(symbol)
-                    self.logger.debug(f"SKIP_FIRST: Flag remains True for {symbol} - will be cleared when entry is taken")
-                    return True
-                # Continue to confirmation processing below if confirmations not met on same candle
+            self.logger.debug(
+                f"Entry2: Ignoring new trigger at bar {self.current_bar_index} for {symbol} - already in AWAITING_CONFIRMATION "
+                f"(trigger at bar {old_trigger_bar_index}); wait for window expiry or WPR9 invalidation before new trigger"
+            )
+            # Fall through to PROCESS CONFIRMATION STATE with existing trigger unchanged
         
         # --- PROCESS CONFIRMATION STATE ---
         if state_machine['state'] == 'AWAITING_CONFIRMATION':
@@ -857,6 +797,11 @@ class EntryConditionManager:
                 
                 if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
                     print(f"[ENTRY2 DEBUG] BUY SIGNAL GENERATED for {symbol} - All confirmations received!")
+                # No deferred entry: invalidate signal when it occurs while in position (match backtesting behaviour)
+                if self._should_invalidate_entry2_signal_in_position(symbol):
+                    self._reset_entry2_state_machine(symbol)
+                    self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
+                    return False
                 price_str = self._log_entry_confirmation_prices(symbol)
                 self.logger.info(f"[TARGET] Entry2: BUY SIGNAL GENERATED for {symbol} - All confirmations received! - {price_str}")
                 self._reset_entry2_state_machine(symbol)
@@ -972,6 +917,11 @@ class EntryConditionManager:
                             self._reset_entry2_state_machine(symbol)
                             return False
                         
+                        # No deferred entry: invalidate signal when it occurs while in position (match backtesting behaviour)
+                        if self._should_invalidate_entry2_signal_in_position(symbol):
+                            self._reset_entry2_state_machine(symbol)
+                            self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
+                            return False
                         price_str = self._log_entry_confirmation_prices(symbol)
                         self.logger.info(f"[TARGET] Entry2: BUY SIGNAL GENERATED for {symbol} (all conditions met on same candle) - {price_str}")
                         self._reset_entry2_state_machine(symbol)
@@ -1137,6 +1087,11 @@ class EntryConditionManager:
                 
                 if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
                     print(f"[ENTRY2 DEBUG] BUY SIGNAL GENERATED for {symbol} - All confirmations received!")
+                # No deferred entry: invalidate signal when it occurs while in position (match backtesting behaviour)
+                if self._should_invalidate_entry2_signal_in_position(symbol):
+                    self._reset_entry2_state_machine(symbol)
+                    self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
+                    return False
                 price_str = self._log_entry_confirmation_prices(symbol)
                 self.logger.info(f"[TARGET] Entry2: BUY SIGNAL GENERATED for {symbol} - All confirmations received! - {price_str}")
                 self._reset_entry2_state_machine(symbol)
@@ -1147,6 +1102,20 @@ class EntryConditionManager:
         
         return False
     
+    def _should_invalidate_entry2_signal_in_position(self, symbol: str) -> bool:
+        """Return True if we are in a position that should block Entry2 (same type or any per config).
+        Used to invalidate Entry2 signal when it occurs while in position (no deferred entry)."""
+        active_trades = self.state_manager.get_active_trades()
+        if not active_trades:
+            return False
+        current_option_type = 'CE' if symbol.endswith('CE') else 'PE' if symbol.endswith('PE') else None
+        if not current_option_type:
+            return False
+        active_same_type = {s: d for s, d in active_trades.items() if s.endswith(current_option_type)}
+        if self.allow_multiple_symbol_positions:
+            return len(active_same_type) > 0
+        return len(active_trades) > 0
+
     def _reset_entry2_state_machine(self, symbol: str):
         """Reset the Entry2 state machine for a symbol"""
         if symbol in self.entry2_state_machine:
@@ -2761,19 +2730,29 @@ class EntryConditionManager:
         
         # Check if there's an active trade of the same option type (CE or PE)
         no_active_trades_same_type = len(active_trades_same_type) == 0
-        no_active_trades = len(active_trades) == 0  # Keep for backward compatibility in some checks
+        no_active_trades = len(active_trades) == 0  # No active trades at all
+        # When ALLOW_MULTIPLE_SYMBOL_POSITIONS=true: block only if same type (CE/PE) active. When false: block if any position active.
+        no_active_trades_blocking = no_active_trades_same_type if self.allow_multiple_symbol_positions else no_active_trades
         
-        # Log separate trade management status
+        # Log position policy
         if active_trades and current_option_type:
             active_ce_trades = [s for s in active_trades.keys() if s.endswith('CE')]
             active_pe_trades = [s for s in active_trades.keys() if s.endswith('PE')]
-            if current_option_type == 'CE' and active_pe_trades:
-                self.logger.debug(f"Evaluating {symbol} (CE) entry conditions - PE positions active: {active_pe_trades} (separate trade management allows both)")
-            elif current_option_type == 'PE' and active_ce_trades:
-                self.logger.debug(f"Evaluating {symbol} (PE) entry conditions - CE positions active: {active_ce_trades} (separate trade management allows both)")
+            if self.allow_multiple_symbol_positions:
+                if current_option_type == 'CE' and active_pe_trades:
+                    self.logger.debug(f"Evaluating {symbol} (CE) entry conditions - PE positions active: {active_pe_trades} (ALLOW_MULTIPLE_SYMBOL_POSITIONS=true allows both)")
+                elif current_option_type == 'PE' and active_ce_trades:
+                    self.logger.debug(f"Evaluating {symbol} (PE) entry conditions - CE positions active: {active_ce_trades} (ALLOW_MULTIPLE_SYMBOL_POSITIONS=true allows both)")
+            else:
+                if current_option_type == 'CE' and active_pe_trades:
+                    self.logger.debug(f"Evaluating {symbol} (CE) entry conditions - PE positions active: {active_pe_trades} (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false blocks new CE)")
+                elif current_option_type == 'PE' and active_ce_trades:
+                    self.logger.debug(f"Evaluating {symbol} (PE) entry conditions - CE positions active: {active_ce_trades} (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false blocks new PE)")
         
-        # If there are active trades of the same type, verify they're still valid (only log if stale trades found)
-        if not no_active_trades_same_type:
+        # Verify active trades that affect blocking are still valid (remove stale from state)
+        # When allow_multiple: only same-type trades block, so verify those. When false: any trade blocks, so verify all.
+        trades_to_verify = active_trades_same_type if self.allow_multiple_symbol_positions else active_trades
+        if trades_to_verify:
             # Check if any active trades are stale by verifying with broker
             stale_trades_found = False
             try:
@@ -2784,15 +2763,15 @@ class EntryConditionManager:
                     if pos.get('exchange') == 'NFO'
                 }
                 
-                # Check each active trade of the same type against broker positions
-                for symbol_to_check, trade_data in list(active_trades_same_type.items()):
+                # Check each blocking active trade against broker positions (same-type if allow_multiple, else all)
+                for symbol_to_check, trade_data in list(trades_to_verify.items()):
                     # If symbol not in broker positions or quantity is 0, position is closed
                     if symbol_to_check not in broker_positions or broker_positions[symbol_to_check] == 0:
                         stale_trades_found = True
                         self.logger.warning(f"Stale trade detected for {symbol_to_check} - not found in broker positions. Removing from state.")
                         self.state_manager.remove_trade(symbol_to_check)
                 
-                # Recheck active trades of the same type after cleanup
+                # Recheck active trades after cleanup
                 active_trades = self.state_manager.get_active_trades()
                 active_trades_same_type = {}
                 if current_option_type:
@@ -2800,7 +2779,8 @@ class EntryConditionManager:
                         if active_symbol.endswith(current_option_type):
                             active_trades_same_type[active_symbol] = trade_data
                 no_active_trades_same_type = len(active_trades_same_type) == 0
-                no_active_trades = len(active_trades) == 0  # Keep for backward compatibility
+                no_active_trades = len(active_trades) == 0
+                no_active_trades_blocking = no_active_trades_same_type if self.allow_multiple_symbol_positions else no_active_trades
                 
                 if stale_trades_found:
                     if no_active_trades_same_type:
@@ -2900,12 +2880,15 @@ class EntryConditionManager:
         # For Entry 1 and 2, we require Supertrend to be bearish
         if entry3_conditions_met:
             # Entry 3 path - check common conditions (SuperTrend bullish is already validated above)
-            # Use no_active_trades_same_type to allow CE when PE is active and vice versa
-            if not (no_active_trades_same_type and swing_low_valid and in_trade_window and
+            # no_active_trades_blocking: when allow_multiple true = same-type only; when false = any active position
+            if not (no_active_trades_blocking and swing_low_valid and in_trade_window and
                     bar_confirmed and not_trade_closed_this_bar):
                 # Log the reason why entry conditions are not met
-                if not no_active_trades_same_type:
-                    self.logger.info(f"Entry 3 conditions not met: Active {current_option_type} trades exist: {list(active_trades_same_type.keys())}")
+                if not no_active_trades_blocking:
+                    if self.allow_multiple_symbol_positions:
+                        self.logger.info(f"Entry 3 conditions not met: Active {current_option_type} trades exist: {list(active_trades_same_type.keys())}")
+                    else:
+                        self.logger.info(f"Entry 3 conditions not met: Active position(s) exist: {list(active_trades.keys())} (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false)")
                 elif not swing_low_valid:
                     self.logger.info(f"Entry 3 conditions not met: Swing low not valid")
                 elif not in_trade_window:
@@ -2950,15 +2933,15 @@ class EntryConditionManager:
                     entry2_in_confirmation = True
                     self.logger.debug(f"Entry2 for {symbol} is in AWAITING_CONFIRMATION state - allowing Entry2 check to process confirmation window")
             
-            # Use no_active_trades_same_type to allow CE when PE is active and vice versa
+            # no_active_trades_blocking: when allow_multiple true = same-type only; when false = any active position blocks
             # BUT: If Entry2 is in confirmation window, allow it to proceed even if there's an active trade of same type
             # (Entry2 needs to complete its confirmation window processing)
-            allow_entry_check = (no_active_trades_same_type or entry2_in_confirmation) and swing_low_valid and in_trade_window and \
+            allow_entry_check = (no_active_trades_blocking or entry2_in_confirmation) and swing_low_valid and in_trade_window and \
                     bar_confirmed and not_trade_closed_this_bar and final_supertrend_check
             
             # CRITICAL: Log allow_entry_check evaluation for Entry2-enabled symbols
             if entry_conditions.get('useEntry2', False):
-                self.logger.info(f"allow_entry_check evaluation for {symbol}: no_active_trades_same_type={no_active_trades_same_type}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}, result={allow_entry_check}")
+                self.logger.info(f"allow_entry_check evaluation for {symbol}: no_active_trades_blocking={no_active_trades_blocking} (allow_multiple={self.allow_multiple_symbol_positions}), entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}, result={allow_entry_check}")
             
             if not allow_entry_check:
                 # Log the reason why entry conditions are not met
@@ -2972,7 +2955,7 @@ class EntryConditionManager:
                 # IMPORTANT: Log at INFO level when Entry2 is enabled to ensure visibility
                 if entry2_enabled:
                     # Entry2 is enabled - always log blocking reasons at INFO level
-                    log_msg = f"Entry conditions BLOCKED for {symbol} - Entry2 evaluation will NOT run: no_active_trades_same_type={no_active_trades_same_type}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}"
+                    log_msg = f"Entry conditions BLOCKED for {symbol} - Entry2 evaluation will NOT run: no_active_trades_blocking={no_active_trades_blocking} (allow_multiple={self.allow_multiple_symbol_positions}), entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}"
                     # Add swing_low and close values for debugging
                     if not swing_low_valid:
                         log_msg += f" | swing_low={latest_indicators.get('swing_low', 'NaN')}, close={latest_indicators.get('close', 'NaN')}"
@@ -2981,12 +2964,12 @@ class EntryConditionManager:
                 # This helps diagnose why Entry2 evaluation disappears
                 elif entry_conditions.get('useEntry2', False):
                     # Entry2 is enabled but log_level was set to DEBUG - force INFO level
-                    log_msg = f"Entry conditions BLOCKED for {symbol} - Entry2 evaluation will NOT run: no_active_trades_same_type={no_active_trades_same_type}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}"
+                    log_msg = f"Entry conditions BLOCKED for {symbol} - Entry2 evaluation will NOT run: no_active_trades_blocking={no_active_trades_blocking}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}"
                     if not swing_low_valid:
                         log_msg += f" | swing_low={latest_indicators.get('swing_low', 'NaN')}, close={latest_indicators.get('close', 'NaN')}"
                     self.logger.info(log_msg)
                 elif verbose_debug or os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
-                    log_msg = f"Entry conditions BLOCKED for {symbol}: no_active_trades_same_type={no_active_trades_same_type}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}"
+                    log_msg = f"Entry conditions BLOCKED for {symbol}: no_active_trades_blocking={no_active_trades_blocking}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}"
                     # Add swing_low and close values for debugging
                     if not swing_low_valid:
                         log_msg += f" | swing_low={latest_indicators.get('swing_low', 'NaN')}, close={latest_indicators.get('close', 'NaN')}"
@@ -2994,10 +2977,10 @@ class EntryConditionManager:
                 else:
                     # Even if Entry2 is not enabled, log at DEBUG level if blocking occurred
                     # This ensures we can diagnose issues even when Entry2 is disabled
-                    self.logger.debug(f"Entry conditions BLOCKED for {symbol} (Entry2 not enabled, logging at DEBUG level): no_active_trades_same_type={no_active_trades_same_type}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}")
+                    self.logger.debug(f"Entry conditions BLOCKED for {symbol} (Entry2 not enabled, logging at DEBUG level): no_active_trades_blocking={no_active_trades_blocking}, entry2_in_confirmation={entry2_in_confirmation}, swing_low_valid={swing_low_valid}, in_trade_window={in_trade_window}, bar_confirmed={bar_confirmed}, not_trade_closed_this_bar={not_trade_closed_this_bar}, final_supertrend_check={final_supertrend_check}")
                     
-                    if not (no_active_trades_same_type or entry2_in_confirmation):
-                        reason_msg = f"Entry conditions not met for {symbol}: Active {current_option_type} trades exist: {list(active_trades_same_type.keys())} (Entry2 not in confirmation window)"
+                    if not (no_active_trades_blocking or entry2_in_confirmation):
+                        reason_msg = f"Entry conditions not met for {symbol}: Active position(s) block (allow_multiple={self.allow_multiple_symbol_positions}): {list(active_trades_same_type.keys()) if self.allow_multiple_symbol_positions else list(active_trades.keys())} (Entry2 not in confirmation window)"
                         if log_level == 'INFO':
                             self.logger.info(reason_msg)
                         else:
