@@ -10,6 +10,9 @@ TARGET_EXPIRY:
   # NOTE: Only include date mentioned in config (OCT16) - no past or future dates
   TRADING_DAYS:
   - '2026-02-11'
+  - '2026-02-12'
+  - '2026-02-13'
+
 
 
 # Data Collection Settings

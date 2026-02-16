@@ -1021,6 +1021,16 @@ class ConsolidatedDynamicOTMAnalysis:
                                 if len(parts) > 1:
                                     strike_str = parts[1].replace('PE', '')
                                     break
+                    elif re.search(r'NIFTY26\d{3}\d{5}PE$', symbol):
+                        # FEB03-style: NIFTY2620325250PE (26=year, 203=Feb03, 25250=strike) - same as ATM
+                        match = re.search(r'NIFTY26\d{3}(\d{5})PE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
+                    elif re.search(r'NIFTY26F\d{2}\d{2}\d+PE$', symbol):
+                        # FEB17 weekly with F: NIFTY26F021725950PE or NIFTY26F021700950PE (26=year, F02=Feb, 17=day, strike=25950 or 0950)
+                        match = re.search(r'NIFTY26F\d{2}\d{2}(\d{4,5})PE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
                     else:
                         # Generic: find last sequence of digits before PE
                         # For formats like NIFTY2612025600PE, extract the last 4-5 digits (strike)
@@ -1032,6 +1042,13 @@ class ConsolidatedDynamicOTMAnalysis:
                             if len(strike_str) > 6:
                                 # Extract last 5 digits as strike (e.g., 25600 from 2612025600)
                                 strike_str = strike_str[-5:]
+                            elif len(strike_str) == 6:
+                                # 6-digit match can be wrong (e.g. 700950 = date+strike concatenation). Valid Nifty strike is 24xxx-27xxx (5 digits).
+                                val = int(strike_str)
+                                if val > 30000 or val < 20000:
+                                    strike_str = strike_str[-5:]  # e.g. 700950 -> 00950 -> 950 (weekly)
+                            else:
+                                pass
                         else:
                             strike_str = None
                 elif symbol.endswith('CE'):
@@ -1080,6 +1097,16 @@ class ConsolidatedDynamicOTMAnalysis:
                                 if len(parts) > 1:
                                     strike_str = parts[1].replace('CE', '')
                                     break
+                    elif re.search(r'NIFTY26\d{3}\d{5}CE$', symbol):
+                        # FEB03-style: NIFTY2620325250CE (26=year, 203=Feb03, 25250=strike) - same as ATM
+                        match = re.search(r'NIFTY26\d{3}(\d{5})CE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
+                    elif re.search(r'NIFTY26F\d{2}\d{2}\d+CE$', symbol):
+                        # FEB17 weekly with F: NIFTY26F021725950CE or NIFTY26F021700950CE (26=year, F02=Feb, 17=day, strike=25950 or 0950)
+                        match = re.search(r'NIFTY26F\d{2}\d{2}(\d{4,5})CE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
                     else:
                         # Generic: find last sequence of digits before CE
                         # For formats like NIFTY2612025600CE, extract the last 4-5 digits (strike)
@@ -1091,6 +1118,13 @@ class ConsolidatedDynamicOTMAnalysis:
                             if len(strike_str) > 6:
                                 # Extract last 5 digits as strike (e.g., 25600 from 2612025600)
                                 strike_str = strike_str[-5:]
+                            elif len(strike_str) == 6:
+                                # 6-digit match can be wrong (e.g. 701000 = date+strike concatenation). Valid Nifty strike is 24xxx-27xxx (5 digits).
+                                val = int(strike_str)
+                                if val > 30000 or val < 20000:
+                                    strike_str = strike_str[-5:]  # e.g. 701000 -> 01000 -> 1000 (weekly)
+                            else:
+                                pass
                         else:
                             strike_str = None
                 
@@ -1374,6 +1408,14 @@ class ConsolidatedDynamicOTMAnalysis:
                             pe_strike_to_save = current_pe
                             ce_strike_to_save = current_ce
                         
+                        # Sanity: invalid strikes (e.g. 700950 from date+strike concatenation) - use last 5 digits as weekly strike
+                        if pe_strike_to_save is not None and (pe_strike_to_save > 30000 or (10000 <= pe_strike_to_save < 20000)):
+                            pe_strike_to_save = int(str(pe_strike_to_save)[-5:])
+                            logger.debug(f"Corrected invalid PE strike to weekly value {pe_strike_to_save}")
+                        if ce_strike_to_save is not None and (ce_strike_to_save > 30000 or (10000 <= ce_strike_to_save < 20000)):
+                            ce_strike_to_save = int(str(ce_strike_to_save)[-5:])
+                            logger.debug(f"Corrected invalid CE strike to weekly value {ce_strike_to_save}")
+                        
                         if not is_monthly and pe_strike_to_save is not None and ce_strike_to_save is not None:
                             # Convert back from weekly format to full strike format
                             # Weekly format: strikes are stored as (full_strike - 25000), e.g., 700 instead of 25700
@@ -1459,6 +1501,14 @@ class ConsolidatedDynamicOTMAnalysis:
                     logger.warning(f"Could not convert strikes to int: pe={current_pe}, ce={current_ce}")
                     pe_strike_to_save = current_pe
                     ce_strike_to_save = current_ce
+                
+                # Sanity: invalid strikes (e.g. 700950 from date+strike concatenation) - use last 5 digits as weekly strike
+                if pe_strike_to_save is not None and (pe_strike_to_save > 30000 or (10000 <= pe_strike_to_save < 20000)):
+                    pe_strike_to_save = int(str(pe_strike_to_save)[-5:])
+                    logger.debug(f"Corrected invalid PE strike to weekly value {pe_strike_to_save}")
+                if ce_strike_to_save is not None and (ce_strike_to_save > 30000 or (10000 <= ce_strike_to_save < 20000)):
+                    ce_strike_to_save = int(str(ce_strike_to_save)[-5:])
+                    logger.debug(f"Corrected invalid CE strike to weekly value {ce_strike_to_save}")
                 
                 if not is_monthly and pe_strike_to_save is not None and ce_strike_to_save is not None:
                     # Convert back from weekly format to full strike format

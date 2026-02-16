@@ -58,6 +58,9 @@ DATE_MAPPINGS:
   feb06: FEB10
   feb09: FEB10
   feb11: FEB17
+  feb12: FEB17
+  feb13: FEB17
+
 
 
 # Realtime alignment: sentiment of candle T is only known when T closes (at start of T+1).
