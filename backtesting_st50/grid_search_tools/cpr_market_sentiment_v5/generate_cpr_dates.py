@@ -1,7 +1,11 @@
 """
 Copy of analytics/generate_cpr_dates.py for cpr_market_sentiment_v5.
 
-Generates CPR + Type 1 & Type 2 band columns for all BACKTESTING_DAYS in backtesting_config.yaml.
+Generates CPR + Type 1 & Type 2 band columns for trading days. Dates are read from
+BACKTESTING_DAYS in backtesting_config.yaml (YYYY-MM-DD), so both 2025 and 2026 dates
+are included. The strategy looks up CPR by exact date (e.g. 2025-12-03); if cpr_dates.csv
+only had 2026 dates, Entry2 would be skipped with "No CPR bounds for 2025-12-03".
+Falls back to DATE_MAPPINGS in this folder's config.yaml if BACKTESTING_DAYS is empty.
 CPR for a trading day D is computed from the *previous trading day* OHLC from Kite API (daily candles).
 
 For full output (CPR + all bands) when using many dates, run THIS script, not analytics/generate_cpr_dates.py
@@ -217,7 +221,60 @@ def get_prev_day_ohlc_from_kite(kite, trade_date_str: str) -> tuple[float | None
     return (None, None, None)
 
 
+MONTH_ABBR = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def day_label_to_date(day_label: str, year: int | None = None) -> datetime | None:
+    """
+    Convert DATE_MAPPINGS key (e.g. 'feb11', 'jan08') to a date.
+    Format: 3-letter lowercase month + 1 or 2 digit day. Uses year if given, else current year.
+    """
+    s = (day_label or "").strip().lower()
+    if len(s) < 4:
+        return None
+    month_abbr = s[:3]
+    day_str = s[3:].lstrip("0") or "0"
+    if month_abbr not in MONTH_ABBR or not day_str.isdigit():
+        return None
+    month = MONTH_ABBR[month_abbr]
+    day = int(day_str)
+    if day < 1 or day > 31:
+        return None
+    y = year if year is not None else datetime.now().year
+    try:
+        return datetime(y, month, day)
+    except ValueError:
+        return None
+
+
+def load_dates_from_date_mappings(v5_config_path: Path) -> list[str] | None:
+    """
+    Load DATE_MAPPINGS from cpr_market_sentiment_v5/config.yaml and return
+    sorted list of dates in YYYY-MM-DD format. Keys are day_label (e.g. feb11, jan08).
+    """
+    if not v5_config_path.exists():
+        return None
+    with open(v5_config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    mappings = config.get("DATE_MAPPINGS") or {}
+    if not mappings or not isinstance(mappings, dict):
+        return None
+    year = datetime.now().year
+    dates = []
+    for key in mappings:
+        dt = day_label_to_date(key, year=year)
+        if dt is not None:
+            dates.append(str(dt.date()))
+    if not dates:
+        return None
+    return sorted(set(dates))
+
+
 def load_backtesting_days(config_path: Path) -> list[str]:
+    """Load BACKTESTING_DAYS from backtesting_config.yaml (YYYY-MM-DD format)."""
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     days = config.get("BACKTESTING_EXPIRY", {}).get("BACKTESTING_DAYS", [])
@@ -225,6 +282,24 @@ def load_backtesting_days(config_path: Path) -> list[str]:
         days = config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
     normalized = sorted({str(pd.to_datetime(d).date()) for d in days})
     return normalized
+
+
+def load_dates_for_cpr(backtesting_root: Path, script_dir: Path) -> list[str]:
+    """
+    Load the list of dates (YYYY-MM-DD) to generate CPR for.
+    Prefer BACKTESTING_DAYS from backtesting_config.yaml so that both 2025 and 2026
+    (and any other years) are included. Strategy looks up CPR by exact date (e.g. 2025-12-03);
+    if cpr_dates.csv only has 2026-12-03 (from DATE_MAPPINGS + current year), Entry2 is skipped
+    for 2025-12-03 with "No CPR bounds for 2025-12-03".
+    Fall back to DATE_MAPPINGS with current year if BACKTESTING_DAYS is empty.
+    """
+    config_path = backtesting_root / "backtesting_config.yaml"
+    if config_path.exists():
+        days = load_backtesting_days(config_path)
+        if days:
+            return days
+    v5_config = script_dir / "config.yaml"
+    return load_dates_from_date_mappings(v5_config) or []
 
 
 def main() -> None:
@@ -241,15 +316,17 @@ def main() -> None:
     except OSError:
         pass
 
-    config_path = backtesting_root / "backtesting_config.yaml"
-    if not config_path.exists():
-        config_path = backtesting_root / "indicators_config.yaml"
-    if not config_path.exists():
-        logger.error("Config not found: %s", config_path)
+    # Use BACKTESTING_DAYS so CPR is generated for every backtest date (2025 and 2026).
+    # Previously used only DATE_MAPPINGS + current year, so 2025 dates were missing and Entry2 skipped.
+    backtesting_days = load_dates_for_cpr(backtesting_root, script_dir)
+    if not backtesting_days:
+        logger.error(
+            "No dates to generate CPR for. Add BACKTESTING_DAYS in backtesting_config.yaml "
+            "or DATE_MAPPINGS in %s (e.g. dec03: DEC09).",
+            script_dir / "config.yaml",
+        )
         sys.exit(1)
-
-    backtesting_days = load_backtesting_days(config_path)
-    logger.info("Loaded %d BACKTESTING_DAYS from config", len(backtesting_days))
+    logger.info("Loaded %d dates from BACKTESTING_DAYS (backtesting_config.yaml) for CPR", len(backtesting_days))
     logger.info("Fetching previous day OHLC from Kite API (daily candles)...")
 
     try:

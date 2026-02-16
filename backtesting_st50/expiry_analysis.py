@@ -232,12 +232,13 @@ class EnhancedExpiryAnalysis:
             backtesting_days = set(backtesting_days_list)
         
         # Load date mappings from CPR config to get expected days for each expiry week
+        # Use v5 (same as run_weekly_workflow_parallel) so OCT/NOV/DEC 2025 and JAN/FEB 2026 are included
         expected_days = None
         if self.config:
-            # Try to load from CPR config v2 for date mappings (using v2 as primary, same as workflow)
-            cpr_config_path = self.base_dir / 'grid_search_tools' / 'cpr_market_sentiment_v2' / 'config.yaml'
+            cpr_config_path = self.base_dir / 'grid_search_tools' / 'cpr_market_sentiment_v5' / 'config.yaml'
             if not cpr_config_path.exists():
-                # Fallback to v1 if v2 doesn't exist
+                cpr_config_path = self.base_dir / 'grid_search_tools' / 'cpr_market_sentiment_v2' / 'config.yaml'
+            if not cpr_config_path.exists():
                 cpr_config_path = self.base_dir / 'grid_search_tools' / 'cpr_market_sentiment' / 'config.yaml'
             if cpr_config_path.exists():
                 try:
@@ -915,9 +916,6 @@ class EnhancedExpiryAnalysis:
         otm_filtered_pnl = 0.0
         
         for expiry_week, expiry_data in self.all_expiry_data.items():
-            if expiry_week == 'DEC02':
-                continue
-            
             filtered_days = expiry_data['summary'].get('filtered_day_labels', [])
             
             for day_label, day_data in expiry_data['daily_data'].items():

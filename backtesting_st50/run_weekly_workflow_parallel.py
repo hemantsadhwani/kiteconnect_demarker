@@ -89,11 +89,12 @@ def load_expiry_config():
         expiry_config = {}
         backtesting_expiry = config.get('BACKTESTING_EXPIRY', {})
         expiry_week_labels = backtesting_expiry.get('EXPIRY_WEEK_LABELS', [])
+        # Source of dates to process: only backtesting_config.yaml BACKTESTING_DAYS (not v5 DATE_MAPPINGS).
         backtesting_days = backtesting_expiry.get('BACKTESTING_DAYS', [])
         
-        # Group dates by expiry week based on date mappings from CPR config
-        # First, try to load from CPR config v2 for date mappings (using v2 as primary)
-        cpr_config_path = backtesting_dir / 'grid_search_tools' / 'cpr_market_sentiment_v2' / 'config.yaml'
+        # Use v5 DATE_MAPPINGS only to assign each date to an expiry week (day_label -> expiry_week).
+        # generate_cpr_dates.py uses v5 DATE_MAPPINGS for which dates go into cpr_dates.csv.
+        cpr_config_path = backtesting_dir / 'grid_search_tools' / 'cpr_market_sentiment_v5' / 'config.yaml'
         date_mappings = {}
         if cpr_config_path.exists():
             try:

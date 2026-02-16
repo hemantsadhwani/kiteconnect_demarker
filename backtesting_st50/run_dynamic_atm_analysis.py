@@ -227,6 +227,9 @@ class ConsolidatedDynamicATMAnalysis:
     def _calculate_high_between_entry_exit(self, strategy_file: Path, entry_time, exit_time):
         """Calculate the highest price between entry_time and exit_time"""
         try:
+            path_str = str(strategy_file)
+            if path_str.endswith('.html'):
+                strategy_file = Path(path_str[:-5] + '.csv')
             df = pd.read_csv(strategy_file)
             df['date'] = pd.to_datetime(df['date'])
             
@@ -250,25 +253,29 @@ class ConsolidatedDynamicATMAnalysis:
                         entry_time = entry_time.tz_convert(df_tz)
                     if hasattr(exit_time, 'tz') and exit_time.tz is not None and exit_time.tz != df_tz:
                         exit_time = exit_time.tz_convert(df_tz)
+            # Strategy CSVs use minute bars (e.g. 11:04:00); entry/exit may have seconds (11:04:01)
+            # Normalize to start of minute so we include the entry and exit candles
+            entry_time = entry_time.replace(second=0, microsecond=0) if hasattr(entry_time, 'replace') else entry_time
+            exit_time = exit_time.replace(second=0, microsecond=0) if hasattr(exit_time, 'replace') else exit_time
             
             # Filter rows between entry and exit (inclusive)
             mask = (df['date'] >= entry_time) & (df['date'] <= exit_time)
             filtered_df = df[mask]
-            # Accept 'high' or 'High' (strategy CSVs may use either)
-            high_col = None
-            for c in filtered_df.columns:
-                if c and str(c).strip().lower() == 'high':
-                    high_col = c
-                    break
-            if len(filtered_df) > 0 and high_col is not None:
-                max_high = float(filtered_df[high_col].max())
+            # Use OHLC 'high' by position (index 2): date=0, open=1, high=2, low=3, close=4
+            if len(filtered_df) > 0 and len(filtered_df.columns) > 2:
+                high_series = pd.to_numeric(filtered_df.iloc[:, 2], errors='coerce')
+                max_high = float(high_series.max())
+                # Option prices are positive; reject garbage (e.g. from wrong file/column)
+                if max_high <= 0 or max_high > 10000:
+                    logger.warning(f"Invalid high {max_high} in {strategy_file.name} (window {entry_time}–{exit_time}); rejecting")
+                    return None
                 logger.debug(f"High between {entry_time} and {exit_time}: {max_high} (from {len(filtered_df)} rows)")
                 return max_high
             else:
                 if len(filtered_df) == 0:
                     logger.warning(f"No data found between {entry_time} and {exit_time} in {strategy_file.name}")
                 else:
-                    logger.warning(f"No 'high' column in {strategy_file.name} (columns: {list(filtered_df.columns)})")
+                    logger.warning(f"Not enough columns in {strategy_file.name} for high (have {len(filtered_df.columns)})")
             return None
         except Exception as e:
             logger.warning(f"Error calculating high for {strategy_file.name}: {e}")
@@ -279,6 +286,9 @@ class ConsolidatedDynamicATMAnalysis:
     def _calculate_swing_low_at_entry(self, strategy_file: Path, entry_time):
         """Calculate swing low at entry_time using SWING_LOW_CANDLES"""
         try:
+            path_str = str(strategy_file)
+            if path_str.endswith('.html'):
+                strategy_file = Path(path_str[:-5] + '.csv')
             df = pd.read_csv(strategy_file)
             df['date'] = pd.to_datetime(df['date'])
             
@@ -293,6 +303,8 @@ class ConsolidatedDynamicATMAnalysis:
                 if df_tz is not None:
                     if hasattr(entry_time, 'tz') and entry_time.tz is not None and entry_time.tz != df_tz:
                         entry_time = entry_time.tz_convert(df_tz)
+            # Strategy CSVs use minute bars (e.g. 11:04:00); entry_time may have seconds (11:04:01)
+            entry_time = entry_time.replace(second=0, microsecond=0) if hasattr(entry_time, 'replace') else entry_time
             
             # Find entry time index - try exact match first
             entry_idx = df[df['date'] == entry_time].index
@@ -318,14 +330,19 @@ class ConsolidatedDynamicATMAnalysis:
             end_idx = entry_idx_val  # Include entry candle itself
             
             window_df = df.iloc[start_idx:end_idx + 1]
-            
-            if len(window_df) > 0 and 'low' in window_df.columns:
-                min_low = float(window_df['low'].min())
-                logger.info(f"Swing low at {entry_time} (window: {start_idx} to {end_idx}): {min_low} in {strategy_file.name}")
-                return min_low
-            else:
-                logger.warning(f"No data in swing low window for {entry_time} in {strategy_file.name}")
-            return None
+            # Use OHLC 'low' by position (index 3) to avoid wrong column if names differ: date, open, high, low, close, ...
+            if len(window_df) == 0 or len(window_df.columns) <= 3:
+                logger.warning(f"No data or not enough columns in swing low window for {entry_time} in {strategy_file.name}")
+                return None
+            low_col_idx = 3
+            low_series = pd.to_numeric(window_df.iloc[:, low_col_idx], errors='coerce')
+            min_low = float(low_series.min())
+            # Option prices are positive; reject indicator values (e.g. WPR -100..0) or wrong column
+            if min_low <= 0 or min_low > 10000:
+                logger.warning(f"Invalid swing_low {min_low} in {strategy_file.name} (window {start_idx}–{end_idx}, col_idx={low_col_idx}); rejecting")
+                return None
+            logger.info(f"Swing low at {entry_time} (window: {start_idx} to {end_idx}): {min_low} in {strategy_file.name}")
+            return min_low
         except Exception as e:
             logger.warning(f"Error calculating swing_low for {strategy_file.name}: {e}")
             import traceback
@@ -1644,9 +1661,6 @@ class ConsolidatedDynamicATMAnalysis:
                 # - Backtesting lowest resolution is 1 minute (e.g., "14:03:00") because it uses minute candles
                 # - When signal is detected at candle T, execution happens at T+1 minute + 1 second (next candle + 1 second)
                 entry_execution_time = signal_candle_time + pd.Timedelta(minutes=1, seconds=1)
-                # Enhanced logging for missing trades
-                if signal_candle_time.strftime('%H:%M') in ['10:04', '10:27', '15:11']:
-                    logger.info(f"[DEBUG] Adding {entry_type} entry signal for {symbol}: signal candle at {signal_candle_time}, execution time {entry_execution_time}")
                 logger.debug(f"Adding {entry_type} entry signal for {symbol}: signal candle at {signal_candle_time}, execution time {entry_execution_time}")
                 all_global_signals.append({
                     'type': 'entry',
@@ -1665,10 +1679,12 @@ class ConsolidatedDynamicATMAnalysis:
                     'data': exit_trade
                 })
         
-        # Sort all signals globally by time, then by symbol for deterministic ordering
-        # This ensures that when multiple signals occur at the same time, they're processed
-        # in a consistent order (alphabetically by symbol)
-        all_global_signals.sort(key=lambda x: (x['time'], x['symbol']))
+        # Sort all signals globally by time. CRITICAL: When exit and entry fall on the same bar
+        # (e.g. SL hit on 10:43 and new Entry2 trigger on 10:43, confirmation at 10:47), process
+        # EXIT before ENTRY so the active trade is cleared; the strategy already preserves the
+        # Entry2 state (trigger at 10:43) on exit, so the confirmation-at-10:47 entry is emitted
+        # and we take it. Key: (time, type_priority, symbol) with type_priority 0=exit first, 1=entry.
+        all_global_signals.sort(key=lambda x: (x['time'], (0 if x['type'] == 'exit' else 1), x['symbol']))
         
         # CRITICAL VALIDATION: Check for multiple strikes generating signals at the same time
         # In ATM, at any given time there should be only ONE strike per option type that's active
@@ -2610,22 +2626,23 @@ class ConsolidatedDynamicATMAnalysis:
                     match = re.search(r'"([^"]+)"', str(symbol))
                     if match:
                         # Extract the path from hyperlink (may be relative or absolute)
+                        # Hyperlink often points to .html; we must read .csv for high/swing_low calculation
                         hyperlink_path = match.group(1)
+                        if hyperlink_path.endswith('.html'):
+                            hyperlink_path = hyperlink_path[:-5] + '.csv'
+                        elif not hyperlink_path.endswith('.csv'):
+                            hyperlink_path = hyperlink_path.rstrip('/') + '.csv' if '_strategy' in hyperlink_path else hyperlink_path
                         # If it's a relative path (e.g., "ATM/NIFTY..._strategy.csv"), resolve it relative to day_base
                         if not Path(hyperlink_path).is_absolute():
-                            # It's a relative path, resolve it relative to day_base (source_dir.parent)
-                            # since hyperlink paths are relative to day_base (e.g., "ATM/file.csv")
                             strategy_file = source_dir.parent / hyperlink_path
-                            # Resolve to absolute path to ensure it works in multiprocessing context
                             strategy_file = strategy_file.resolve()
                         else:
-                            # It's an absolute path, use it as-is
                             strategy_file = Path(hyperlink_path).resolve()
                         symbol = strategy_file.stem.replace('_strategy', '')
                         logger.debug(f"Resolved strategy_file from hyperlink '{hyperlink_path}': {strategy_file}, exists: {strategy_file.exists()}")
                 else:
                     symbol = str(symbol)
-                    strategy_file = source_dir / f"{symbol}_strategy.csv"
+                    strategy_file = (source_dir / f"{symbol}_strategy.csv").resolve()
                 
                 entry_time_str = str(row['entry_time'])
                 exit_time_str = str(row['exit_time'])

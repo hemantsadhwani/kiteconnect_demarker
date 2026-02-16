@@ -112,18 +112,17 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         logger.error(f"Error reading CSV: {e}")
         raise
     
-    # Check if pnl or realized_pnl_pct column exists (use realized_pnl_pct if available)
-    if 'realized_pnl_pct' in df.columns:
-        # Use realized_pnl_pct as sentiment_pnl
-        if 'sentiment_pnl' not in df.columns:
-            df = df.rename(columns={'realized_pnl_pct': 'sentiment_pnl'})
+    # Check for PnL column: sentiment_pnl (from market sentiment filter), realized_pnl_pct, or pnl
+    if 'sentiment_pnl' in df.columns:
+        # Already have sentiment_pnl (e.g. from run_dynamic_market_sentiment_filter)
+        pass
+    elif 'realized_pnl_pct' in df.columns:
+        df = df.rename(columns={'realized_pnl_pct': 'sentiment_pnl'})
     elif 'pnl' in df.columns:
-        # Rename pnl to sentiment_pnl (backward compatibility)
-        if 'sentiment_pnl' not in df.columns:
-            df = df.rename(columns={'pnl': 'sentiment_pnl'})
+        df = df.rename(columns={'pnl': 'sentiment_pnl'})
     else:
-        logger.error("CSV file does not contain 'pnl' or 'realized_pnl_pct' column")
-        raise ValueError("CSV file must contain 'pnl' or 'realized_pnl_pct' column")
+        logger.error("CSV file does not contain 'sentiment_pnl', 'pnl' or 'realized_pnl_pct' column")
+        raise ValueError("CSV file must contain 'sentiment_pnl', 'pnl' or 'realized_pnl_pct' column")
     
     # Check if exit_time column exists
     if 'exit_time' not in df.columns:
@@ -338,22 +337,36 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         
         df = df.copy()
         
-        # Convert high to percentage
+        # Convert high to percentage (skip if already percentage from Phase 2/3)
         if 'high' in df.columns and 'entry_price' in df.columns:
             def calc_high_pct(row):
                 entry_price = row.get('entry_price', 0)
                 high = row.get('high', 0)
                 if pd.notna(entry_price) and pd.notna(high) and entry_price > 0:
+                    try:
+                        high = float(high)
+                        entry_price = float(entry_price)
+                    except (TypeError, ValueError):
+                        return None
+                    if abs(high) < 200 and abs(high) < entry_price * 0.5:
+                        return round(max(high, 0), 2)
                     return round(((high - entry_price) / entry_price) * 100, 2)
                 return None
             df['high'] = df.apply(calc_high_pct, axis=1)
         
-        # Convert swing_low to percentage
+        # Convert swing_low to percentage (skip if already percentage from Phase 2/3)
         if 'swing_low' in df.columns and 'entry_price' in df.columns:
             def calc_swing_low_pct(row):
                 entry_price = row.get('entry_price', 0)
                 swing_low = row.get('swing_low', 0)
                 if pd.notna(entry_price) and pd.notna(swing_low) and entry_price > 0:
+                    try:
+                        swing_low = float(swing_low)
+                        entry_price = float(entry_price)
+                    except (TypeError, ValueError):
+                        return None
+                    if abs(swing_low) < 200 and abs(swing_low) < entry_price * 0.5:
+                        return round(swing_low, 2)
                     return round(((swing_low - entry_price) / entry_price) * 100, 2)
                 return None
             df['swing_low'] = df.apply(calc_swing_low_pct, axis=1)
