@@ -196,6 +196,10 @@ class TradeStateManager:
                 # For manual trades, trans_type will be 'CE' or 'PE'
                 # For autonomous trades, it will be the option type
                 from datetime import datetime
+                # is_manual_trade: use metadata if provided (Entry1/Entry2/Entry3 set False); else infer from trans_type
+                is_manual = (metadata or {}).get('is_manual_trade')
+                if is_manual is None:
+                    is_manual = trans_type in ['CE', 'PE', 'BUY_CE', 'BUY_PE']
                 trade_data = {
                     "order_id": order_id,
                     "quantity": quantity,
@@ -205,7 +209,7 @@ class TradeStateManager:
                     "exit_orders_placed": False,
                     "trailing_sl": None,
                     "trailing_activated": False,
-                    "is_manual_trade": trans_type in ['CE', 'PE', 'BUY_CE', 'BUY_PE'],  # Flag to identify manual trades
+                    "is_manual_trade": is_manual,
                     "created_at": datetime.now().timestamp()  # Timestamp for grace period check in watchdog
                 }
                 
@@ -216,7 +220,7 @@ class TradeStateManager:
                 self.state["active_trades"][symbol] = trade_data
                 # Format metadata for logging (2 decimal places for floats)
                 formatted_metadata = format_dict_for_logging(metadata, decimals=2) if metadata else None
-                self.logger.info(f"New trade added for {symbol}. Manual trade: {trans_type in ['CE', 'PE', 'BUY_CE', 'BUY_PE']}. Metadata: {formatted_metadata}")
+                self.logger.info(f"New trade added for {symbol}. Manual trade: {is_manual}. Metadata: {formatted_metadata}")
                 self.save_state()
 
     def update_trailing_activated(self, symbol: str, status: bool):

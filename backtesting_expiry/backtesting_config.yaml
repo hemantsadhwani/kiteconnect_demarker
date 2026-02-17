@@ -42,6 +42,7 @@ BACKTESTING_EXPIRY:
   - '2026-01-27'
   - '2026-02-03'
   - '2026-02-10'
+  - '2026-02-17'
   BACKTESTING_STRIKE_TYPE:
   - ATM
   - OTM
@@ -60,6 +61,7 @@ BACKTESTING_EXPIRY:
   - JAN27
   - FEB03
   - FEB10
+  - FEB17
 # CPR-derived allowed trading range: trading only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 # Values are read from analytics/cpr_dates.csv (generate with grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py).
 # Worth it: "Above R2" zone has negative PnL; this filter blocks entries above band_R2_upper and below band_S2_lower.

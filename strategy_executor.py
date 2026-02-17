@@ -649,21 +649,25 @@ class StrategyExecutor:
                 return False
             
             # Immediately update the state manager
-            # Check if option_type is actually a command (BUY_CE or BUY_PE) to identify manual trades
+            # Manual = user-initiated BUY_CE/BUY_PE from control panel. Entry1/Entry2/Entry3 are autonomous.
             transaction_type = option_type
-            is_manual_trade = option_type in ['CE', 'PE', 'BUY_CE', 'BUY_PE']
+            is_manual_trade = (entry_type is None or entry_type not in (1, 2, 3)) and option_type in ['CE', 'PE', 'BUY_CE', 'BUY_PE']
             
             # Prepare metadata for the trade
             metadata = {}
             if entry_type == 3:
                 metadata['is_entry3_trade'] = True
                 metadata['entry_type'] = 'Entry3'
+                metadata['is_manual_trade'] = False
             elif entry_type == 2:
                 metadata['entry_type'] = 'Entry2'
+                metadata['is_manual_trade'] = False
             elif entry_type == 1:
                 metadata['entry_type'] = 'Entry1'
+                metadata['is_manual_trade'] = False
             elif is_manual_trade:
                 metadata['entry_type'] = 'Manual'
+                metadata['is_manual_trade'] = True
             
             self.state_manager.add_trade(symbol, order_id, quantity, transaction_type, metadata=metadata)
             

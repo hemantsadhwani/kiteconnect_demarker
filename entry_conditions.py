@@ -484,6 +484,8 @@ class EntryConditionManager:
                                                             'state': 'AWAITING_TRIGGER',
                                                             'confirmation_countdown': 0,
                                                             'trigger_bar_index': None,
+                                                            'trigger_source': None,
+                                                            'wpr_9_confirmed_in_window': False,
                                                             'wpr_28_confirmed_in_window': False,
                                                             'stoch_rsi_confirmed_in_window': False
                                                         }
@@ -492,7 +494,10 @@ class EntryConditionManager:
                                                     state_machine_slab['state'] = 'AWAITING_CONFIRMATION'
                                                     state_machine_slab['confirmation_countdown'] = self.entry2_confirmation_window
                                                     state_machine_slab['trigger_bar_index'] = self.current_bar_index
-                                                    state_machine_slab['wpr_28_confirmed_in_window'] = bool(wpr_28_crosses_slab and is_bearish_slab)
+                                                    # trigger_source from slab: both_cross_slab -> 'both', else wpr_9 or wpr_28
+                                                    state_machine_slab['trigger_source'] = 'both' if both_cross_slab else ('wpr_9' if trigger_from_wpr9_slab else 'wpr_28')
+                                                    state_machine_slab['wpr_9_confirmed_in_window'] = bool(wpr_9_crosses_slab and (is_bearish_slab or getattr(self, 'flexible_stochrsi_confirmation', True)))
+                                                    state_machine_slab['wpr_28_confirmed_in_window'] = bool(wpr_28_crosses_slab and (is_bearish_slab or getattr(self, 'flexible_stochrsi_confirmation', True)))
                                                     state_machine_slab['stoch_rsi_confirmed_in_window'] = False  # Must confirm on NEW symbol
                                                     
                                                     window_end_slab = self.current_bar_index + self.entry2_confirmation_window
@@ -622,6 +627,8 @@ class EntryConditionManager:
                 'state': 'AWAITING_TRIGGER',
                 'confirmation_countdown': 0,
                 'trigger_bar_index': None,  # Store trigger bar index for window calculation
+                'trigger_source': None,  # 'wpr_9' | 'wpr_28' | 'both' - which W%R started the trigger
+                'wpr_9_confirmed_in_window': False,
                 'wpr_28_confirmed_in_window': False,
                 'stoch_rsi_confirmed_in_window': False
             }
@@ -703,27 +710,55 @@ class EntryConditionManager:
                 self.logger.info(f"Entry2: Processing AWAITING_CONFIRMATION state for {symbol}, current_bar_index={self.current_bar_index}")
             
             trigger_bar_index = state_machine.get('trigger_bar_index')
+            # Window expiration (align with backtest): valid bars are T .. T+window-1; expire when current_bar >= T+window
+            if trigger_bar_index is not None:
+                window_end = trigger_bar_index + self.entry2_confirmation_window
+                if self.current_bar_index >= window_end:
+                    self.logger.debug(f"Entry2: Window expired for {symbol} at bar {self.current_bar_index} (trigger={trigger_bar_index}, window_end={window_end}) - resetting before confirmation check")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
             
             # CRITICAL FIX: Check confirmations BEFORE checking invalidations
             # This allows trades to execute even if W%R(9) crosses back below threshold
             # as long as all confirmations are met on the same bar
             
             # Check for confirmations and remember them if they occur
-            # Slow W%R confirmation: Requires SuperTrend1 to be bearish (STRICT requirement)
-            # DEBUG_ENTRY2: Skip SuperTrend requirement for testing
-            # IMPORTANT: Only confirm if WPR28 CROSSES above threshold (not just currently above)
+            # W%R(28) confirmation: flexible mode = no SuperTrend requirement during confirmation window (trigger already required bearish)
+            # Strict mode = SuperTrend must be bearish. DEBUG_ENTRY2: Skip SuperTrend for testing.
             if self.debug_entry2:
                 wpr_28_crosses_above_strict = wpr_28_crosses_above
+                wpr_28_above_threshold_ok = wpr_slow_current > self.wpr_28_oversold
+            elif self.flexible_stochrsi_confirmation:
+                # Flexible: confirm on cross or already above; SuperTrend state irrelevant during confirmation window
+                wpr_28_crosses_above_strict = wpr_28_crosses_above
+                wpr_28_above_threshold_ok = wpr_slow_current > self.wpr_28_oversold
             else:
                 wpr_28_crosses_above_strict = wpr_28_crosses_above and is_bearish
+                wpr_28_above_threshold_ok = wpr_slow_current > self.wpr_28_oversold and is_bearish
             
             if wpr_28_crosses_above_strict:
                 if not state_machine['wpr_28_confirmed_in_window']:  # Only log if not already confirmed
                     state_machine['wpr_28_confirmed_in_window'] = True
-                    self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} - Slow WPR crossed above {self.wpr_28_oversold} ({wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}), SuperTrend1 bearish")
-            elif wpr_slow_current > self.wpr_28_oversold and is_bearish and not state_machine['wpr_28_confirmed_in_window']:
-                # W%R(28) is above threshold but hasn't crossed yet - log for debugging but don't confirm
-                self.logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) but hasn't crossed yet (prev={wpr_slow_prev:.2f}) - waiting for cross")
+                    mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                    self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} - Slow WPR crossed above {self.wpr_28_oversold} ({wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}), {mode_desc} mode")
+            elif wpr_28_above_threshold_ok and not state_machine['wpr_28_confirmed_in_window']:
+                # Already above threshold (e.g. crossover in earlier bar in window) - confirm now
+                state_machine['wpr_28_confirmed_in_window'] = True
+                mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} - already above {self.wpr_28_oversold} ({wpr_slow_current:.2f}), {mode_desc} mode")
+            elif wpr_slow_current > self.wpr_28_oversold and not state_machine['wpr_28_confirmed_in_window']:
+                self.logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) but strict mode requires bearish - waiting")
+            
+            # W%R(9) confirmation (for when trigger was W%R(28): confirm with other W%R = W%R(9)). Same flexible/strict as W%R(28).
+            wpr_9_crosses_above_here = (wpr_fast_prev <= self.wpr_9_oversold) and (wpr_fast_current > self.wpr_9_oversold) if pd.notna(wpr_fast_prev) and pd.notna(wpr_fast_current) else False
+            if self.debug_entry2:
+                wpr_9_confirm_ok = wpr_9_crosses_above_here or (wpr_fast_current > self.wpr_9_oversold)
+            else:
+                wpr_9_confirm_ok = (wpr_9_crosses_above_here or (wpr_fast_current > self.wpr_9_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+            if wpr_9_confirm_ok and not state_machine.get('wpr_9_confirmed_in_window', False):
+                state_machine['wpr_9_confirmed_in_window'] = True
+                mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                self.logger.info(f"Entry2: [OK] W%R(9) confirmation for {symbol} - crossed/above {self.wpr_9_oversold}, {mode_desc} mode")
             
             # StochRSI confirmation: Mode-dependent (flexible or strict)
             # DEBUG_ENTRY2: Skip SuperTrend requirement for testing
@@ -766,15 +801,21 @@ class EntryConditionManager:
                     self.logger.debug(f"Entry2: StochRSI condition NOT met for {symbol}: K={stoch_k_current:.2f}, D={stoch_d_current:.2f}, oversold_threshold={self.stoch_rsi_oversold}, flexible_mode={self.flexible_stochrsi_confirmation}, is_bearish={is_bearish}")
             
             # Check for success condition FIRST (before invalidations)
-            # This allows trades to execute even if W%R(9) crosses back below threshold
-            # as long as all confirmations are met
-            # CRITICAL: Entry2 is a REVERSAL strategy - SuperTrend MUST be bearish for execution
-            # Flexible mode allows StochRSI to confirm even if SuperTrend turns bullish during window,
-            # but FINAL execution still requires SuperTrend to be bearish
+            # Success = StochRSI + the *other* W%R (than trigger). Trigger=wpr_9 -> need wpr_28; trigger=wpr_28 -> need wpr_9; trigger=both -> need either.
+            trigger_src = state_machine.get('trigger_source')
+            if trigger_src is None:
+                # Legacy: no trigger_source (e.g. pre-update state) -> require W%R(28) + StochRSI
+                other_wpr_confirmed = state_machine.get('wpr_28_confirmed_in_window', False)
+            else:
+                other_wpr_confirmed = (
+                    (trigger_src == 'wpr_9' and state_machine.get('wpr_28_confirmed_in_window', False)) or
+                    (trigger_src == 'wpr_28' and state_machine.get('wpr_9_confirmed_in_window', False)) or
+                    (trigger_src == 'both' and (state_machine.get('wpr_28_confirmed_in_window', False) or state_machine.get('wpr_9_confirmed_in_window', False)))
+                )
             if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
-                print(f"[ENTRY2 DEBUG] Success condition check for {symbol}: W%R(28) confirmed={state_machine['wpr_28_confirmed_in_window']}, StochRSI confirmed={state_machine['stoch_rsi_confirmed_in_window']}, is_bearish={is_bearish}")
+                print(f"[ENTRY2 DEBUG] Success condition check for {symbol}: trigger_source={trigger_src}, W%R(9) confirmed={state_machine.get('wpr_9_confirmed_in_window', False)}, W%R(28) confirmed={state_machine.get('wpr_28_confirmed_in_window', False)}, StochRSI confirmed={state_machine['stoch_rsi_confirmed_in_window']}, other_wpr_confirmed={other_wpr_confirmed}")
             
-            if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
+            if state_machine['stoch_rsi_confirmed_in_window'] and other_wpr_confirmed:
                 # NOTE: SuperTrend check removed at execution time per strategy requirements
                 # SuperTrend MUST be bearish at trigger detection, but can be bullish/bearish during confirmation window
                 # Trade executes regardless of SuperTrend state at execution time
@@ -856,38 +897,35 @@ class EntryConditionManager:
                     state_machine['state'] = 'AWAITING_CONFIRMATION'
                     state_machine['confirmation_countdown'] = self.entry2_confirmation_window  # Start N-candle window
                     state_machine['trigger_bar_index'] = self.current_bar_index  # Store trigger bar index for window calculation
+                    state_machine['trigger_source'] = 'both' if both_cross_same_candle else ('wpr_9' if trigger_from_wpr9 else 'wpr_28')
+                    state_machine['wpr_9_confirmed_in_window'] = False
                     state_machine['wpr_28_confirmed_in_window'] = False
                     state_machine['stoch_rsi_confirmed_in_window'] = False
                     window_end = self.current_bar_index + self.entry2_confirmation_window
-                    self.logger.info(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {self.current_bar_index} (T, T+1, ..., T+{self.entry2_confirmation_window-1}), window expires at bar {window_end}")
+                    self.logger.info(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {self.current_bar_index} (trigger_source={state_machine['trigger_source']}, confirm with other W%%R + StochRSI), window expires at bar {window_end}")
                     
                     # CRITICAL: Check for confirmations on the same trigger candle
-                    # If both Fast and Slow WPR cross on the same candle, we should detect it immediately
-                    # WPR28 confirmation requires SuperTrend to be bearish (STRICT requirement)
-                    # DEBUG_ENTRY2: Skip SuperTrend requirement for testing
-                    # IMPORTANT: Only confirm if WPR28 CROSSES above threshold (not just currently above)
+                    # Confirmation = StochRSI + the *other* W%R (trigger=wpr_9 -> need wpr_28; trigger=wpr_28 -> need wpr_9; trigger=both -> need either)
+                    # W%R(28): flexible = no SuperTrend; strict = bearish
                     if self.debug_entry2:
-                        wpr_28_crosses_above_strict = wpr_28_crosses_above
+                        wpr_28_ok_trigger = wpr_28_crosses_above or (wpr_slow_current > self.wpr_28_oversold)
+                        wpr_9_ok_trigger = wpr_9_crosses_above or (wpr_fast_current > self.wpr_9_oversold)
                     else:
-                        wpr_28_crosses_above_strict = wpr_28_crosses_above and is_bearish
-                    
-                    if wpr_28_crosses_above_strict:
+                        wpr_28_ok_trigger = (wpr_28_crosses_above or (wpr_slow_current > self.wpr_28_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+                        wpr_9_ok_trigger = (wpr_9_crosses_above or (wpr_fast_current > self.wpr_9_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+                    if wpr_28_ok_trigger:
                         state_machine['wpr_28_confirmed_in_window'] = True
-                        self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} (same candle as trigger) - Slow WPR crossed above {self.wpr_28_oversold} ({wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}), SuperTrend1 bearish")
-                    elif wpr_slow_current > self.wpr_28_oversold and is_bearish:
-                        # W%R(28) is above threshold but hasn't crossed yet - log for debugging but don't confirm
-                        self.logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) but hasn't crossed yet (prev={wpr_slow_prev:.2f}) - same candle as trigger, waiting for cross")
+                        self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} (same candle as trigger)")
+                    if wpr_9_ok_trigger:
+                        state_machine['wpr_9_confirmed_in_window'] = True
+                        self.logger.info(f"Entry2: [OK] W%R(9) confirmation for {symbol} (same candle as trigger)")
                     
                     # StochRSI confirmation: Mode-dependent (flexible or strict)
-                    # DEBUG_ENTRY2: Skip SuperTrend requirement for testing
                     if self.debug_entry2:
-                        # DEBUG_ENTRY2 mode: No SuperTrend requirement
                         stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
                     elif self.flexible_stochrsi_confirmation:
-                        # Flexible mode: No SuperTrend requirement
                         stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
                     else:
-                        # Strict mode: Requires SuperTrend1 to be bearish
                         stoch_rsi_condition_trigger = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
                     
                     if stoch_rsi_condition_trigger:
@@ -895,8 +933,13 @@ class EntryConditionManager:
                         mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
                         self.logger.info(f"Entry2: [OK] StochRSI confirmation for {symbol} (same candle as trigger, {mode_desc} mode) - K={stoch_k_current:.2f} > D={stoch_d_current:.2f} and K > {self.stoch_rsi_oversold}")
                     
-                    # If both confirmations happened on the same candle as trigger, check success condition immediately
-                    if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
+                    # Success: StochRSI + other W%R (than trigger). Trigger=wpr_9 -> need wpr_28; trigger=wpr_28 -> need wpr_9; trigger=both -> need either.
+                    other_wpr_confirmed_trigger = (
+                        (state_machine['trigger_source'] == 'wpr_9' and state_machine['wpr_28_confirmed_in_window']) or
+                        (state_machine['trigger_source'] == 'wpr_28' and state_machine['wpr_9_confirmed_in_window']) or
+                        (state_machine['trigger_source'] == 'both' and (state_machine['wpr_28_confirmed_in_window'] or state_machine['wpr_9_confirmed_in_window']))
+                    )
+                    if state_machine['stoch_rsi_confirmed_in_window'] and other_wpr_confirmed_trigger:
                         # NOTE: SuperTrend check removed at execution time per strategy requirements
                         # SuperTrend MUST be bearish at trigger detection, but can be bullish/bearish during confirmation window
                         # Trade executes regardless of SuperTrend state at execution time
@@ -960,9 +1003,10 @@ class EntryConditionManager:
                 # Bar 21 expires (current_bar_index >= 21)
                 if self.current_bar_index >= window_end:
                     window_expired = True
-                    wpr28_status = "OK" if state_machine['wpr_28_confirmed_in_window'] else "X"
+                    wpr9_status = "OK" if state_machine.get('wpr_9_confirmed_in_window', False) else "X"
+                    wpr28_status = "OK" if state_machine.get('wpr_28_confirmed_in_window', False) else "X"
                     stoch_status = "OK" if state_machine['stoch_rsi_confirmed_in_window'] else "X"
-                    self.logger.info(f"[TIME] Entry2: Window expired for {symbol} at bar {self.current_bar_index} (trigger={trigger_bar_index}, window={self.entry2_confirmation_window}, end={window_end}) - W%R(28): {wpr28_status}, StochRSI: {stoch_status}")
+                    self.logger.info(f"[TIME] Entry2: Window expired for {symbol} at bar {self.current_bar_index} (trigger={trigger_bar_index}, trigger_source={state_machine.get('trigger_source')}, window={self.entry2_confirmation_window}, end={window_end}) - W%R(9): {wpr9_status}, W%R(28): {wpr28_status}, StochRSI: {stoch_status}")
                     self._reset_entry2_state_machine(symbol)
                     return False
                 elif os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
@@ -971,9 +1015,10 @@ class EntryConditionManager:
             # Check for window expiration (fallback if trigger_bar_index not set)
             if state_machine['confirmation_countdown'] <= 0:
                 window_expired = True
-                wpr28_status = "OK" if state_machine['wpr_28_confirmed_in_window'] else "X"
+                wpr9_status = "OK" if state_machine.get('wpr_9_confirmed_in_window', False) else "X"
+                wpr28_status = "OK" if state_machine.get('wpr_28_confirmed_in_window', False) else "X"
                 stoch_status = "OK" if state_machine['stoch_rsi_confirmed_in_window'] else "X"
-                self.logger.info(f"[TIME] Entry2: Window expired for {symbol} - W%R(28): {wpr28_status}, StochRSI: {stoch_status}")
+                self.logger.info(f"[TIME] Entry2: Window expired for {symbol} - W%R(9): {wpr9_status}, W%R(28): {wpr28_status}, StochRSI: {stoch_status}")
                 self._reset_entry2_state_machine(symbol)
                 return False
             
@@ -995,28 +1040,22 @@ class EntryConditionManager:
             # 2. Trades to execute even if W%R(9) crosses back below threshold, as long as all confirmations are met
             # Previously, invalidations were checked first, causing trades to be missed when
             # all confirmations were met but trigger condition was lost
-            # Slow W%R confirmation: Requires SuperTrend1 to be bearish (STRICT requirement)
-            # DEBUG_ENTRY2: Skip SuperTrend requirement for testing
-            # Confirm if WPR28 CROSSES above threshold OR is already above threshold during confirmation window
+            # W%R(28) and W%R(9) confirmation (same flexible/strict as first confirmation block)
             if self.debug_entry2:
-                wpr_28_crosses_above_strict = wpr_28_crosses_above
-                wpr_28_above_threshold = wpr_slow_current > self.wpr_28_oversold
+                wpr_28_ok_2 = wpr_28_crosses_above or (wpr_slow_current > self.wpr_28_oversold)
+                wpr_9_ok_2 = (wpr_fast_prev <= self.wpr_9_oversold and wpr_fast_current > self.wpr_9_oversold) or (wpr_fast_current > self.wpr_9_oversold) if pd.notna(wpr_fast_prev) and pd.notna(wpr_fast_current) else False
             else:
-                wpr_28_crosses_above_strict = wpr_28_crosses_above and is_bearish
-                wpr_28_above_threshold = wpr_slow_current > self.wpr_28_oversold and is_bearish
-            if wpr_28_crosses_above_strict:
-                if not state_machine['wpr_28_confirmed_in_window']:  # Only log if not already confirmed
-                    state_machine['wpr_28_confirmed_in_window'] = True
-                    self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} - Slow WPR crossed above {self.wpr_28_oversold} ({wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}), SuperTrend1 bearish")
-            elif wpr_28_above_threshold and not state_machine['wpr_28_confirmed_in_window']:
-                # W%R(28) is already above threshold (may have crossed mid-candle or was already above)
+                wpr_28_ok_2 = (wpr_28_crosses_above or (wpr_slow_current > self.wpr_28_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+                wpr_9_ok_2 = ((wpr_fast_prev <= self.wpr_9_oversold and wpr_fast_current > self.wpr_9_oversold) or (wpr_fast_current > self.wpr_9_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish) if pd.notna(wpr_fast_prev) and pd.notna(wpr_fast_current) else False
+            if wpr_28_ok_2 and not state_machine.get('wpr_28_confirmed_in_window', False):
                 state_machine['wpr_28_confirmed_in_window'] = True
-                self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} - Slow WPR is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}), SuperTrend1 bearish")
+                self.logger.info(f"Entry2: [OK] W%R(28) confirmation for {symbol} (window block)")
+            if wpr_9_ok_2 and not state_machine.get('wpr_9_confirmed_in_window', False):
+                state_machine['wpr_9_confirmed_in_window'] = True
+                self.logger.info(f"Entry2: [OK] W%R(9) confirmation for {symbol} (window block)")
             
             # StochRSI confirmation: Mode-dependent (flexible or strict)
-            # DEBUG_ENTRY2: Skip SuperTrend requirement for testing
             if self.debug_entry2:
-                # DEBUG_ENTRY2 mode: No SuperTrend requirement
                 stoch_rsi_condition_window = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
                 self.logger.debug(f"[DEBUG_ENTRY2] Entry2: StochRSI check for {symbol}: K={stoch_k_current:.2f} > D={stoch_d_current:.2f} ({stoch_k_current > stoch_d_current}), K > {self.stoch_rsi_oversold} ({stoch_k_current > self.stoch_rsi_oversold}), condition={stoch_rsi_condition_window}")
             elif self.flexible_stochrsi_confirmation:
@@ -1121,6 +1160,8 @@ class EntryConditionManager:
                 'state': 'AWAITING_TRIGGER',
                 'confirmation_countdown': 0,
                 'trigger_bar_index': None,
+                'trigger_source': None,
+                'wpr_9_confirmed_in_window': False,
                 'wpr_28_confirmed_in_window': False,
                 'stoch_rsi_confirmed_in_window': False
             }
@@ -3255,6 +3296,8 @@ class EntryConditionManager:
                     'state': 'AWAITING_TRIGGER',
                     'confirmation_countdown': 0,
                     'trigger_bar_index': None,
+                    'trigger_source': None,
+                    'wpr_9_confirmed_in_window': False,
                     'wpr_28_confirmed_in_window': False,
                     'stoch_rsi_confirmed_in_window': False
                 }
@@ -3774,6 +3817,8 @@ class EntryConditionManager:
                     'state': 'AWAITING_TRIGGER',
                     'confirmation_countdown': 0,
                     'trigger_bar_index': None,
+                    'trigger_source': None,
+                    'wpr_9_confirmed_in_window': False,
                     'wpr_28_confirmed_in_window': False,
                     'stoch_rsi_confirmed_in_window': False
                 }
