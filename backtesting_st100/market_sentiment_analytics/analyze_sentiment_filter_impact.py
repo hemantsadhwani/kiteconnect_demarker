@@ -384,13 +384,6 @@ def main():
         print(f"{row['filter_reason']:<25} {row['total_trades']:<8} {row['total_pnl']:>10.2f}% "
               f"{row['wins']:<8} {row['losses']:<8} {row['win_rate']:>10.2f}% {row['avg_pnl']:>10.2f}%")
     
-    # Save detailed CSV
-    base_dir = Path(__file__).parent.parent  # Go up one level to backtesting/
-    output_file = base_dir / 'data' / 'analysis_output' / 'sentiment_filter_detailed_analysis.csv'
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    combined_df.to_csv(output_file, index=False)
-    logger.info(f"\n✓ Detailed analysis saved to: {output_file}")
-    
     print("\n" + "="*80)
     print("RECOMMENDATIONS")
     print("="*80)

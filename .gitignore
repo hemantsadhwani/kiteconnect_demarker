@@ -157,9 +157,17 @@ backtesting/analytics/*.xlsx
 
 # Backtesting directories - logs, data, and output files
 backtesting_st50/logs/
-backtesting_st50/data/
 backtesting_st100/logs/
-backtesting_st100/data/
+# Data: ignore everything under data/ EXCEPT analysis_output (track analysis_output for reports)
+backtesting_expiry/data/*
+!backtesting_expiry/data/analysis_output/
+!backtesting_expiry/data/analysis_output/**
+backtesting_st50/data/*
+!backtesting_st50/data/analysis_output/
+!backtesting_st50/data/analysis_output/**
+backtesting_st100/data/*
+!backtesting_st100/data/analysis_output/
+!backtesting_st100/data/analysis_output/**
 # Backtesting cache files
 backtesting_st50/logs/.ohlc_cache.json
 backtesting_st100/logs/.ohlc_cache.json

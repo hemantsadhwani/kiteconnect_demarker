@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Analysis Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .card h3 {
+            margin: 0 0 10px 0;
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .card .value {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .positive { color: #28a745; }
+        .negative { color: #dc3545; }
+        .neutral { color: #6c757d; }
+        .expiry-section {
+            margin: 30px;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .expiry-header {
+            background: #495057;
+            color: white;
+            padding: 15px 20px;
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        .day-section {
+            border-bottom: 1px solid #e9ecef;
+            padding: 20px;
+        }
+        .day-header {
+            font-size: 1.1em;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #495057;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .metric-item {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .metric-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        .chart-container {
+            margin: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #495057;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            border-top: 1px solid #e9ecef;
+        }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Trading Analysis Report</h1>
+            <p>Generated on 2026-02-05 14:40:53</p>
+        </div>
+        
+        <div class="summary-cards" id="summaryCards">
+            <!-- Summary cards will be populated by JavaScript -->
+        </div>
+        
+        <div class="chart-container" id="aggregatedSummaryTable">
+            <!-- Aggregated summary table will be populated by JavaScript -->
+        </div>
+        
+        <script>
+            const aggregatedSummary = {"DYNAMIC_ATM": {"Strike Type": "DYNAMIC_ATM", "Total Trades": 162, "Filtered Trades": 105, "Filtering Efficiency": 64.81, "Un-Filtered P&L": 151.54, "Filtered P&L": 223.02, "Win Rate": 40.0}, "DYNAMIC_OTM": {"Strike Type": "DYNAMIC_OTM", "Total Trades": 74, "Filtered Trades": 73, "Filtering Efficiency": 98.65, "Un-Filtered P&L": 30.61, "Filtered P&L": 23.6, "Win Rate": 34.25}};
+        </script>
+        
+        <div id="expiryData">
+            <!-- Expiry data will be populated by JavaScript -->
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart-title">Daily P&L Trend</div>
+            <canvas id="dailyPnlChart" width="400" height="200"></canvas>
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart-title">Trade Distribution by Type</div>
+            <canvas id="tradeDistributionChart" width="400" height="200"></canvas>
+        </div>
+        
+        <div class="footer">
+            <p>Analysis Report Generated by Enhanced Expiry Analysis System</p>
+        </div>
+    </div>
+
+    <script>
+        const expiryData = {"JAN27": {"expiry_week": "JAN27", "trading_days": ["JAN23", "JAN22", "JAN21"], "discovered_trading_days": ["JAN23", "JAN22", "JAN21"], "indiavix_filtered_days": [], "daily_data": {"JAN23": {"day_label": "JAN23", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM            14               14               4               100.0%         -51.68%      -51.68%    28.6%  JAN27_DYNAMIC     JAN23   DYNAMIC\n1  DYNAMIC_ATM            21               20               7                95.2%         -51.26%      -46.00%    35.0%  JAN27_DYNAMIC     JAN23   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type trade_type\n0   =HYPERLINK(\"ATM/NIFTY26JAN25000CE_strategy.csv...          CE   15:12:01  15:14:00       152.70  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n1   =HYPERLINK(\"ATM/NIFTY26JAN25000CE_strategy.csv...          CE   14:53:01  15:00:00       177.30  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n2   =HYPERLINK(\"ATM/NIFTY26JAN25200PE_strategy.csv...          PE   14:43:01  14:55:00       146.15  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n3   =HYPERLINK(\"ATM/NIFTY26JAN25100PE_strategy.csv...          PE   14:39:01  14:40:00       100.00  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n4   =HYPERLINK(\"ATM/NIFTY26JAN25000CE_strategy.csv...          CE   14:26:01  14:46:00       160.60  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n5   =HYPERLINK(\"ATM/NIFTY26JAN25100PE_strategy.csv...          PE   14:17:01  14:27:00       104.55  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n6   =HYPERLINK(\"ATM/NIFTY26JAN25000CE_strategy.csv...          CE   13:59:01  14:18:00       163.70  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n7   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   11:24:01  11:33:00       166.30  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n8   =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   11:16:01  11:31:00       103.45  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n9   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   11:07:01  11:16:00       170.60  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n10  =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   10:52:01  11:03:00       176.20  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n11  =HYPERLINK(\"ATM/NIFTY26JAN25400PE_strategy.csv...          PE   10:41:01  11:00:00       146.95  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n12  =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   10:34:01  10:35:00        95.70  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n13  =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   10:09:01  10:28:00       105.00  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n14  =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   10:05:01  10:09:00       190.00  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n15  =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   09:58:01  10:03:00       185.55  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n16  =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   09:47:01  09:52:00       198.10  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n17  =HYPERLINK(\"ATM/NIFTY26JAN25300CE_strategy.csv...          CE   09:39:01  09:42:00       134.35  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n18  =HYPERLINK(\"ATM/NIFTY26JAN25400PE_strategy.csv...          PE   09:34:01  09:39:00       148.80  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n19  =HYPERLINK(\"ATM/NIFTY26JAN25300CE_strategy.csv...          CE   09:24:01  09:35:00       143.55  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC        ATM\n\n[20 rows x 20 columns]", "dynamic_otm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type  trade_type\n0   =HYPERLINK(\"OTM/NIFTY26JAN25100CE_strategy.csv...          CE   15:12:01  15:18:00        98.15  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n1   =HYPERLINK(\"OTM/NIFTY26JAN25400CE_strategy.csv...          CE   15:04:01  15:08:00        23.25  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n2   =HYPERLINK(\"OTM/NIFTY26JAN25000PE_strategy.csv...          PE   14:17:01  14:27:00        65.55  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n3   =HYPERLINK(\"OTM/NIFTY26JAN25100CE_strategy.csv...          CE   13:59:01  14:18:00       106.30  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n4   =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   11:16:01  11:17:00        64.70  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n5   =HYPERLINK(\"OTM/NIFTY26JAN25400CE_strategy.csv...          CE   11:09:01  11:16:00        62.75  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n6   =HYPERLINK(\"OTM/NIFTY26JAN25300PE_strategy.csv...          PE   10:41:01  11:00:00        96.30  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n7   =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   10:34:01  10:35:00        60.70  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n8   =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   10:09:01  10:28:00        67.75  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n9   =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   10:05:01  10:08:00       124.15  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n10  =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   09:59:01  10:01:00       128.25  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n11  =HYPERLINK(\"OTM/NIFTY26JAN25400CE_strategy.csv...          CE   09:47:01  09:50:00        84.25  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n12  =HYPERLINK(\"OTM/NIFTY26JAN25300PE_strategy.csv...          PE   09:34:01  09:48:00       100.90  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n13  =HYPERLINK(\"OTM/NIFTY26JAN25400CE_strategy.csv...          CE   09:24:01  09:35:00        91.45  ...       INCLUDED  JAN27_DYNAMIC      JAN23    DYNAMIC         OTM\n\n[14 rows x 20 columns]", "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": {"total_trades": 20, "winning_trades": 7, "losing_trades": 13, "win_rate": 35.0, "total_pnl": -45.99999999999999, "avg_pnl": -2.3, "max_win": 13.23, "max_loss": -8.46, "profit_factor": 0.3395549174443648}, "dynamic_otm_trades_metrics": {"total_trades": 14, "winning_trades": 4, "losing_trades": 10, "win_rate": 28.57142857142857, "total_pnl": -51.68, "avg_pnl": -3.6914285714285713, "max_win": 4.41, "max_loss": -10.01, "profit_factor": 0.12540192926045018}}, "JAN22": {"day_label": "JAN22", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM            13               12               3                92.3%         -31.70%      -38.71%    25.0%  JAN27_DYNAMIC     JAN22   DYNAMIC\n1  DYNAMIC_ATM            17               14               5                82.4%         -13.79%      -13.54%    35.7%  JAN27_DYNAMIC     JAN22   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type trade_type\n0   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   15:07:01  15:14:00       194.60  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n1   =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   14:04:01  14:20:00       151.50  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n2   =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   13:38:01  13:49:00       165.95  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n3   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   13:13:01  13:14:00       160.45  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n4   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   13:05:01  13:10:00       162.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n5   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   11:50:01  11:58:00       167.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n6   =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   11:28:01  11:42:00       150.30  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n7   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   11:16:01  11:29:00       175.50  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n8   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   11:11:01  11:12:00       176.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n9   =HYPERLINK(\"ATM/NIFTY26JAN25200CE_strategy.csv...          CE   10:57:01  10:58:00       197.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n10  =HYPERLINK(\"ATM/NIFTY26JAN25300CE_strategy.csv...          CE   10:24:01  10:27:00       179.25  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n11  =HYPERLINK(\"ATM/NIFTY26JAN25300CE_strategy.csv...          CE   10:07:01  10:17:00       199.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n12  =HYPERLINK(\"ATM/NIFTY26JAN25400PE_strategy.csv...          PE   10:02:01  10:12:00       127.60  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n13  =HYPERLINK(\"ATM/NIFTY26JAN25500PE_strategy.csv...          PE   09:53:01  10:00:00       175.05  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC        ATM\n\n[14 rows x 20 columns]", "dynamic_otm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type  trade_type\n0   =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   13:38:01  13:49:00       117.05  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n1   =HYPERLINK(\"OTM/NIFTY26JAN25200CE_strategy.csv...          CE   13:33:01  13:38:00       152.55  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n2   =HYPERLINK(\"OTM/NIFTY26JAN25200CE_strategy.csv...          CE   13:20:01  13:21:00       157.25  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n3   =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   13:05:01  13:14:00       110.70  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n4   =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   11:50:01  11:59:00       116.30  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n5   =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   11:28:01  11:42:00       106.45  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n6   =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   11:16:01  11:29:00       122.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n7   =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   11:11:01  11:12:00       122.55  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n8   =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   10:57:01  10:58:00       138.00  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n9   =HYPERLINK(\"OTM/NIFTY26JAN25400CE_strategy.csv...          CE   10:35:01  10:39:00       103.75  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n10  =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   10:24:01  10:27:00       179.25  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n11  =HYPERLINK(\"OTM/NIFTY26JAN25400PE_strategy.csv...          PE   09:53:01  09:59:00       126.45  ...       INCLUDED  JAN27_DYNAMIC      JAN22    DYNAMIC         OTM\n\n[12 rows x 20 columns]", "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": {"total_trades": 14, "winning_trades": 5, "losing_trades": 9, "win_rate": 35.714285714285715, "total_pnl": -13.540000000000001, "avg_pnl": -0.9671428571428572, "max_win": 19.73, "max_loss": -10.15, "profit_factor": 0.7571736011477762}, "dynamic_otm_trades_metrics": {"total_trades": 12, "winning_trades": 3, "losing_trades": 9, "win_rate": 25.0, "total_pnl": -38.709999999999994, "avg_pnl": -3.2258333333333327, "max_win": 21.89, "max_loss": -10.29, "profit_factor": 0.43620739877658016}}, "JAN21": {"day_label": "JAN21", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM            10               10               3               100.0%          -1.42%       -1.42%    30.0%  JAN27_DYNAMIC     JAN21   DYNAMIC\n1  DYNAMIC_ATM            15                7               4                46.7%          -4.96%       36.31%    57.1%  JAN27_DYNAMIC     JAN21   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": "                                              symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type trade_type\n0  =HYPERLINK(\"ATM/NIFTY26JAN25200PE_strategy.csv...          PE   15:08:01  15:14:00       158.65  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n1  =HYPERLINK(\"ATM/NIFTY26JAN25200PE_strategy.csv...          PE   14:20:01  14:33:00       155.65  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n2  =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   13:08:01  13:23:00       159.30  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n3  =HYPERLINK(\"ATM/NIFTY26JAN25100PE_strategy.csv...          PE   11:50:01  11:51:00       166.35  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n4  =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   09:37:01  09:59:00       162.70  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n5  =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   09:29:01  09:32:00       159.65  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n6  =HYPERLINK(\"ATM/NIFTY26JAN25300PE_strategy.csv...          PE   09:22:01  09:23:00       175.80  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC        ATM\n\n[7 rows x 20 columns]", "dynamic_otm_trades": "                                              symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type  trade_type\n0  =HYPERLINK(\"OTM/NIFTY26JAN25000PE_strategy.csv...          PE   15:07:01  15:25:00        84.10  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n1  =HYPERLINK(\"OTM/NIFTY26JAN25100PE_strategy.csv...          PE   14:21:01  14:33:00       116.95  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n2  =HYPERLINK(\"OTM/NIFTY26JAN25300CE_strategy.csv...          CE   13:47:01  13:50:00       132.65  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n3  =HYPERLINK(\"OTM/NIFTY26JAN25200CE_strategy.csv...          CE   13:38:01  13:42:00       187.60  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n4  =HYPERLINK(\"OTM/NIFTY26JAN25000PE_strategy.csv...          PE   11:55:01  12:01:00       120.20  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n5  =HYPERLINK(\"OTM/NIFTY26JAN25200CE_strategy.csv...          CE   10:14:01  10:15:00       158.05  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n6  =HYPERLINK(\"OTM/NIFTY26JAN25300PE_strategy.csv...          PE   09:37:01  09:59:00       162.70  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n7  =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   09:29:01  09:32:00       118.05  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n8  =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   09:22:01  09:23:00       132.00  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n9  =HYPERLINK(\"OTM/NIFTY26JAN25200PE_strategy.csv...          PE   09:18:01  09:19:00       124.60  ...       INCLUDED  JAN27_DYNAMIC      JAN21    DYNAMIC         OTM\n\n[10 rows x 20 columns]", "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": {"total_trades": 7, "winning_trades": 4, "losing_trades": 3, "win_rate": 57.14285714285714, "total_pnl": 36.31, "avg_pnl": 5.187142857142858, "max_win": 21.42, "max_loss": -8.24, "profit_factor": 3.4667119565217392}, "dynamic_otm_trades_metrics": {"total_trades": 10, "winning_trades": 3, "losing_trades": 7, "win_rate": 30.0, "total_pnl": -1.4199999999999982, "avg_pnl": -0.14199999999999982, "max_win": 21.42, "max_loss": -8.97, "profit_factor": 0.9623342175066313}}}, "summary": {"total_trading_days": 3, "total_trading_days_discovered": 3, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 77, "total_static_pnl": 0, "total_dynamic_pnl": -115.04, "total_pnl": -115.04, "avg_daily_pnl": -38.34666666666667}}, "JAN13": {"expiry_week": "JAN13", "trading_days": ["JAN12", "JAN09", "JAN08", "JAN07"], "discovered_trading_days": ["JAN12", "JAN09", "JAN08", "JAN07"], "indiavix_filtered_days": [], "daily_data": {"JAN12": {"day_label": "JAN12", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN12   DYNAMIC\n1  DYNAMIC_ATM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN12   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": null, "dynamic_otm_trades": null, "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": null, "dynamic_otm_trades_metrics": null}, "JAN09": {"day_label": "JAN09", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN09   DYNAMIC\n1  DYNAMIC_ATM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN09   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": null, "dynamic_otm_trades": null, "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": null, "dynamic_otm_trades_metrics": null}, "JAN08": {"day_label": "JAN08", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN08   DYNAMIC\n1  DYNAMIC_ATM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN08   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": null, "dynamic_otm_trades": null, "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": null, "dynamic_otm_trades_metrics": null}, "JAN07": {"day_label": "JAN07", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN07   DYNAMIC\n1  DYNAMIC_ATM             0                0               0                 0.0%           0.00%        0.00%     0.0%  JAN13_DYNAMIC     JAN07   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": null, "dynamic_otm_trades": null, "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": null, "dynamic_otm_trades_metrics": null}}, "summary": {"total_trading_days": 4, "total_trading_days_discovered": 4, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0.0}}, "JAN20": {"expiry_week": "JAN20", "trading_days": ["JAN19", "JAN16", "JAN14"], "discovered_trading_days": ["JAN19", "JAN16", "JAN14"], "indiavix_filtered_days": [], "daily_data": {"JAN19": {"day_label": "JAN19", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM            12               12               6               100.0%          32.63%       32.63%    50.0%  JAN20_DYNAMIC     JAN19   DYNAMIC\n1  DYNAMIC_ATM            16               16               7               100.0%          37.42%       37.42%    43.8%  JAN20_DYNAMIC     JAN19   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type trade_type\n0   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   14:55:01  15:14:00       113.15  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n1   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   14:49:01  14:51:00       117.40  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n2   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   14:44:01  14:46:00       122.35  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n3   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   14:34:01  14:35:00        73.45  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n4   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   14:20:01  14:22:00        80.15  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n5   =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   13:31:01  13:45:00        92.60  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n6   =HYPERLINK(\"ATM/NIFTY2612025600PE_strategy.csv...          PE   13:25:01  13:31:00       107.15  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n7   =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   13:20:01  13:25:00        97.00  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n8   =HYPERLINK(\"ATM/NIFTY2612025600PE_strategy.csv...          PE   11:47:01  11:58:00       106.50  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n9   =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   11:36:01  11:49:00        95.25  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n10  =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   11:23:01  11:31:00        96.30  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n11  =HYPERLINK(\"ATM/NIFTY2612025600PE_strategy.csv...          PE   11:10:01  11:32:00       106.35  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n12  =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   10:42:01  11:09:00        88.35  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n13  =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   10:31:01  10:39:00        91.65  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n14  =HYPERLINK(\"ATM/NIFTY2612025500CE_strategy.csv...          CE   10:11:01  10:26:00        98.65  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n15  =HYPERLINK(\"ATM/NIFTY2612025600PE_strategy.csv...          PE   09:54:01  10:08:00       105.95  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC        ATM\n\n[16 rows x 20 columns]", "dynamic_otm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type  trade_type\n0   =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   14:49:01  14:51:00        59.50  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n1   =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   14:44:01  14:45:00        62.40  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n2   =HYPERLINK(\"OTM/NIFTY2612025700CE_strategy.csv...          CE   14:34:01  14:35:00        33.00  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n3   =HYPERLINK(\"OTM/NIFTY2612025700CE_strategy.csv...          CE   14:20:01  14:21:00        37.00  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n4   =HYPERLINK(\"OTM/NIFTY2612025700CE_strategy.csv...          CE   13:32:01  13:45:00        20.80  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n5   =HYPERLINK(\"OTM/NIFTY2612025500PE_strategy.csv...          PE   13:25:01  13:30:00        54.10  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n6   =HYPERLINK(\"OTM/NIFTY2612025600CE_strategy.csv...          CE   13:16:01  13:31:00        43.75  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n7   =HYPERLINK(\"OTM/NIFTY2612025500PE_strategy.csv...          PE   11:47:01  11:58:00        56.00  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n8   =HYPERLINK(\"OTM/NIFTY2612025500PE_strategy.csv...          PE   11:10:01  11:24:00        56.40  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n9   =HYPERLINK(\"OTM/NIFTY2612025600CE_strategy.csv...          CE   10:42:01  10:47:00        46.80  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n10  =HYPERLINK(\"OTM/NIFTY2612025600CE_strategy.csv...          CE   10:31:01  10:34:00        48.80  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n11  =HYPERLINK(\"OTM/NIFTY2612025500PE_strategy.csv...          PE   09:54:01  10:08:00        56.95  ...       INCLUDED  JAN20_DYNAMIC      JAN19    DYNAMIC         OTM\n\n[12 rows x 20 columns]", "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": {"total_trades": 16, "winning_trades": 7, "losing_trades": 9, "win_rate": 43.75, "total_pnl": 37.42, "avg_pnl": 2.33875, "max_win": 22.24, "max_loss": -8.25, "profit_factor": 1.5997756050649143}, "dynamic_otm_trades_metrics": {"total_trades": 12, "winning_trades": 6, "losing_trades": 6, "win_rate": 50.0, "total_pnl": 32.629999999999995, "avg_pnl": 2.7191666666666663, "max_win": 22.48, "max_loss": -8.57, "profit_factor": 2.047175866495507}}, "JAN16": {"day_label": "JAN16", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM            13               13               4               100.0%          56.52%       56.52%    30.8%  JAN20_DYNAMIC     JAN16   DYNAMIC\n1  DYNAMIC_ATM            16               16               4               100.0%          22.76%       22.76%    25.0%  JAN20_DYNAMIC     JAN16   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type trade_type\n0   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   14:47:01  15:14:00       146.75  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n1   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   14:38:01  14:39:00        97.50  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n2   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   14:29:01  14:30:00        99.40  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n3   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   14:08:01  14:09:00       174.15  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n4   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   13:52:01  14:12:00       149.25  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n5   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   13:36:01  13:38:00        98.95  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n6   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   13:29:01  13:35:00       178.00  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n7   =HYPERLINK(\"ATM/NIFTY2612025700CE_strategy.csv...          CE   11:56:01  11:58:00       187.95  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n8   =HYPERLINK(\"ATM/NIFTY2612025800CE_strategy.csv...          CE   11:28:01  11:32:00       133.05  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n9   =HYPERLINK(\"ATM/NIFTY2612025800CE_strategy.csv...          CE   11:16:01  11:18:00       137.65  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n10  =HYPERLINK(\"ATM/NIFTY2612025800CE_strategy.csv...          CE   11:02:01  11:03:00       154.85  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n11  =HYPERLINK(\"ATM/NIFTY2612025800CE_strategy.csv...          CE   10:47:01  10:51:00       164.00  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n12  =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   09:47:01  09:48:00       129.10  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n13  =HYPERLINK(\"ATM/NIFTY2612025700CE_strategy.csv...          CE   09:42:01  10:39:00       129.65  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n14  =HYPERLINK(\"ATM/NIFTY2612025700CE_strategy.csv...          CE   09:36:01  09:40:00       130.15  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n15  =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   09:33:01  09:34:00       100.40  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC        ATM\n\n[16 rows x 20 columns]", "dynamic_otm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type  trade_type\n0   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   14:47:01  15:15:00        92.65  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n1   =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   14:38:01  14:39:00        57.80  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n2   =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   14:29:01  14:30:00        59.15  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n3   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   13:52:01  14:09:00        94.95  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n4   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   13:36:01  13:38:00        98.95  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n5   =HYPERLINK(\"OTM/NIFTY2612025700CE_strategy.csv...          CE   13:29:01  13:35:00       116.55  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n6   =HYPERLINK(\"OTM/NIFTY2612025800CE_strategy.csv...          CE   11:56:01  11:58:00       124.15  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n7   =HYPERLINK(\"OTM/NIFTY2612025900CE_strategy.csv...          CE   11:28:01  11:32:00        81.95  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n8   =HYPERLINK(\"OTM/NIFTY2612025900CE_strategy.csv...          CE   11:16:01  11:18:00        85.00  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n9   =HYPERLINK(\"OTM/NIFTY2612025900CE_strategy.csv...          CE   10:47:01  10:51:00       106.00  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n10  =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   09:48:01  09:50:00        78.35  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n11  =HYPERLINK(\"OTM/NIFTY2612025800CE_strategy.csv...          CE   09:42:01  10:34:00        79.70  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n12  =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   09:33:01  09:34:00        62.65  ...       INCLUDED  JAN20_DYNAMIC      JAN16    DYNAMIC         OTM\n\n[13 rows x 20 columns]", "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": {"total_trades": 16, "winning_trades": 4, "losing_trades": 12, "win_rate": 25.0, "total_pnl": 22.75999999999999, "avg_pnl": 1.4224999999999994, "max_win": 88.58, "max_loss": -11.25, "profit_factor": 1.2917574669914111}, "dynamic_otm_trades_metrics": {"total_trades": 13, "winning_trades": 4, "losing_trades": 9, "win_rate": 30.76923076923077, "total_pnl": 56.519999999999996, "avg_pnl": 4.3476923076923075, "max_win": 108.41, "max_loss": -13.53, "profit_factor": 1.820081253627394}}, "JAN14": {"day_label": "JAN14", "static_summary": null, "dynamic_summary": "   Strike Type  Total Trades  Filtered Trades  Winning Trades Filtering Efficiency Un-Filtered P&L Filtered P&L Win Rate    expiry_week day_label data_type\n0  DYNAMIC_OTM            12               12               5               100.0%          26.26%       26.26%    41.7%  JAN20_DYNAMIC     JAN14   DYNAMIC\n1  DYNAMIC_ATM            18               17               6                94.4%          39.86%       33.17%    35.3%  JAN20_DYNAMIC     JAN14   DYNAMIC", "static_atm_trades": null, "static_otm_trades": null, "dynamic_atm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type trade_type\n0   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   15:05:01  15:08:00       174.65  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n1   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   14:27:01  14:57:00       148.45  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n2   =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   14:19:01  14:36:00       137.50  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n3   =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   14:07:01  14:21:00       159.35  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n4   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   13:15:01  14:07:00       138.25  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n5   =HYPERLINK(\"ATM/NIFTY2612025700CE_strategy.csv...          CE   13:07:01  13:20:00       159.70  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n6   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   11:52:01  12:18:00       127.35  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n7   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   11:46:01  11:48:00       135.25  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n8   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   11:36:01  11:42:00       135.00  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n9   =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   11:26:01  11:27:00       151.80  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n10  =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   11:02:01  11:16:00       156.95  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n11  =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   10:49:01  11:15:00       198.50  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n12  =HYPERLINK(\"ATM/NIFTY2612025700PE_strategy.csv...          PE   10:45:01  10:49:00       126.90  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n13  =HYPERLINK(\"ATM/NIFTY2612025600CE_strategy.csv...          CE   10:34:01  10:36:00       194.65  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n14  =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   09:58:01  10:00:00       157.55  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n15  =HYPERLINK(\"ATM/NIFTY2612025700CE_strategy.csv...          CE   09:52:01  09:58:00       150.55  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n16  =HYPERLINK(\"ATM/NIFTY2612025800PE_strategy.csv...          PE   09:26:01  09:28:00       162.60  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC        ATM\n\n[17 rows x 20 columns]", "dynamic_otm_trades": "                                               symbol option_type entry_time exit_time  entry_price  ...  filter_status    expiry_week  day_label  data_type  trade_type\n0   =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   14:19:01  14:36:00        92.20  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n1   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   13:15:01  14:02:00        92.85  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n2   =HYPERLINK(\"OTM/NIFTY2612025800CE_strategy.csv...          CE   13:07:01  13:20:00       105.00  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n3   =HYPERLINK(\"OTM/NIFTY2612025800PE_strategy.csv...          PE   11:52:01  12:18:00       127.35  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n4   =HYPERLINK(\"OTM/NIFTY2612025800PE_strategy.csv...          PE   11:46:01  11:48:00       135.25  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n5   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   11:36:01  11:42:00        92.25  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n6   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   11:26:01  11:27:00       104.55  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n7   =HYPERLINK(\"OTM/NIFTY2612025600PE_strategy.csv...          PE   10:45:01  10:49:00        86.45  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n8   =HYPERLINK(\"OTM/NIFTY2612025800CE_strategy.csv...          CE   10:34:01  10:36:00        88.10  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n9   =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   09:58:01  10:33:00       109.75  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n10  =HYPERLINK(\"OTM/NIFTY2612025800CE_strategy.csv...          CE   09:52:01  09:58:00       100.50  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n11  =HYPERLINK(\"OTM/NIFTY2612025700PE_strategy.csv...          PE   09:26:01  09:28:00       114.50  ...       INCLUDED  JAN20_DYNAMIC      JAN14    DYNAMIC         OTM\n\n[12 rows x 20 columns]", "static_atm_trades_metrics": null, "static_otm_trades_metrics": null, "dynamic_atm_trades_metrics": {"total_trades": 17, "winning_trades": 6, "losing_trades": 11, "win_rate": 35.294117647058826, "total_pnl": 33.17, "avg_pnl": 1.9511764705882353, "max_win": 49.01, "max_loss": -11.46, "profit_factor": 1.49097098875074}, "dynamic_otm_trades_metrics": {"total_trades": 12, "winning_trades": 5, "losing_trades": 7, "win_rate": 41.66666666666667, "total_pnl": 26.259999999999998, "avg_pnl": 2.188333333333333, "max_win": 49.22, "max_loss": -12.67, "profit_factor": 1.4706093189964153}}}, "summary": {"total_trading_days": 3, "total_trading_days_discovered": 3, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 86, "total_static_pnl": 0, "total_dynamic_pnl": 208.76, "total_pnl": 208.76, "avg_daily_pnl": 69.58666666666666}}, "NOV18": {"expiry_week": "NOV18", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "OCT28": {"expiry_week": "OCT28", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "DEC09": {"expiry_week": "DEC09", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "NOV25": {"expiry_week": "NOV25", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "NOV04": {"expiry_week": "NOV04", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "DEC02": {"expiry_week": "DEC02", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "NOV11": {"expiry_week": "NOV11", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "DEC16": {"expiry_week": "DEC16", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}, "OCT20": {"expiry_week": "OCT20", "trading_days": [], "discovered_trading_days": [], "indiavix_filtered_days": [], "daily_data": {}, "summary": {"total_trading_days": 0, "total_trading_days_discovered": 0, "filtered_days": 0, "filtered_day_labels": [], "total_trades": 0, "total_static_pnl": 0, "total_dynamic_pnl": 0, "total_pnl": 0, "avg_daily_pnl": 0}}};
+        
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toFixed(2);
+        }
+        
+        function formatPnl(pnl) {
+            const formatted = Math.abs(pnl).toFixed(2);
+            return pnl >= 0 ? `+${formatted}%` : `-${formatted}%`;
+        }
+        
+        function getPnlClass(pnl) {
+            if (pnl > 0) return 'positive';
+            if (pnl < 0) return 'negative';
+            return 'neutral';
+        }
+        
+        function generateSummaryCards() {
+            const summaryCards = document.getElementById('summaryCards');
+            let totalDays = 0;
+            let expiryCount = 0;
+            
+            Object.values(expiryData).forEach(expiry => {
+                // Count actual included days (after INDIAVIX and other filters)
+                // Use trading_days array length which contains only included days
+                const includedDays = expiry.trading_days ? expiry.trading_days.length : 0;
+                totalDays += includedDays;
+                expiryCount++;
+            });
+            
+            // Use aggregated summary from CSV for consistency (matches CSV file)
+            // aggregatedSummary is now a dictionary with 'DYNAMIC_ATM' and 'DYNAMIC_OTM' keys
+            const summaryDict = aggregatedSummary || {};
+            const atmSummary = summaryDict['DYNAMIC_ATM'] || {};
+            const otmSummary = summaryDict['DYNAMIC_OTM'] || {};
+            
+            // Get separate totals for ATM and OTM
+            const atmTrades = atmSummary['Filtered Trades'] || 0;
+            const atmPnl = atmSummary['Filtered P&L'] || 0;
+            const atmAvgDailyPnl = totalDays > 0 ? atmPnl / totalDays : 0;
+            
+            const otmTrades = otmSummary['Filtered Trades'] || 0;
+            const otmPnl = otmSummary['Filtered P&L'] || 0;
+            const otmAvgDailyPnl = totalDays > 0 ? otmPnl / totalDays : 0;
+            
+            summaryCards.innerHTML = `
+                <div class="card">
+                    <h3>Total Expiry Weeks</h3>
+                    <div class="value neutral">${expiryCount}</div>
+                </div>
+                <div class="card">
+                    <h3>Total Trading Days</h3>
+                    <div class="value neutral">${totalDays}</div>
+                </div>
+                <div class="card">
+                    <h3>ATM Total Trades</h3>
+                    <div class="value neutral">${formatNumber(atmTrades)}</div>
+                </div>
+                <div class="card">
+                    <h3>ATM Total P&L</h3>
+                    <div class="value ${getPnlClass(atmPnl)}">${formatPnl(atmPnl)}</div>
+                </div>
+                <div class="card">
+                    <h3>ATM Average Daily P&L</h3>
+                    <div class="value ${getPnlClass(atmAvgDailyPnl)}">${formatPnl(atmAvgDailyPnl)}</div>
+                </div>
+                <div class="card">
+                    <h3>OTM Total Trades</h3>
+                    <div class="value neutral">${formatNumber(otmTrades)}</div>
+                </div>
+                <div class="card">
+                    <h3>OTM Total P&L</h3>
+                    <div class="value ${getPnlClass(otmPnl)}">${formatPnl(otmPnl)}</div>
+                </div>
+                <div class="card">
+                    <h3>OTM Average Daily P&L</h3>
+                    <div class="value ${getPnlClass(otmAvgDailyPnl)}">${formatPnl(otmAvgDailyPnl)}</div>
+                </div>
+            `;
+        }
+        
+        function generateExpiryData() {
+            const expiryContainer = document.getElementById('expiryData');
+            let html = '';
+            
+            // Sort expiry weeks chronologically (latest first)
+            // Expiry weeks are in format like "NOV25", "NOV18", "OCT20", etc.
+            // JAN06 is from FY 2026 (latest), all others are from 2025
+            const sortedExpiries = Object.values(expiryData).sort((a, b) => {
+                const monthMap = {
+                    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                };
+                const parseExpiry = (expiryWeek) => {
+                    // Parse expiry week like "NOV25" or "NOV04" or "JAN06" or "JAN13"
+                    const match = expiryWeek.toUpperCase().match(/^([A-Z]{3})(\d{2})$/);
+                    if (match) {
+                        const month = monthMap[match[1]] || 0;
+                        const day = parseInt(match[2]);
+                        // All JAN expiries (JAN06, JAN13, etc.) are from 2026, all others are from 2025
+                        const year = (expiryWeek.toUpperCase().startsWith('JAN')) ? 2026 : 2025;
+                        return year * 10000 + month * 100 + day; // Sort key with year
+                    }
+                    return 0;
+                };
+                return parseExpiry(b.expiry_week) - parseExpiry(a.expiry_week); // Latest first
+            });
+            
+            sortedExpiries.forEach(expiry => {
+                html += `
+                    <div class="expiry-section">
+                        <div class="expiry-header">
+                            ${expiry.expiry_week} - Total P&L: ${formatPnl(expiry.summary.total_pnl || 0)}
+                        </div>
+                `;
+                
+                // Show trading days info (discovered vs included)
+                const discoveredDays = expiry.summary.total_trading_days_discovered || 0;
+                // Count actual included days from trading_days array (after all filters including INDIAVIX)
+                const includedDaysCount = expiry.trading_days ? expiry.trading_days.length : 0;
+                const filteredDaysCount = expiry.summary.filtered_days || 0;
+                const allDiscoveredDays = expiry.discovered_trading_days || [];
+                const includedDaysList = expiry.trading_days || [];
+                
+                // Get INDIAVIX filtered days from the data (only if INDIAVIX filter was actually applied)
+                const indiavixFilteredDays = expiry.indiavix_filtered_days || [];
+                
+                if (allDiscoveredDays.length > 0) {
+                    html += `
+                        <div class="day-section" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+                            <div class="day-header" style="color: #856404;">Trading Days Discovery</div>
+                            <div style="color: #856404;">
+                                <strong>All Discovered Days:</strong> ${allDiscoveredDays.join(', ')}<br>
+                                <strong>Included Days:</strong> ${includedDaysList.length > 0 ? includedDaysList.join(', ') : 'None'}<br>
+                                ${indiavixFilteredDays.length > 0 ? `<strong>INDIAVIX Filtered Days:</strong> ${indiavixFilteredDays.join(', ')}<br>` : ''}
+                                ${filteredDaysCount > 0 ? `<strong>CPR Filtered Days:</strong> ${expiry.summary.filtered_day_labels ? expiry.summary.filtered_day_labels.join(', ') : 'None'}<br>` : ''}
+                                <strong>Summary:</strong> Discovered ${discoveredDays} days | Included ${includedDaysCount} days | INDIAVIX Filtered ${indiavixFilteredDays.length} days | CPR Filtered ${filteredDaysCount} days
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                // Calculate totals for this expiry week
+                let staticAtmTotal = 0, staticOtmTotal = 0, dynamicAtmTotal = 0, dynamicOtmTotal = 0;
+                let staticAtmTrades = 0, staticOtmTrades = 0, dynamicAtmTrades = 0, dynamicOtmTrades = 0;
+                let staticAtmWins = 0, staticOtmWins = 0, dynamicAtmWins = 0, dynamicOtmWins = 0;
+                
+                // Get filtered days list for this expiry week (CPR filtered)
+                const filteredDays = expiry.summary.filtered_day_labels || [];
+                
+                // Only process days that are in the included trading_days array (after INDIAVIX filter)
+                // and not in CPR filtered days
+                const daysToProcess = includedDaysList.filter(day => !filteredDays.includes(day));
+                
+                // Sort daily_data by date (latest first) - only for included days
+                const sortedDays = daysToProcess.map(dayLabel => {
+                    return expiry.daily_data[dayLabel];
+                }).filter(day => day !== undefined).sort((a, b) => {
+                    // Parse date labels like "NOV24", "OCT29" for chronological sorting
+                    const monthMap = {
+                        'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                        'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                    };
+                    const parseDate = (label) => {
+                        const match = label.toUpperCase().match(/^([A-Z]{3})(\d{2})$/);
+                        if (match) {
+                            const month = monthMap[match[1]] || 0;
+                            const day = parseInt(match[2]);
+                            return month * 100 + day; // Simple sort key
+                        }
+                        return 0;
+                    };
+                    return parseDate(b.day_label) - parseDate(a.day_label); // Latest first
+                });
+                
+                sortedDays.forEach(day => {
+                    // Day is already filtered to only included days, no need to check again
+                    
+                    html += `
+                        <div class="day-section">
+                            <div class="day-header">${day.day_label}</div>
+                            <div class="metrics-grid">
+                    `;
+                    
+                    // Static ATM
+                    if (day.static_atm_trades_metrics && typeof day.static_atm_trades_metrics === 'object') {
+                        const m = day.static_atm_trades_metrics;
+                        const pnl = typeof m.total_pnl === 'number' ? m.total_pnl : parseFloat(m.total_pnl) || 0;
+                        const trades = typeof m.total_trades === 'number' ? m.total_trades : parseInt(m.total_trades) || 0;
+                        const wins = typeof m.winning_trades === 'number' ? m.winning_trades : parseInt(m.winning_trades) || 0;
+                        
+                        staticAtmTotal += pnl;
+                        staticAtmTrades += trades;
+                        staticAtmWins += wins;
+                        html += `
+                            <div class="metric-item">
+                                <div class="metric-label">Static ATM</div>
+                                <div class="metric-value ${getPnlClass(pnl)}">${formatPnl(pnl)}</div>
+                                <div style="font-size: 0.8em; color: #666;">${trades} trades</div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Static OTM
+                    if (day.static_otm_trades_metrics && typeof day.static_otm_trades_metrics === 'object') {
+                        const m = day.static_otm_trades_metrics;
+                        const pnl = typeof m.total_pnl === 'number' ? m.total_pnl : parseFloat(m.total_pnl) || 0;
+                        const trades = typeof m.total_trades === 'number' ? m.total_trades : parseInt(m.total_trades) || 0;
+                        const wins = typeof m.winning_trades === 'number' ? m.winning_trades : parseInt(m.winning_trades) || 0;
+                        
+                        staticOtmTotal += pnl;
+                        staticOtmTrades += trades;
+                        staticOtmWins += wins;
+                        html += `
+                            <div class="metric-item">
+                                <div class="metric-label">Static OTM</div>
+                                <div class="metric-value ${getPnlClass(pnl)}">${formatPnl(pnl)}</div>
+                                <div style="font-size: 0.8em; color: #666;">${trades} trades</div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Dynamic ATM
+                    if (day.dynamic_atm_trades_metrics && typeof day.dynamic_atm_trades_metrics === 'object' && day.dynamic_atm_trades_metrics !== null) {
+                        const m = day.dynamic_atm_trades_metrics;
+                        // Ensure values are numbers (handle potential string conversion issues)
+                        const pnl = (typeof m.total_pnl === 'number' ? m.total_pnl : parseFloat(m.total_pnl)) || 0;
+                        const trades = (typeof m.total_trades === 'number' ? m.total_trades : parseInt(m.total_trades)) || 0;
+                        const wins = (typeof m.winning_trades === 'number' ? m.winning_trades : parseInt(m.winning_trades)) || 0;
+                        
+                        if (!isNaN(pnl) && !isNaN(trades)) {
+                            dynamicAtmTotal += pnl;
+                            dynamicAtmTrades += trades;
+                            dynamicAtmWins += wins;
+                            html += `
+                                <div class="metric-item">
+                                    <div class="metric-label">Dynamic ATM</div>
+                                    <div class="metric-value ${getPnlClass(pnl)}">${formatPnl(pnl)}</div>
+                                    <div style="font-size: 0.8em; color: #666;">${trades} trades</div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    // Dynamic OTM
+                    if (day.dynamic_otm_trades_metrics && typeof day.dynamic_otm_trades_metrics === 'object') {
+                        const m = day.dynamic_otm_trades_metrics;
+                        const pnl = typeof m.total_pnl === 'number' ? m.total_pnl : parseFloat(m.total_pnl) || 0;
+                        const trades = typeof m.total_trades === 'number' ? m.total_trades : parseInt(m.total_trades) || 0;
+                        const wins = typeof m.winning_trades === 'number' ? m.winning_trades : parseInt(m.winning_trades) || 0;
+                        
+                        dynamicOtmTotal += pnl;
+                        dynamicOtmTrades += trades;
+                        dynamicOtmWins += wins;
+                        html += `
+                            <div class="metric-item">
+                                <div class="metric-label">Dynamic OTM</div>
+                                <div class="metric-value ${getPnlClass(pnl)}">${formatPnl(pnl)}</div>
+                                <div style="font-size: 0.8em; color: #666;">${trades} trades</div>
+                            </div>
+                        `;
+                    }
+                    
+                    html += `
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                // Calculate win percentages
+                const staticAtmWinRate = staticAtmTrades > 0 ? ((staticAtmWins / staticAtmTrades) * 100).toFixed(1) : 0;
+                const staticOtmWinRate = staticOtmTrades > 0 ? ((staticOtmWins / staticOtmTrades) * 100).toFixed(1) : 0;
+                const dynamicAtmWinRate = dynamicAtmTrades > 0 ? ((dynamicAtmWins / dynamicAtmTrades) * 100).toFixed(1) : 0;
+                const dynamicOtmWinRate = dynamicOtmTrades > 0 ? ((dynamicOtmWins / dynamicOtmTrades) * 100).toFixed(1) : 0;
+                
+                // Add total row for this expiry week
+                html += `
+                    <div class="day-section" style="background-color: #f8f9fa; border-top: 2px solid #495057; font-weight: bold;">
+                        <div class="day-header" style="color: #495057; font-size: 1.2em;">TOTAL - ${expiry.expiry_week}</div>
+                        <div class="metrics-grid">
+                            <div class="metric-item" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                <div class="metric-label">Static ATM Total</div>
+                                <div class="metric-value" style="font-size: 1.3em;">${formatPnl(staticAtmTotal)}</div>
+                                <div style="font-size: 0.8em; opacity: 0.9;">${staticAtmTrades} trades (${staticAtmWinRate}%)</div>
+                            </div>
+                            <div class="metric-item" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white;">
+                                <div class="metric-label">Static OTM Total</div>
+                                <div class="metric-value" style="font-size: 1.3em;">${formatPnl(staticOtmTotal)}</div>
+                                <div style="font-size: 0.8em; opacity: 0.9;">${staticOtmTrades} trades (${staticOtmWinRate}%)</div>
+                            </div>
+                            <div class="metric-item" style="background: linear-gradient(135deg, #17a2b8 0%, #6f42c1 100%); color: white;">
+                                <div class="metric-label">Dynamic ATM Total</div>
+                                <div class="metric-value" style="font-size: 1.3em;">${formatPnl(dynamicAtmTotal)}</div>
+                                <div style="font-size: 0.8em; opacity: 0.9;">${dynamicAtmTrades} trades (${dynamicAtmWinRate}%)</div>
+                            </div>
+                            <div class="metric-item" style="background: linear-gradient(135deg, #fd7e14 0%, #e83e8c 100%); color: white;">
+                                <div class="metric-label">Dynamic OTM Total</div>
+                                <div class="metric-value" style="font-size: 1.3em;">${formatPnl(dynamicOtmTotal)}</div>
+                                <div style="font-size: 0.8em; opacity: 0.9;">${dynamicOtmTrades} trades (${dynamicOtmWinRate}%)</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                html += `</div>`;
+            });
+            
+            if (html === '') {
+                html = '<div class="no-data">No data available for analysis</div>';
+            }
+            
+            expiryContainer.innerHTML = html;
+        }
+        
+        function createCharts() {
+            // Daily P&L Chart
+            const dailyPnlCtx = document.getElementById('dailyPnlChart').getContext('2d');
+            const dailyData = [];
+            const dailyLabels = [];
+            
+            // Sort expiry weeks chronologically (latest first) - same logic as above
+            // JAN06 is from FY 2026 (latest), all others are from 2025
+            const sortedExpiriesForChart = Object.values(expiryData).sort((a, b) => {
+                const monthMap = {
+                    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                };
+                const parseExpiry = (expiryWeek) => {
+                    const match = expiryWeek.toUpperCase().match(/^([A-Z]{3})(\d{2})$/);
+                    if (match) {
+                        const month = monthMap[match[1]] || 0;
+                        const day = parseInt(match[2]);
+                        // All JAN expiries (JAN06, JAN13, etc.) are from 2026, all others are from 2025
+                        const year = (expiryWeek.toUpperCase().startsWith('JAN')) ? 2026 : 2025;
+                        return year * 10000 + month * 100 + day; // Sort key with year
+                    }
+                    return 0;
+                };
+                return parseExpiry(b.expiry_week) - parseExpiry(a.expiry_week); // Latest first
+            });
+            
+            sortedExpiriesForChart.forEach(expiry => {
+                const filteredDays = expiry.summary.filtered_day_labels || [];
+                const includedDaysList = expiry.trading_days || [];
+                
+                // Only process days that are in the included trading_days array (after INDIAVIX filter)
+                // and not in CPR filtered days
+                const daysToProcess = includedDaysList.filter(day => !filteredDays.includes(day));
+                
+                // Sort daily_data by date (latest first) - only for included days
+                const sortedDaysForChart = daysToProcess.map(dayLabel => {
+                    return expiry.daily_data[dayLabel];
+                }).filter(day => day !== undefined).sort((a, b) => {
+                    const monthMap = {
+                        'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                        'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                    };
+                    const parseDate = (label) => {
+                        const match = label.toUpperCase().match(/^([A-Z]{3})(\d{2})$/);
+                        if (match) {
+                            const month = monthMap[match[1]] || 0;
+                            const day = parseInt(match[2]);
+                            return month * 100 + day;
+                        }
+                        return 0;
+                    };
+                    return parseDate(b.day_label) - parseDate(a.day_label); // Latest first
+                });
+                
+                sortedDaysForChart.forEach(day => {
+                    // Day is already filtered to only included days, no need to check again
+                    
+                    let dayPnl = 0;
+                    if (day.static_atm_trades_metrics) dayPnl += day.static_atm_trades_metrics.total_pnl;
+                    if (day.static_otm_trades_metrics) dayPnl += day.static_otm_trades_metrics.total_pnl;
+                    if (day.dynamic_atm_trades_metrics) dayPnl += day.dynamic_atm_trades_metrics.total_pnl;
+                    if (day.dynamic_otm_trades_metrics) dayPnl += day.dynamic_otm_trades_metrics.total_pnl;
+                    
+                    dailyLabels.push(day.day_label);
+                    dailyData.push(dayPnl);
+                });
+            });
+            
+            new Chart(dailyPnlCtx, {
+                type: 'line',
+                data: {
+                    labels: dailyLabels,
+                    datasets: [{
+                        label: 'Daily P&L (%)',
+                        data: dailyData,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e9ecef'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: '#e9ecef'
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Trade Distribution Chart
+            const tradeDistCtx = document.getElementById('tradeDistributionChart').getContext('2d');
+            let staticAtmTrades = 0, staticOtmTrades = 0, dynamicAtmTrades = 0, dynamicOtmTrades = 0;
+            
+            // Sort expiry weeks chronologically (latest first) - same logic as above
+            // JAN06 is from FY 2026 (latest), all others are from 2025
+            const sortedExpiriesForDistChart = Object.values(expiryData).sort((a, b) => {
+                const monthMap = {
+                    'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                    'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                };
+                const parseExpiry = (expiryWeek) => {
+                    const match = expiryWeek.toUpperCase().match(/^([A-Z]{3})(\d{2})$/);
+                    if (match) {
+                        const month = monthMap[match[1]] || 0;
+                        const day = parseInt(match[2]);
+                        // All JAN expiries (JAN06, JAN13, etc.) are from 2026, all others are from 2025
+                        const year = (expiryWeek.toUpperCase().startsWith('JAN')) ? 2026 : 2025;
+                        return year * 10000 + month * 100 + day; // Sort key with year
+                    }
+                    return 0;
+                };
+                return parseExpiry(b.expiry_week) - parseExpiry(a.expiry_week); // Latest first
+            });
+            
+            sortedExpiriesForDistChart.forEach(expiry => {
+                const filteredDays = expiry.summary.filtered_day_labels || [];
+                const includedDaysList = expiry.trading_days || [];
+                
+                // Only process days that are in the included trading_days array (after INDIAVIX filter)
+                // and not in CPR filtered days
+                const daysToProcess = includedDaysList.filter(day => !filteredDays.includes(day));
+                
+                // Sort daily_data by date (latest first) - only for included days
+                const sortedDaysForDistChart = daysToProcess.map(dayLabel => {
+                    return expiry.daily_data[dayLabel];
+                }).filter(day => day !== undefined).sort((a, b) => {
+                    const monthMap = {
+                        'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
+                        'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12
+                    };
+                    const parseDate = (label) => {
+                        const match = label.toUpperCase().match(/^([A-Z]{3})(\d{2})$/);
+                        if (match) {
+                            const month = monthMap[match[1]] || 0;
+                            const day = parseInt(match[2]);
+                            return month * 100 + day;
+                        }
+                        return 0;
+                    };
+                    return parseDate(b.day_label) - parseDate(a.day_label); // Latest first
+                });
+                
+                sortedDaysForDistChart.forEach(day => {
+                    // Day is already filtered to only included days, no need to check again
+                    
+                    if (day.static_atm_trades_metrics) staticAtmTrades += day.static_atm_trades_metrics.total_trades;
+                    if (day.static_otm_trades_metrics) staticOtmTrades += day.static_otm_trades_metrics.total_trades;
+                    if (day.dynamic_atm_trades_metrics) dynamicAtmTrades += day.dynamic_atm_trades_metrics.total_trades;
+                    if (day.dynamic_otm_trades_metrics) dynamicOtmTrades += day.dynamic_otm_trades_metrics.total_trades;
+                });
+            });
+            
+            new Chart(tradeDistCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Static ATM', 'Static OTM', 'Dynamic ATM', 'Dynamic OTM'],
+                    datasets: [{
+                        data: [staticAtmTrades, staticOtmTrades, dynamicAtmTrades, dynamicOtmTrades],
+                        backgroundColor: ['#667eea', '#764ba2', '#f093fb', '#f5576c'],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+        
+        function generateAggregatedSummaryTable() {
+            const container = document.getElementById('aggregatedSummaryTable');
+            
+            // Use aggregated summary calculated in Python (matches CSV aggregate summary)
+            // aggregatedSummary is now a dictionary with 'DYNAMIC_ATM' and 'DYNAMIC_OTM' keys
+            const summaryDict = aggregatedSummary || {};
+            const atmSummary = summaryDict['DYNAMIC_ATM'] || {};
+            const otmSummary = summaryDict['DYNAMIC_OTM'] || {};
+            
+            // Helper function to create a table row
+            const createRow = (strikeType, summary) => {
+                const totalTrades = summary['Total Trades'] || 0;
+                const filteredTrades = summary['Filtered Trades'] || 0;
+                const filteringEfficiency = summary['Filtering Efficiency'] || 0;
+                const unfilteredPnl = summary['Un-Filtered P&L'] || 0;
+                const filteredPnl = summary['Filtered P&L'] || 0;
+                const winRate = summary['Win Rate'] || 0;
+                
+                return `
+                    <tr style="background: #f8f9fa;">
+                        <td style="padding: 12px; border: 1px solid #dee2e6; font-weight: bold;">${strikeType}</td>
+                        <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right;">${totalTrades}</td>
+                        <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right;">${filteredTrades}</td>
+                        <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right;">${filteringEfficiency.toFixed(2)}%</td>
+                        <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right;">${unfilteredPnl.toFixed(2)}%</td>
+                        <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right; font-weight: bold; color: ${filteredPnl >= 0 ? '#28a745' : '#dc3545'};">${filteredPnl.toFixed(2)}%</td>
+                        <td style="padding: 12px; border: 1px solid #dee2e6; text-align: right;">${winRate.toFixed(2)}%</td>
+                    </tr>
+                `;
+            };
+            
+            // Build table rows for both ATM and OTM
+            let rows = '';
+            // Check if summary exists and has data (not just empty object)
+            if (atmSummary && atmSummary['Total Trades'] !== undefined) {
+                rows += createRow('DYNAMIC_ATM', atmSummary);
+            }
+            if (otmSummary && otmSummary['Total Trades'] !== undefined) {
+                rows += createRow('DYNAMIC_OTM', otmSummary);
+            }
+            
+            // If no rows, show a message
+            if (!rows) {
+                rows = '<tr><td colspan="7" style="padding: 20px; text-align: center; color: #6c757d;">No aggregated summary data available</td></tr>';
+            }
+            
+            const html = `
+                <div class="chart-title">AGGREGATED ENTRY2 MARKET SENTIMENT SUMMARY</div>
+                <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.95em;">
+                    <thead>
+                        <tr style="background: #495057; color: white;">
+                            <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Strike Type</th>
+                            <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Total Trades</th>
+                            <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Filtered Trades</th>
+                            <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Filtering Efficiency</th>
+                            <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Un-Filtered P&L</th>
+                            <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Filtered P&L</th>
+                            <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Win Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = html;
+        }
+        
+        // Initialize the report
+        document.addEventListener('DOMContentLoaded', function() {
+            generateSummaryCards();
+            generateAggregatedSummaryTable();
+            generateExpiryData();
+            createCharts();
+        });
+    </script>
+</body>
+</html>
