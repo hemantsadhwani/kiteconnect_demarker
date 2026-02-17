@@ -41,48 +41,39 @@ class TradeState:
         self.allow_multiple_symbol_positions = allow_multiple_symbol_positions  # If True, allow multiple positions for different symbols
     
     def can_enter_trade(self, symbol, entry_time):
-        """Check if we can enter a new trade"""
+        """Check if we can enter a new trade. Returns (allowed: bool, reason: str|None). reason is set when allowed=False."""
+        new_option_type = 'CE' if symbol.endswith('CE') else 'PE' if symbol.endswith('PE') else None
+        if symbol in self.active_trades:
+            logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trade for this symbol")
+            return (False, 'ACTIVE_TRADE_EXISTS')
         if self.allow_multiple_symbol_positions:
-            # When multiple positions allowed: Only check if there's an active trade for THIS symbol
-            if symbol in self.active_trades:
-                logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trade for this symbol")
-                return False
-            return True
+            # Allow at most one CE and one PE: block if any active trade has the SAME option type (CE or PE).
+            # This keeps sensing trigger/confirmation but only executes when no active same call/put; blocked trade is invalidated.
+            for existing_symbol in self.active_trades.keys():
+                existing_option_type = 'CE' if existing_symbol.endswith('CE') else 'PE' if existing_symbol.endswith('PE') else None
+                if new_option_type and existing_option_type and new_option_type == existing_option_type:
+                    logger.warning(f"Cannot enter {symbol} ({new_option_type}) at {entry_time} - same option type position {existing_symbol} already active (invalidate new, reset)")
+                    return (False, 'SAME_TYPE_ACTIVE')
+            return (True, None)
         else:
             # When multiple positions NOT allowed: Block if ANY trade is active (CE or PE)
-            # CRITICAL: This must block ALL new trades if ANY trade is active, regardless of option type
-            if self.active_trades:
-                # Get the new trade's option type
-                new_option_type = 'CE' if symbol.endswith('CE') else 'PE' if symbol.endswith('PE') else None
-                
-                # Check if this specific symbol is already active
-                if symbol in self.active_trades:
-                    logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trade for this symbol")
-                    return False
-                
-                # Block if ANY other trade is active (CE or PE) - this is the key constraint
-                for existing_symbol in self.active_trades.keys():
-                    existing_option_type = 'CE' if existing_symbol.endswith('CE') else 'PE' if existing_symbol.endswith('PE') else None
-                    
-                    # Block if opposite option type is active (CE blocks PE, PE blocks CE)
-                    if new_option_type and existing_option_type and new_option_type != existing_option_type:
-                        logger.warning(f"Cannot enter {symbol} ({new_option_type}) trade at {entry_time} - opposite position {existing_symbol} ({existing_option_type}) is already active (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false)")
-                        return False
-                    
-                    # Also block if same option type (shouldn't happen, but safety check)
-                    if new_option_type and existing_option_type and new_option_type == existing_option_type:
-                        logger.warning(f"Cannot enter {symbol} ({new_option_type}) trade at {entry_time} - same option type position {existing_symbol} is already active")
-                        return False
-                
-                # Final safety check: if we have any active trades and got here, block the trade
-                # This catches any edge cases where option type detection failed
-                logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trades: {list(self.active_trades.keys())} (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false)")
-                return False
-        return True
+            if not self.active_trades:
+                return (True, None)
+            for existing_symbol in self.active_trades.keys():
+                existing_option_type = 'CE' if existing_symbol.endswith('CE') else 'PE' if existing_symbol.endswith('PE') else None
+                if new_option_type and existing_option_type and new_option_type != existing_option_type:
+                    logger.warning(f"Cannot enter {symbol} ({new_option_type}) at {entry_time} - opposite position {existing_symbol} ({existing_option_type}) active (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false)")
+                    return (False, 'ACTIVE_TRADE_EXISTS')
+                if new_option_type and existing_option_type and new_option_type == existing_option_type:
+                    logger.warning(f"Cannot enter {symbol} ({new_option_type}) at {entry_time} - same option type {existing_symbol} already active")
+                    return (False, 'SAME_TYPE_ACTIVE')
+            logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - active trades: {list(self.active_trades.keys())}")
+            return (False, 'ACTIVE_TRADE_EXISTS')
     
     def enter_trade(self, symbol, entry_time, entry_data):
         """Enter a new trade"""
-        if self.can_enter_trade(symbol, entry_time):
+        allowed, _ = self.can_enter_trade(symbol, entry_time)
+        if allowed:
             self.active_trades[symbol] = {
                 'entry_time': entry_time,
                 'entry_data': entry_data
@@ -164,7 +155,6 @@ class TradeState:
                 exit_time_str = exit_time.strftime('%H:%M:%S') if hasattr(exit_time, 'strftime') else "00:00:00"
             
             # Get PnL from the appropriate entry type column based on self.entry_type
-            entry_type_lower = self.entry_type.lower()
             pnl_col = f'{entry_type_lower}_pnl'
             # Try to get PnL from the correct column
             if isinstance(exit_data, pd.Series):
@@ -237,6 +227,9 @@ class ConsolidatedDynamicATMAnalysis:
     def _calculate_high_between_entry_exit(self, strategy_file: Path, entry_time, exit_time):
         """Calculate the highest price between entry_time and exit_time"""
         try:
+            path_str = str(strategy_file)
+            if path_str.endswith('.html'):
+                strategy_file = Path(path_str[:-5] + '.csv')
             df = pd.read_csv(strategy_file)
             df['date'] = pd.to_datetime(df['date'])
             
@@ -260,17 +253,29 @@ class ConsolidatedDynamicATMAnalysis:
                         entry_time = entry_time.tz_convert(df_tz)
                     if hasattr(exit_time, 'tz') and exit_time.tz is not None and exit_time.tz != df_tz:
                         exit_time = exit_time.tz_convert(df_tz)
+            # Strategy CSVs use minute bars (e.g. 11:04:00); entry/exit may have seconds (11:04:01)
+            # Normalize to start of minute so we include the entry and exit candles
+            entry_time = entry_time.replace(second=0, microsecond=0) if hasattr(entry_time, 'replace') else entry_time
+            exit_time = exit_time.replace(second=0, microsecond=0) if hasattr(exit_time, 'replace') else exit_time
             
             # Filter rows between entry and exit (inclusive)
             mask = (df['date'] >= entry_time) & (df['date'] <= exit_time)
             filtered_df = df[mask]
-            
-            if len(filtered_df) > 0 and 'high' in filtered_df.columns:
-                max_high = float(filtered_df['high'].max())
+            # Use OHLC 'high' by position (index 2): date=0, open=1, high=2, low=3, close=4
+            if len(filtered_df) > 0 and len(filtered_df.columns) > 2:
+                high_series = pd.to_numeric(filtered_df.iloc[:, 2], errors='coerce')
+                max_high = float(high_series.max())
+                # Option prices are positive; reject garbage (e.g. from wrong file/column)
+                if max_high <= 0 or max_high > 10000:
+                    logger.warning(f"Invalid high {max_high} in {strategy_file.name} (window {entry_time}–{exit_time}); rejecting")
+                    return None
                 logger.debug(f"High between {entry_time} and {exit_time}: {max_high} (from {len(filtered_df)} rows)")
                 return max_high
             else:
-                logger.warning(f"No data found between {entry_time} and {exit_time} in {strategy_file.name}")
+                if len(filtered_df) == 0:
+                    logger.warning(f"No data found between {entry_time} and {exit_time} in {strategy_file.name}")
+                else:
+                    logger.warning(f"Not enough columns in {strategy_file.name} for high (have {len(filtered_df.columns)})")
             return None
         except Exception as e:
             logger.warning(f"Error calculating high for {strategy_file.name}: {e}")
@@ -281,6 +286,9 @@ class ConsolidatedDynamicATMAnalysis:
     def _calculate_swing_low_at_entry(self, strategy_file: Path, entry_time):
         """Calculate swing low at entry_time using SWING_LOW_CANDLES"""
         try:
+            path_str = str(strategy_file)
+            if path_str.endswith('.html'):
+                strategy_file = Path(path_str[:-5] + '.csv')
             df = pd.read_csv(strategy_file)
             df['date'] = pd.to_datetime(df['date'])
             
@@ -295,6 +303,8 @@ class ConsolidatedDynamicATMAnalysis:
                 if df_tz is not None:
                     if hasattr(entry_time, 'tz') and entry_time.tz is not None and entry_time.tz != df_tz:
                         entry_time = entry_time.tz_convert(df_tz)
+            # Strategy CSVs use minute bars (e.g. 11:04:00); entry_time may have seconds (11:04:01)
+            entry_time = entry_time.replace(second=0, microsecond=0) if hasattr(entry_time, 'replace') else entry_time
             
             # Find entry time index - try exact match first
             entry_idx = df[df['date'] == entry_time].index
@@ -320,14 +330,19 @@ class ConsolidatedDynamicATMAnalysis:
             end_idx = entry_idx_val  # Include entry candle itself
             
             window_df = df.iloc[start_idx:end_idx + 1]
-            
-            if len(window_df) > 0 and 'low' in window_df.columns:
-                min_low = float(window_df['low'].min())
-                logger.info(f"Swing low at {entry_time} (window: {start_idx} to {end_idx}): {min_low} in {strategy_file.name}")
-                return min_low
-            else:
-                logger.warning(f"No data in swing low window for {entry_time} in {strategy_file.name}")
-            return None
+            # Use OHLC 'low' by position (index 3) to avoid wrong column if names differ: date, open, high, low, close, ...
+            if len(window_df) == 0 or len(window_df.columns) <= 3:
+                logger.warning(f"No data or not enough columns in swing low window for {entry_time} in {strategy_file.name}")
+                return None
+            low_col_idx = 3
+            low_series = pd.to_numeric(window_df.iloc[:, low_col_idx], errors='coerce')
+            min_low = float(low_series.min())
+            # Option prices are positive; reject indicator values (e.g. WPR -100..0) or wrong column
+            if min_low <= 0 or min_low > 10000:
+                logger.warning(f"Invalid swing_low {min_low} in {strategy_file.name} (window {start_idx}–{end_idx}, col_idx={low_col_idx}); rejecting")
+                return None
+            logger.info(f"Swing low at {entry_time} (window: {start_idx} to {end_idx}): {min_low} in {strategy_file.name}")
+            return min_low
         except Exception as e:
             logger.warning(f"Error calculating swing_low for {strategy_file.name}: {e}")
             import traceback
@@ -1646,9 +1661,6 @@ class ConsolidatedDynamicATMAnalysis:
                 # - Backtesting lowest resolution is 1 minute (e.g., "14:03:00") because it uses minute candles
                 # - When signal is detected at candle T, execution happens at T+1 minute + 1 second (next candle + 1 second)
                 entry_execution_time = signal_candle_time + pd.Timedelta(minutes=1, seconds=1)
-                # Enhanced logging for missing trades
-                if signal_candle_time.strftime('%H:%M') in ['10:04', '10:27', '15:11']:
-                    logger.info(f"[DEBUG] Adding {entry_type} entry signal for {symbol}: signal candle at {signal_candle_time}, execution time {entry_execution_time}")
                 logger.debug(f"Adding {entry_type} entry signal for {symbol}: signal candle at {signal_candle_time}, execution time {entry_execution_time}")
                 all_global_signals.append({
                     'type': 'entry',
@@ -1667,10 +1679,12 @@ class ConsolidatedDynamicATMAnalysis:
                     'data': exit_trade
                 })
         
-        # Sort all signals globally by time, then by symbol for deterministic ordering
-        # This ensures that when multiple signals occur at the same time, they're processed
-        # in a consistent order (alphabetically by symbol)
-        all_global_signals.sort(key=lambda x: (x['time'], x['symbol']))
+        # Sort all signals globally by time. CRITICAL: When exit and entry fall on the same bar
+        # (e.g. SL hit on 10:43 and new Entry2 trigger on 10:43, confirmation at 10:47), process
+        # EXIT before ENTRY so the active trade is cleared; the strategy already preserves the
+        # Entry2 state (trigger at 10:43) on exit, so the confirmation-at-10:47 entry is emitted
+        # and we take it. Key: (time, type_priority, symbol) with type_priority 0=exit first, 1=entry.
+        all_global_signals.sort(key=lambda x: (x['time'], (0 if x['type'] == 'exit' else 1), x['symbol']))
         
         # CRITICAL VALIDATION: Check for multiple strikes generating signals at the same time
         # In ATM, at any given time there should be only ONE strike per option type that's active
@@ -1754,14 +1768,30 @@ class ConsolidatedDynamicATMAnalysis:
                             eod_candles = df_symbol_full[df_symbol_full['date'] <= eod_exit_datetime]
                             if not eod_candles.empty:
                                 eod_bar = eod_candles.iloc[-1]  # Get the last candle at or before EOD time
-                                eod_exit_price = eod_bar.get('close', entry_data.get('open', 0.0))
+                                eod_exit_price = float(eod_bar.get('close', entry_data.get('open', 0.0)))
                                 
                                 # Calculate PnL for EOD exit (always calculate, don't use bar's pnl as it may be for a different entry)
-                                entry_price = entry_data.get('open', 0.0)
+                                entry_price = float(entry_data.get('open', 0.0))
                                 # Calculate PnL as percentage: ((exit_price - entry_price) / entry_price) * 100
                                 if entry_price > 0:
                                     eod_pnl = ((eod_exit_price - entry_price) / entry_price) * 100
-                                    logger.debug(f"EOD exit PnL calculated for {symbol}: entry={entry_price:.2f}, exit={eod_exit_price:.2f}, pnl={eod_pnl:.2f}%")
+                                    # Cap EOD exit loss at STOP_LOSS_PERCENT (we would have hit SL before -60%)
+                                    entry_type_config = self.config.get(entry_type.upper(), {})
+                                    sl_config = entry_type_config.get('STOP_LOSS_PERCENT', {})
+                                    if isinstance(sl_config, dict):
+                                        sl_pct = max(
+                                            sl_config.get('ABOVE_THRESHOLD', 7.5),
+                                            sl_config.get('BETWEEN_THRESHOLD', 7.5),
+                                            sl_config.get('BELOW_THRESHOLD', 7.5)
+                                        )
+                                    else:
+                                        sl_pct = float(sl_config) if sl_config else 7.5
+                                    if eod_pnl < -sl_pct:
+                                        eod_exit_price = round(entry_price * (1 - sl_pct / 100.0), 2)
+                                        eod_pnl = -sl_pct
+                                        logger.debug(f"EOD exit capped at SL {sl_pct}% for {symbol}: exit_price={eod_exit_price:.2f}, pnl={eod_pnl:.2f}%")
+                                    else:
+                                        logger.debug(f"EOD exit PnL for {symbol}: entry={entry_price:.2f}, exit={eod_exit_price:.2f}, pnl={eod_pnl:.2f}%")
                                 else:
                                     logger.warning(f"Entry price is 0 for {symbol}, cannot calculate PnL")
                                     eod_pnl = 0.0
@@ -1787,11 +1817,25 @@ class ConsolidatedDynamicATMAnalysis:
                                 logger.warning(f"Could not find candle at EOD exit time {eod_exit_time_str} for {symbol}, using last available candle")
                                 # Fallback to last bar
                                 last_bar = df_symbol_full.iloc[-1]
-                                eod_exit_price = last_bar.get('close', entry_data.get('open', 0.0))
-                                entry_price = entry_data.get('open', 0.0)
+                                eod_exit_price = float(last_bar.get('close', entry_data.get('open', 0.0)))
+                                entry_price = float(entry_data.get('open', 0.0))
                                 # Calculate PnL as percentage: ((exit_price - entry_price) / entry_price) * 100
                                 if entry_price > 0:
                                     eod_pnl = ((eod_exit_price - entry_price) / entry_price) * 100
+                                    # Cap EOD exit loss at STOP_LOSS_PERCENT
+                                    entry_type_config = self.config.get(entry_type.upper(), {})
+                                    sl_config = entry_type_config.get('STOP_LOSS_PERCENT', {})
+                                    if isinstance(sl_config, dict):
+                                        sl_pct = max(
+                                            sl_config.get('ABOVE_THRESHOLD', 7.5),
+                                            sl_config.get('BETWEEN_THRESHOLD', 7.5),
+                                            sl_config.get('BELOW_THRESHOLD', 7.5)
+                                        )
+                                    else:
+                                        sl_pct = float(sl_config) if sl_config else 7.5
+                                    if eod_pnl < -sl_pct:
+                                        eod_exit_price = round(entry_price * (1 - sl_pct / 100.0), 2)
+                                        eod_pnl = -sl_pct
                                 else:
                                     logger.warning(f"Entry price is 0 for {symbol}, cannot calculate PnL")
                                     eod_pnl = 0.0
@@ -2010,13 +2054,7 @@ class ConsolidatedDynamicATMAnalysis:
                     nifty_price_level = option_strike
                 
                 entry_period = None
-                # CRITICAL FIX: Initialize signal_candle_time_obj early to prevent UnboundLocalError
-                # Default to entry_time_obj as fallback, then update if signal time is available
-                signal_candle_time_obj = entry_time_obj
-                # CRITICAL FIX: Use signal candle time for period matching, not execution time
-                # The symbol/strike is determined at signal time, so period matching should also use signal time
-                # Example: Signal at 13:14:00 (strike 800) -> Execution at 13:15:01 (strike may have changed to 750)
-                # We should match the period at 13:14:00, not 13:15:01
+                # Initialize signal_candle_time_obj for period matching and logging (uses signal candle time, not execution time)
                 signal_candle_time = entry_signal['date'] if isinstance(entry_signal, pd.Series) else entry_signal.get('date')
                 if isinstance(signal_candle_time, pd.Timestamp):
                     signal_candle_time_obj = signal_candle_time.time()
@@ -2024,13 +2062,20 @@ class ConsolidatedDynamicATMAnalysis:
                     signal_candle_time_obj = pd.to_datetime(signal_candle_time).time()
                 elif signal_candle_time is not None and hasattr(signal_candle_time, 'time'):
                     signal_candle_time_obj = signal_candle_time.time()
-                # If signal_candle_time is None or invalid, signal_candle_time_obj already defaults to entry_time_obj
+                else:
+                    signal_candle_time_obj = entry_time_obj
+                # CRITICAL: Use SIGNAL CANDLE time for period matching, not execution time.
+                # The trade is taken on the symbol that was ATM when the signal fired (signal candle).
+                # If we use execution time (signal + 1min + 1sec), a 9:59 signal executes at 10:00:01 and can
+                # match the next period (10:00+) which may have a different strike -> trade wrongly dropped.
+                # Matching on signal time ensures the 9:59 trade matches the period containing 9:59 (correct strike).
+                time_for_period_match = signal_candle_time_obj
                 
-                # Enhanced logging for period matching diagnosis (after signal_candle_time_obj is defined)
+                # Enhanced logging for period matching diagnosis
                 logger.debug(
                     f"Period matching for {symbol}: option_strike={option_strike}, "
                     f"is_monthly={is_monthly}, nifty_price_level={nifty_price_level}, "
-                    f"signal_time={signal_candle_time_obj}"
+                    f"signal_time={time_for_period_match}, execution_time={entry_time_obj}"
                 )
                 
                 # CRITICAL FIX: Find the period that matches BOTH time AND strike
@@ -2058,22 +2103,18 @@ class ConsolidatedDynamicATMAnalysis:
                         logger.debug(f"Skipping period with unparseable start/end: {period.get('start')}-{period.get('end')}")
                         continue
                     
-                    # CRITICAL FIX: Period matching logic - use signal candle time, not execution time
-                    # Periods are defined at minute-level precision (e.g., 13:11:00 to 13:14:00)
-                    # Signal candle time is the time when the entry signal was detected (e.g., 13:14:00)
-                    # We match periods based on signal time because the symbol/strike is determined at signal time
-                    signal_minute = signal_candle_time_obj.minute
-                    signal_hour = signal_candle_time_obj.hour
+                    # Match period by SIGNAL CANDLE time (when the signal fired); slab at that time has the correct ATM strike.
+                    match_minute = time_for_period_match.minute
+                    match_hour = time_for_period_match.hour
                     end_minute = end_time.minute
                     end_hour = end_time.hour
                     period_matches_time = False
-                    if signal_minute == end_minute and signal_hour == end_hour:
+                    if match_minute == end_minute and match_hour == end_hour:
                         # Signal is in same minute AND hour as period end - include it
-                        # Check that signal is after period start (allow signal to be at period end since periods are minute-level)
-                        period_matches_time = start_time <= signal_candle_time_obj
+                        period_matches_time = start_time <= time_for_period_match
                     else:
-                        # Signal is in different minute - use exclusive end check
-                        period_matches_time = start_time <= signal_candle_time_obj < end_time
+                        # Use standard range: start <= signal_time < end
+                        period_matches_time = start_time <= time_for_period_match < end_time
                     
                     if period_matches_time:
                         # CRITICAL: Only match if BOTH time AND strike match exactly
@@ -2098,7 +2139,7 @@ class ConsolidatedDynamicATMAnalysis:
                             # CRITICAL: If we already found a matching period, that's a data integrity issue
                             if matching_period is not None:
                                 logger.error(
-                                    f"DATA INTEGRITY ERROR: Multiple periods match {symbol} at {signal_candle_time_obj}: "
+                                    f"DATA INTEGRITY ERROR: Multiple periods match {symbol} at execution time {entry_time_obj}: "
                                     f"Previous: {matching_period['start']}-{matching_period['end']} "
                                     f"(PE={matching_period.get('pe_strike')}, CE={matching_period.get('ce_strike')}), "
                                     f"Current: {period['start']}-{period['end']} (PE={period_pe_strike}, CE={period_ce_strike}). "
@@ -2106,43 +2147,14 @@ class ConsolidatedDynamicATMAnalysis:
                                 )
                             matching_period = period
                             entry_period = f"{period['start']}-{period['end']}"
-                            logger.info(f"Period match: {symbol} signal at {signal_candle_time_obj} -> period {entry_period} ({symbol[-2:]} strike {nifty_price_level_int})")
-                            logger.debug(f"Found matching period for {symbol} at signal time {signal_candle_time_obj} (execution {entry_time_obj}): {entry_period} ({symbol[-2:]} strike {nifty_price_level_int}, period {symbol[-2:].lower()}_strike {expected_strike})")
+                            logger.info(f"Period match: {symbol} at execution {entry_time_obj} -> period {entry_period} ({symbol[-2:]} strike {nifty_price_level_int})")
+                            logger.debug(f"Found matching period for {symbol} at execution time {entry_time_obj}: {entry_period} ({symbol[-2:]} strike {nifty_price_level_int}, period {symbol[-2:].lower()}_strike {expected_strike})")
                             break
                         else:
                             # Time matches but strike doesn't - this symbol should NOT be processed
                             # Log as debug (not warning) since this is expected for non-ATM strikes
-                            logger.debug(f"{symbol[-2:]} symbol {symbol} at signal time {signal_candle_time_obj} (execution {entry_time_obj}) in period {period['start']}-{period['end']} but strike mismatch: symbol_strike={nifty_price_level_int}, period_{symbol[-2:].lower()}_strike={expected_strike} - This is NOT the current ATM strike, will be ignored")
+                            logger.debug(f"{symbol[-2:]} symbol {symbol} at execution {entry_time_obj} in period {period['start']}-{period['end']} but strike mismatch: symbol_strike={nifty_price_level_int}, period_{symbol[-2:].lower()}_strike={expected_strike} - This is NOT the current ATM strike at execution, will be ignored")
                             # Continue checking other periods, but this one doesn't match
-                
-                # CRITICAL VALIDATION: If multiple periods match the time, that's a data integrity issue
-                if matching_period is None:
-                    # Check if ANY period matched the time (but not the strike)
-                    time_matching_periods = []
-                    for period in all_periods:
-                        start_time = _parse_period_time(period.get('start'))
-                        end_time = _parse_period_time(period.get('end'))
-                        if start_time is None or end_time is None:
-                            continue
-                        signal_minute = signal_candle_time_obj.minute
-                        signal_hour = signal_candle_time_obj.hour
-                        end_minute = end_time.minute
-                        end_hour = end_time.hour
-                        period_matches_time = False
-                        if signal_minute == end_minute and signal_hour == end_hour:
-                            period_matches_time = start_time <= signal_candle_time_obj
-                        else:
-                            period_matches_time = start_time <= signal_candle_time_obj < end_time
-                        
-                        if period_matches_time:
-                            time_matching_periods.append(period)
-                    
-                    if time_matching_periods:
-                        # Periods matched the time but not the strike - this is expected for non-ATM strikes
-                        logger.debug(f"No matching period found for {symbol} (strike {nifty_price_level_int}) at {signal_candle_time_obj}. Found {len(time_matching_periods)} periods matching time, but strike doesn't match any of them. This symbol is NOT the current ATM strike - IGNORING.")
-                    else:
-                        # No periods match the time at all - this might be a data issue
-                        logger.warning(f"No periods found matching time {signal_candle_time_obj} for {symbol}. Available periods: {len(all_periods)}")
                 
                 if entry_period:
                     # CRITICAL VALIDATION: Verify that this is the ONLY strike that should match this period
@@ -2255,7 +2267,8 @@ class ConsolidatedDynamicATMAnalysis:
                     # CRITICAL FIX: Check TradeState AFTER period matching
                     # Only signals that match periods should be checked against TradeState
                     # Signals from non-ATM strikes are already filtered out above
-                    if not trade_state.can_enter_trade(symbol, entry_time):
+                    can_enter, block_reason = trade_state.can_enter_trade(symbol, entry_time)
+                    if not can_enter:
                         active_symbols = list(trade_state.active_trades.keys())
                         active_details = []
                         for active_symbol in active_symbols:
@@ -2263,10 +2276,10 @@ class ConsolidatedDynamicATMAnalysis:
                             active_entry_time = active_trade_info.get('entry_time', 'N/A')
                             active_entry_str = active_entry_time.strftime('%H:%M:%S') if hasattr(active_entry_time, 'strftime') else str(active_entry_time)
                             active_details.append(f"{active_symbol} (entered {active_entry_str})")
-                        
+                        trade_status = f"SKIPPED ({block_reason})" if block_reason else 'SKIPPED (ACTIVE_TRADE_EXISTS)'
                         logger.warning(f"Cannot enter {entry_type} trade for {symbol} at {entry_time} - active trades: {', '.join(active_details)}")
                         logger.debug(f"Blocked trade details: symbol={symbol}, entry_time={entry_time}, allow_multiple={trade_state.allow_multiple_symbol_positions}")
-                        # Track as skipped trade - this signal matched a period but was blocked by active trades
+                        # Track as skipped trade - invalidate this trade, reset (next signal will be evaluated fresh)
                         option_type = 'CE' if symbol.endswith('CE') else 'PE'
                         skipped_trades.append({
                             'symbol': symbol,
@@ -2276,49 +2289,13 @@ class ConsolidatedDynamicATMAnalysis:
                             'entry_price': execution_price if execution_price is not None else None,
                             'exit_price': None,
                             'pnl': None,
-                            'trade_status': 'SKIPPED (ACTIVE_TRADE_EXISTS)'
+                            'trade_status': trade_status
                         })
                         continue
                     
-                    # Check trailing stop before entering trade (ONLY in second pass when actually executing trades)
-                    # CRITICAL FIX: Only apply trailing stop check in second pass (collect_trades_only=False)
-                    # In first pass (collect_trades_only=True), we're just collecting trade data for slab blocking
-                    # Trailing stop should only block trades when they're actually being executed, not during data collection
-                    # This ensures all trades are collected in first pass, then filtered by trailing stop in second pass
-                    if not collect_trades_only:
-                        # Check if trading is currently active (based on completed trades)
-                        # This matches production behavior where is_trading_allowed() checks completed trades
-                        # We use a worst-case PnL estimate to check if this trade would breach the limit
-                        # Get stop loss percentage from config for worst-case estimate
-                        entry_type_config = self.config.get(entry_type.upper(), {})
-                        stop_loss_config = entry_type_config.get('STOP_LOSS_PERCENT', {})
-                        if isinstance(stop_loss_config, dict):
-                            # Use the highest stop loss percentage as worst-case estimate
-                            worst_case_pnl = -max(
-                                stop_loss_config.get('ABOVE_THRESHOLD', 6.0),
-                                stop_loss_config.get('BETWEEN_THRESHOLD', 7.5),
-                                stop_loss_config.get('BELOW_THRESHOLD', 7.5)
-                            )
-                        else:
-                            # Fallback to default worst-case (10% loss)
-                            worst_case_pnl = -10.0
-                        
-                        can_enter, reason = self.trailing_stop_manager.can_enter_trade(worst_case_pnl)
-                        if not can_enter:
-                            logger.warning(f"Trailing stop blocked {entry_type} trade for {symbol} at {entry_time}: {reason}")
-                            # Track as skipped trade
-                            option_type = 'CE' if symbol.endswith('CE') else 'PE'
-                            skipped_trades.append({
-                                'symbol': symbol,
-                                'option_type': option_type,
-                                'entry_time': entry_time_obj.strftime('%H:%M:%S'),
-                                'exit_time': None,
-                                'entry_price': execution_price if execution_price is not None else None,
-                                'exit_price': None,
-                                'pnl': None,
-                                'trade_status': 'SKIPPED (TRAILING_STOP)'
-                            })
-                            continue
+                    # MARK2MARKET / trailing stop must NOT change the strategy: we always take the trade if
+                    # ACTIVE_TRADE etc. allow it. Accounting (which trades exceed 30% drawdown) is done only
+                    # in apply_trailing_stop.py (Phase 3.5), not here.
                     
                     if trade_state.enter_trade(symbol, entry_time, entry_data):
                         logger.info(f"Successfully entered {entry_type} trade for {symbol} at {entry_time}")
@@ -2328,10 +2305,10 @@ class ConsolidatedDynamicATMAnalysis:
                     # In ATM, only signals from the current ATM strike should be processed
                     # Signals from other strikes should be silently ignored (they're not valid ATM trades)
                     logger.debug(
-                        f"No matching period found for {symbol} at signal time {signal_candle_time_obj} "
-                        f"(execution {entry_time_obj}, strike {nifty_price_level}, is_monthly={is_monthly}, "
+                        f"No matching period found for {symbol} at signal time {time_for_period_match} "
+                        f"(strike {nifty_price_level}, is_monthly={is_monthly}, "
                         f"option_strike={option_strike}). "
-                        f"This symbol is NOT the current ATM strike for this time period - IGNORING signal."
+                        f"This symbol is NOT the current ATM strike at signal time - IGNORING signal."
                     )
                     # DO NOT add to skipped_trades - this signal is from a non-ATM strike and should be ignored
                     # Only signals that match periods but are blocked by active trades should be in skipped_trades
@@ -2377,9 +2354,6 @@ class ConsolidatedDynamicATMAnalysis:
                     trading_active_before = self.trailing_stop_manager.trading_active
                     
                     # Update trailing stop manager after trade exit (apply in BOTH passes)
-                    # CRITICAL: Update capital in both passes so trailing stop state is correct
-                    # This ensures trades at 13:24:01 and 13:38:01 are correctly identified as blocked
-                    # Always update capital so trailing stop state is correct for subsequent trades
                     self.trailing_stop_manager.update_after_trade(float(pnl_percent), update_capital=True)
                     
                     # Get state after update
@@ -2389,23 +2363,18 @@ class ConsolidatedDynamicATMAnalysis:
                     trading_stopped_after = not self.trailing_stop_manager.trading_active
                     
                     # Update the completed trade with trailing stop state
-                    # Find the trade in completed_trades and update it (should be the last one added)
                     if trade_state.completed_trades:
-                        # Get the most recently added trade (should be this one)
                         last_trade = trade_state.completed_trades[-1]
                         if last_trade['symbol'] == symbol:
                             last_trade['realized_pnl'] = round(realized_pnl, 2)
-                            last_trade['running_capital'] = round(capital_after, 2)  # Capital after this trade
-                            last_trade['high_water_mark'] = round(hwm_after, 2)  # HWM after this trade
-                            last_trade['drawdown_limit'] = round(drawdown_limit_after, 2)  # Limit after this trade
-                            # Determine trade status
+                            last_trade['running_capital'] = round(capital_after, 2)
+                            last_trade['high_water_mark'] = round(hwm_after, 2)
+                            last_trade['drawdown_limit'] = round(drawdown_limit_after, 2)
                             if trading_active_before and not trading_stopped_after:
                                 last_trade['trade_status'] = 'EXECUTED'
                             elif trading_active_before and trading_stopped_after:
-                                # This trade triggered the stop
                                 last_trade['trade_status'] = 'EXECUTED (STOP TRIGGER)'
                             else:
-                                # Trading was already stopped
                                 last_trade['trade_status'] = 'SKIPPED (RISK STOP)'
                 else:
                     logger.warning(f"Failed to exit {entry_type} trade for {symbol} at {exit_time} - no active trade found")
@@ -2613,7 +2582,8 @@ class ConsolidatedDynamicATMAnalysis:
             return trades_data
         
         # This code only runs if collect_trades_only=False
-        # Combine completed trades and skipped trades (like OTM format)
+        # Combine completed trades and skipped (for audit). MARK2MARKET in apply_trailing_stop only
+        # accounts for rows that have exit_time; it does not change the trade list.
         all_trades = list(completed_trades) + skipped_trades
         completed_df = pd.DataFrame(all_trades) if all_trades else pd.DataFrame()
         
@@ -2625,7 +2595,7 @@ class ConsolidatedDynamicATMAnalysis:
                 skipped_by_time[entry_time] = []
             skipped_by_time[entry_time].append(skipped['symbol'])
         
-        # Log summary with insights about skipped trades
+        # Log summary
         logger.info(f"Total trades: {len(completed_trades)} executed, {len(skipped_trades)} skipped, {len(all_trades)} total")
         if skipped_trades:
             logger.info(f"Skipped trades breakdown: {len(skipped_by_time)} unique timestamps had skipped trades")
@@ -2656,22 +2626,23 @@ class ConsolidatedDynamicATMAnalysis:
                     match = re.search(r'"([^"]+)"', str(symbol))
                     if match:
                         # Extract the path from hyperlink (may be relative or absolute)
+                        # Hyperlink often points to .html; we must read .csv for high/swing_low calculation
                         hyperlink_path = match.group(1)
+                        if hyperlink_path.endswith('.html'):
+                            hyperlink_path = hyperlink_path[:-5] + '.csv'
+                        elif not hyperlink_path.endswith('.csv'):
+                            hyperlink_path = hyperlink_path.rstrip('/') + '.csv' if '_strategy' in hyperlink_path else hyperlink_path
                         # If it's a relative path (e.g., "ATM/NIFTY..._strategy.csv"), resolve it relative to day_base
                         if not Path(hyperlink_path).is_absolute():
-                            # It's a relative path, resolve it relative to day_base (source_dir.parent)
-                            # since hyperlink paths are relative to day_base (e.g., "ATM/file.csv")
                             strategy_file = source_dir.parent / hyperlink_path
-                            # Resolve to absolute path to ensure it works in multiprocessing context
                             strategy_file = strategy_file.resolve()
                         else:
-                            # It's an absolute path, use it as-is
                             strategy_file = Path(hyperlink_path).resolve()
                         symbol = strategy_file.stem.replace('_strategy', '')
                         logger.debug(f"Resolved strategy_file from hyperlink '{hyperlink_path}': {strategy_file}, exists: {strategy_file.exists()}")
                 else:
                     symbol = str(symbol)
-                    strategy_file = source_dir / f"{symbol}_strategy.csv"
+                    strategy_file = (source_dir / f"{symbol}_strategy.csv").resolve()
                 
                 entry_time_str = str(row['entry_time'])
                 exit_time_str = str(row['exit_time'])
@@ -2835,13 +2806,16 @@ class ConsolidatedDynamicATMAnalysis:
                 relative_path = f"ATM/{symbol}_strategy.html"
                 return f'=HYPERLINK("{relative_path}", "View")'
             
-            # Ensure trade_status column exists (for skipped trades)
+            # Ensure trade_status column exists and is never empty for skipped rows (so Phase 3 / apply_trailing_stop get the reason)
             if 'trade_status' not in completed_df.columns:
                 completed_df['trade_status'] = 'EXECUTED'  # Default for executed trades
+            # For rows with no exit_time (skipped), ensure trade_status is set so downstream shows exact reason
+            mask_skipped = completed_df['exit_time'].isna() | (completed_df['exit_time'].astype(str).str.strip() == '') | (completed_df['exit_time'].astype(str).str.strip().str.lower() == 'nan')
+            empty_status = completed_df['trade_status'].isna() | (completed_df['trade_status'].astype(str).str.strip() == '') | (completed_df['trade_status'].astype(str).str.strip().str.lower() == 'nan')
+            completed_df.loc[mask_skipped & empty_status, 'trade_status'] = 'SKIPPED (ACTIVE_TRADE_EXISTS)'  # fallback if ever missing
             
-            # Only create symbol links for executed trades
-            executed_mask = completed_df['trade_status'].str.contains('EXECUTED', na=False)
-            completed_df.loc[executed_mask, 'symbol'] = completed_df.loc[executed_mask, 'symbol'].apply(create_symbol_link)
+            # Keep symbol as plain text (no HYPERLINK in symbol column) so CSVs and downstream stay consistent.
+            # Use symbol_html for the View link only.
             completed_df['symbol_html'] = original_symbols.apply(create_symbol_html_link)
             
             ce_trades = completed_df[completed_df['option_type'] == 'CE']
@@ -2939,22 +2913,30 @@ class ConsolidatedDynamicATMAnalysis:
             
             df = df.copy()
             
-            # Convert high to percentage
+            # Convert high to percentage (leave None/NaN when high was not calculated)
             if 'high' in df.columns and 'entry_price' in df.columns:
                 def calc_high_pct(row):
-                    entry_price = row.get('entry_price', 0)
-                    high = row.get('high', 0)
-                    if pd.notna(entry_price) and pd.notna(high) and entry_price > 0:
-                        # Check if high is already a percentage (if it's between -200 and 200, it's likely a percentage)
-                        # Absolute prices should be much larger (typically 40-600+ for options)
-                        if abs(high) < 200 and abs(high) < entry_price * 0.5:
-                            # Already a percentage, clamp to >= 0 (high cannot be negative)
-                            return round(max(high, 0), 2)
-                        # Otherwise, convert from absolute price to percentage
-                        # High should be >= entry_price, so percentage should be >= 0
-                        pct = ((high - entry_price) / entry_price) * 100
-                        return round(max(pct, 0), 2)  # Clamp to >= 0
-                    return None
+                    entry_price = row.get('entry_price')
+                    high = row.get('high')
+                    # Treat missing/None high as unknown (do not show 0)
+                    if pd.isna(high) or high is None:
+                        return None
+                    if pd.isna(entry_price) or entry_price is None or entry_price <= 0:
+                        return None
+                    try:
+                        high = float(high)
+                        entry_price = float(entry_price)
+                    except (TypeError, ValueError):
+                        return None
+                    # Check if high is already a percentage (if it's between -200 and 200, it's likely a percentage)
+                    # Absolute prices should be much larger (typically 40-600+ for options)
+                    if abs(high) < 200 and abs(high) < entry_price * 0.5:
+                        # Already a percentage, clamp to >= 0 (high cannot be negative)
+                        return round(max(high, 0), 2)
+                    # Otherwise, convert from absolute price to percentage
+                    # High should be >= entry_price, so percentage should be >= 0
+                    pct = ((high - entry_price) / entry_price) * 100
+                    return round(max(pct, 0), 2)  # Clamp to >= 0
                 df['high'] = df.apply(calc_high_pct, axis=1)
             
             # Convert swing_low to percentage
@@ -3192,9 +3174,17 @@ class ConsolidatedDynamicATMAnalysis:
         # STEP 1: Extract Entry2 confirmation windows FIRST (before collecting trades)
         # This allows us to apply Entry2 window blocking before trade collection,
         # which is critical because trades need to match the correct strikes (blocked strikes)
+        # Use same window as strategy: WPR -> WPR_CONFIRMATION_WINDOW (4), DEMARKER -> DEMARKER_CONFIRMATION_WINDOW (3)
         logger.info("STEP 1: Extracting Entry2 confirmation windows for slab change blocking...")
         nifty_file = dest_dir / f"nifty50_1min_data_{day_label.lower()}.csv"
-        entry2_confirmation_window = self.config.get('TRADE_SETTINGS', {}).get('ENTRY2_CONFIRMATION_WINDOW', 4)
+        entry2_config = self.config.get('ENTRY2', {})
+        entry2_trigger = (entry2_config.get('TRIGGER') or 'WPR').upper()
+        if entry2_trigger == 'WPR':
+            entry2_confirmation_window = entry2_config.get('WPR_CONFIRMATION_WINDOW',
+                self.config.get('TRADE_SETTINGS', {}).get('ENTRY2_CONFIRMATION_WINDOW', 4))
+        else:
+            entry2_confirmation_window = entry2_config.get('DEMARKER_CONFIRMATION_WINDOW', entry2_config.get('CONFIRMATION_WINDOW', 3))
+        logger.info(f"Entry2 trigger={entry2_trigger}, confirmation_window={entry2_confirmation_window}")
         entry2_windows = []
         if source_dir.exists():
             entry2_windows = self._extract_entry2_confirmation_windows(

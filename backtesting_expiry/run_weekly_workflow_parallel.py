@@ -89,11 +89,12 @@ def load_expiry_config():
         expiry_config = {}
         backtesting_expiry = config.get('BACKTESTING_EXPIRY', {})
         expiry_week_labels = backtesting_expiry.get('EXPIRY_WEEK_LABELS', [])
+        # Source of dates to process: only backtesting_config.yaml BACKTESTING_DAYS (not v5 DATE_MAPPINGS).
         backtesting_days = backtesting_expiry.get('BACKTESTING_DAYS', [])
         
-        # Group dates by expiry week based on date mappings from CPR config
-        # First, try to load from CPR config v2 for date mappings (using v2 as primary)
-        cpr_config_path = backtesting_dir / 'grid_search_tools' / 'cpr_market_sentiment_v2' / 'config.yaml'
+        # Use v5 DATE_MAPPINGS only to assign each date to an expiry week (day_label -> expiry_week).
+        # generate_cpr_dates.py uses v5 DATE_MAPPINGS for which dates go into cpr_dates.csv.
+        cpr_config_path = backtesting_dir / 'grid_search_tools' / 'cpr_market_sentiment_v5' / 'config.yaml'
         date_mappings = {}
         if cpr_config_path.exists():
             try:
@@ -130,7 +131,11 @@ def load_expiry_config():
         
         # Then, for dates in BACKTESTING_DAYS that are NOT in date_mappings, infer expiry week
         # Parse expiry week labels to get their approximate dates for matching
-        def parse_expiry_week(expiry_label):
+        # Use year from BACKTESTING_DAYS so 2026-02-04 maps to FEB10 (2026), not FEB17 (2025)
+        backtesting_years = {datetime.strptime(d, '%Y-%m-%d').date().year for d in backtesting_days} if backtesting_days else {2025}
+        default_year = max(backtesting_years) if backtesting_years else 2025
+
+        def parse_expiry_week(expiry_label, year_hint=None):
             """Parse expiry week label (e.g., 'OCT20', 'NOV04', 'JAN20') to get approximate date"""
             try:
                 month_str = expiry_label[:3].upper()
@@ -141,17 +146,16 @@ def load_expiry_config():
                 }
                 month = month_map.get(month_str, 1)
                 day = int(day_str) if day_str.isdigit() else 1
-                # Determine year based on month: JAN expiries are typically in 2026, others in 2025
-                # This handles year boundary cases (DEC 2025 -> JAN 2026)
-                year = 2026 if month_str == 'JAN' else 2025
+                # Use year from BACKTESTING_DAYS when provided so 2026 dates map to 2026 expiries (FEB10, FEB17)
+                year = year_hint if year_hint is not None else (2026 if month_str == 'JAN' else 2025)
                 return datetime(year, month, day).date()
             except:
                 return None
-        
-        # Build expiry week date map
+
+        # Build expiry week date map using year from backtesting days so mapping is correct
         expiry_dates = {}
         for expiry_week in expiry_week_labels:
-            expiry_date = parse_expiry_week(expiry_week)
+            expiry_date = parse_expiry_week(expiry_week, year_hint=default_year)
             if expiry_date:
                 expiry_dates[expiry_week] = expiry_date
         

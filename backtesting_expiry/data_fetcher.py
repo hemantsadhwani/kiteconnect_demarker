@@ -699,9 +699,15 @@ class DataFetcher:
                 unique_strike_combinations.add((atm_pe_above, 'PE', 'ATM'))  # +50
                 unique_strike_combinations.add((atm_pe_below, 'PE', 'ATM'))  # -50
                 
-                # OTM strikes: only exact strikes (no +/- 50 needed for OTM)
+                # OTM strikes: include +/- 50 around OTM (same as ATM) so slab changes have historical data
+                # Previously only exact floor/ceil was collected, so OTM had fewer files than ATM.
+                # Now OTM collects 6 combinations per price level (CE/PE each with +0/+50/-50) like ATM.
                 unique_strike_combinations.add((otm_ce_strike, 'CE', 'OTM'))
+                unique_strike_combinations.add((otm_ce_strike + strike_diff, 'CE', 'OTM'))  # +50
+                unique_strike_combinations.add((otm_ce_strike - strike_diff, 'CE', 'OTM'))  # -50
                 unique_strike_combinations.add((otm_pe_strike, 'PE', 'OTM'))
+                unique_strike_combinations.add((otm_pe_strike + strike_diff, 'PE', 'OTM'))  # +50
+                unique_strike_combinations.add((otm_pe_strike - strike_diff, 'PE', 'OTM'))  # -50
             
             logger.info(f"Found {len(unique_strike_combinations)} unique strike-side combinations to collect")
             
