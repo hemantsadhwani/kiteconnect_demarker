@@ -40,6 +40,15 @@ class StrategyExecutor:
             # Legacy: single threshold value, convert to list format
             self.stop_loss_price_threshold = [raw_threshold]
         self.stop_loss_percent_config = self._normalize_stop_loss_config(raw_stop_loss_config)
+        # SL_MODE for Entry2: "Fixed Percentage" | "Swing Low" (trailing swing low at entry)
+        sl_mode_raw = (trade_settings.get('SL_MODE') or 'Fixed Percentage').strip()
+        self.sl_mode_use_swing_low = sl_mode_raw.upper().startswith('SWING')
+        indicators_config = config.get('INDICATORS', {})
+        self.swing_low_candles = indicators_config.get('SWING_LOW_PERIOD', 5)
+        if self.sl_mode_use_swing_low:
+            self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low=True, window={2 * self.swing_low_candles + 1} bars)")
+        else:
+            self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low=False)")
 
     @retry(stop_max_attempt_number=2, wait_fixed=500, retry_on_exception=_retry_if_connection_error)
     def _retry_api_call(self, func):
@@ -987,6 +996,18 @@ class StrategyExecutor:
                     sl_percent = self._determine_stop_loss_percent(entry_price)
                     sl_price = entry_price * (1 - sl_percent / 100)
                     self.logger.warning(f"Manual trade {symbol}: Ticker handler not available. Using fixed % SL: {sl_price:.2f}")
+            elif is_entry2_trade and getattr(self, 'sl_mode_use_swing_low', False):
+                # Entry2 SL_MODE Swing Low (legacy GTT path)
+                sl_price = self._get_entry_swing_low_sl_price(symbol)
+                if sl_price is not None and sl_price < entry_price:
+                    self.logger.info(f"Entry2 Swing Low SL for {symbol}: {sl_price:.2f} (legacy GTT)")
+                else:
+                    if sl_price is not None and sl_price >= entry_price:
+                        self.logger.warning(f"Entry2 Swing Low SL: swing_low {sl_price:.2f} >= entry, using fixed %")
+                    else:
+                        self.logger.warning(f"Entry2 Swing Low SL not available for {symbol}, using fixed % SL")
+                    sl_percent = self._determine_stop_loss_percent(entry_price)
+                    sl_price = entry_price * (1 - sl_percent / 100)
             else:
                 sl_percent = self._determine_stop_loss_percent(entry_price)
                 sl_price = entry_price * (1 - sl_percent / 100)
@@ -1149,9 +1170,21 @@ class StrategyExecutor:
                             sl_percent = self._determine_stop_loss_percent(entry_price)
                             sl_price = entry_price * (1 - sl_percent / 100)
                     else:
-                        sl_percent = self._determine_stop_loss_percent(entry_price)
-                        sl_price = entry_price * (1 - sl_percent / 100)
+                            sl_percent = self._determine_stop_loss_percent(entry_price)
+                            sl_price = entry_price * (1 - sl_percent / 100)
                 else:
+                    sl_percent = self._determine_stop_loss_percent(entry_price)
+                    sl_price = entry_price * (1 - sl_percent / 100)
+            elif is_entry2_trade and getattr(self, 'sl_mode_use_swing_low', False):
+                # Entry2 SL_MODE Swing Low: use trailing swing low at entry (min of low over last 11 bars)
+                sl_price = self._get_entry_swing_low_sl_price(symbol)
+                if sl_price is not None and sl_price < entry_price:
+                    self.logger.info(f"Entry2 Swing Low SL for {symbol}: {sl_price:.2f} (at entry)")
+                else:
+                    if sl_price is not None and sl_price >= entry_price:
+                        self.logger.warning(f"Entry2 Swing Low SL for {symbol}: swing_low {sl_price:.2f} >= entry {entry_price:.2f}, using fixed %")
+                    else:
+                        self.logger.warning(f"Entry2 Swing Low SL not available for {symbol}, using fixed % SL")
                     sl_percent = self._determine_stop_loss_percent(entry_price)
                     sl_price = entry_price * (1 - sl_percent / 100)
             else:
@@ -1885,6 +1918,27 @@ class StrategyExecutor:
         # If SuperTrend is above entry price, use a conservative stop loss
         sl_percent = self._determine_stop_loss_percent(entry_price)
         return entry_price * (1 - sl_percent / 100)
+    
+    def _get_entry_swing_low_sl_price(self, symbol):
+        """
+        Get trailing swing low at entry for Entry2 when SL_MODE is Swing Low.
+        Uses min(low) over last (2*SWING_LOW_CANDLES+1) bars, matching backtest logic.
+        Returns None if not enough data or indicators unavailable.
+        """
+        if not self.ticker_handler:
+            return None
+        token = self.ticker_handler.get_token_by_symbol(symbol)
+        if not token:
+            return None
+        df = self.ticker_handler.get_indicators(token)
+        if df is None or df.empty or 'low' not in df.columns:
+            return None
+        window = 2 * self.swing_low_candles + 1
+        if len(df) < window:
+            self.logger.debug(f"Swing Low SL: not enough bars for {symbol} (have {len(df)}, need {window})")
+            return None
+        swing_low = float(df['low'].iloc[-window:].min())
+        return swing_low
     
     def modify_gtt_sl(self, gtt_order_id, instrument_token, new_supertrend_sl):
         """

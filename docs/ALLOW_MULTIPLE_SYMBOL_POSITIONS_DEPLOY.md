@@ -5,7 +5,9 @@
 - **`true`** (default): CE and PE positions can coexist. New CE is blocked only if another CE is already active; new PE only if another PE is active.
 - **`false`**: Only one position (CE or PE) at a time. New CE is blocked when a PE is active, and new PE is blocked when a CE is active. Can improve win rate by avoiding simultaneous CE+PE.
 
-Config: `config.yaml` → `MARKET_SENTIMENT_FILTER.ALLOW_MULTIPLE_SYMBOL_POSITIONS` (default `true`).
+Config: `config.yaml` → `MARKET_SENTIMENT.ALLOW_MULTIPLE_SYMBOL_POSITIONS` (default `true`). Legacy: also read from `MARKET_SENTIMENT_FILTER.ALLOW_MULTIPLE_SYMBOL_POSITIONS` if not set under `MARKET_SENTIMENT`.
+
+**Note:** `MARKET_SENTIMENT_FILTER` has been removed from production configs. Sentiment filtering is driven only by `MARKET_SENTIMENT` (MODE + MANUAL_SENTIMENT or algo): NEUTRAL = both CE/PE, BULLISH = CE only, BEARISH = PE only.
 
 ---
 
@@ -22,12 +24,12 @@ All tests should pass. They verify:
 
 - With `allow_multiple=true`: CE allowed when only PE active; PE allowed when only CE active; CE/PE blocked when same type already active.
 - With `allow_multiple=false`: CE blocked when PE active; PE blocked when CE active; both allowed when no active trades.
-- `config.yaml` contains `ALLOW_MULTIPLE_SYMBOL_POSITIONS` under `MARKET_SENTIMENT_FILTER`.
+- `config.yaml` contains `ALLOW_MULTIPLE_SYMBOL_POSITIONS` under `MARKET_SENTIMENT` (or `MARKET_SENTIMENT_FILTER` for legacy).
 
 ### 2. Config check
 
 - Open `config.yaml`.
-- Confirm `MARKET_SENTIMENT_FILTER.ALLOW_MULTIPLE_SYMBOL_POSITIONS` is set as intended:
+- Confirm `MARKET_SENTIMENT.ALLOW_MULTIPLE_SYMBOL_POSITIONS` (or `MARKET_SENTIMENT_FILTER` in legacy configs) is set as intended:
   - **Keep `true`** for current behaviour (CE and PE can coexist).
   - **Set `false`** only when you want “one position at a time” and have validated in backtest.
 
@@ -45,7 +47,7 @@ All tests should pass. They verify:
 
 ## Code reference
 
-- **Config:** `config.yaml` → `MARKET_SENTIMENT_FILTER.ALLOW_MULTIPLE_SYMBOL_POSITIONS`
-- **Logic:** `entry_conditions.py` – `allow_multiple_symbol_positions` loaded in `__init__`; `no_active_trades_blocking` used in Entry 1/2/3 path; stale trade verification uses `trades_to_verify` (same-type if true, all if false).
+- **Config:** `config.yaml` → `MARKET_SENTIMENT.ALLOW_MULTIPLE_SYMBOL_POSITIONS` (fallback: `MARKET_SENTIMENT_FILTER.ALLOW_MULTIPLE_SYMBOL_POSITIONS`).
+- **Logic:** `entry_conditions.py` – `allow_multiple_symbol_positions` loaded in `__init__` (from MARKET_SENTIMENT first); `no_active_trades_blocking` used in Entry 1/2/3 path; stale trade verification uses `trades_to_verify` (same-type if true, all if false).
 - **Tests:** `test_prod/test_allow_multiple_symbol_positions.py`
-- **Backtesting parity:** Same key under `MARKET_SENTIMENT_FILTER` in `backtesting_st50/backtesting_config.yaml`; backtest uses it in `TradeState.can_enter_trade()`.
+- **Backtesting parity:** Backtest configs keep the key under `MARKET_SENTIMENT_FILTER`; backtest scripts read from there. Production prefers `MARKET_SENTIMENT` so the setting applies for all MODE (AUTO/MANUAL/DISABLE).

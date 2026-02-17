@@ -86,15 +86,18 @@ class TestConfig(unittest.TestCase):
     """Test that production config has the key and default is true."""
 
     def test_config_has_allow_multiple_key(self):
+        """Key can be under MARKET_SENTIMENT (preferred) or MARKET_SENTIMENT_FILTER (legacy)."""
         config_path = Path(__file__).parent.parent / "config.yaml"
         self.assertTrue(config_path.exists(), "config.yaml should exist")
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        sentiment = config.get("MARKET_SENTIMENT_FILTER", {})
-        self.assertIn(
-            "ALLOW_MULTIPLE_SYMBOL_POSITIONS",
-            sentiment,
-            "MARKET_SENTIMENT_FILTER should contain ALLOW_MULTIPLE_SYMBOL_POSITIONS",
+        ms = config.get("MARKET_SENTIMENT", {})
+        msf = config.get("MARKET_SENTIMENT_FILTER", {})
+        in_ms = "ALLOW_MULTIPLE_SYMBOL_POSITIONS" in ms
+        in_msf = "ALLOW_MULTIPLE_SYMBOL_POSITIONS" in msf
+        self.assertTrue(
+            in_ms or in_msf,
+            "ALLOW_MULTIPLE_SYMBOL_POSITIONS should be in MARKET_SENTIMENT or MARKET_SENTIMENT_FILTER",
         )
 
     def test_config_default_safe(self):
@@ -102,7 +105,9 @@ class TestConfig(unittest.TestCase):
         config_path = Path(__file__).parent.parent / "config.yaml"
         with open(config_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        val = config.get("MARKET_SENTIMENT_FILTER", {}).get("ALLOW_MULTIPLE_SYMBOL_POSITIONS", True)
+        ms = config.get("MARKET_SENTIMENT", {})
+        msf = config.get("MARKET_SENTIMENT_FILTER", {})
+        val = ms.get("ALLOW_MULTIPLE_SYMBOL_POSITIONS", msf.get("ALLOW_MULTIPLE_SYMBOL_POSITIONS", True))
         self.assertIsInstance(val, bool, "ALLOW_MULTIPLE_SYMBOL_POSITIONS should be bool")
         # If you set it to false in config, this test will fail; that's intentional so you run tests with false locally
         self.assertTrue(val is True or val is False, "Value should be True or False")

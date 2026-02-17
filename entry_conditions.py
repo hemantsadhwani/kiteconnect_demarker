@@ -115,17 +115,15 @@ class EntryConditionManager:
         else:
             self.logger.info("DEBUG_ENTRY2 is disabled - using production Entry2 with full requirements")
         
-        # Load MARKET_SENTIMENT_FILTER configuration
-        # When ENABLED: Filters trades based on market sentiment (BULLISH=CE only, BEARISH=PE only, NEUTRAL=both)
-        # When DISABLED: Allows both CE and PE trades simultaneously regardless of sentiment
-        sentiment_filter_config = config.get('MARKET_SENTIMENT_FILTER', {})
-        self.sentiment_filter_enabled = sentiment_filter_config.get('ENABLED', True)  # Default to True for backward compatibility
-        # ALLOW_MULTIPLE_SYMBOL_POSITIONS: true = CE and PE can coexist; false = only one position at a time (blocks CE when PE active and vice versa)
-        self.allow_multiple_symbol_positions = sentiment_filter_config.get('ALLOW_MULTIPLE_SYMBOL_POSITIONS', True)
-        if not self.sentiment_filter_enabled:
-            self.logger.info("✅ MARKET_SENTIMENT_FILTER is DISABLED - Both CE and PE trades can occur simultaneously regardless of sentiment")
-        else:
-            self.logger.info("MARKET_SENTIMENT_FILTER is ENABLED - Trades will be filtered based on sentiment (BULLISH=CE only, BEARISH=PE only, NEUTRAL=both)")
+        # Load MARKET_SENTIMENT: effective sentiment (MODE + MANUAL_SENTIMENT or algo) drives filtering.
+        # NEUTRAL = both CE and PE allowed; BULLISH = CE only; BEARISH = PE only (no separate ENABLED flag).
+        market_sentiment_config = config.get('MARKET_SENTIMENT', {})
+        sentiment_filter_config = config.get('MARKET_SENTIMENT_FILTER', {})  # Legacy fallback for ALLOW_MULTIPLE_SYMBOL_POSITIONS only
+        self.allow_multiple_symbol_positions = market_sentiment_config.get(
+            'ALLOW_MULTIPLE_SYMBOL_POSITIONS',
+            sentiment_filter_config.get('ALLOW_MULTIPLE_SYMBOL_POSITIONS', True)
+        )
+        self.logger.info("Sentiment filter from MARKET_SENTIMENT: NEUTRAL=both CE/PE, BULLISH=CE only, BEARISH=PE only")
         if self.allow_multiple_symbol_positions:
             self.logger.info("ALLOW_MULTIPLE_SYMBOL_POSITIONS=true - CE and PE positions can coexist")
         else:
@@ -1645,28 +1643,21 @@ class EntryConditionManager:
                 if verbose_debug:
                     self.logger.debug(f"No PE indicators available for {self.pe_symbol}")
 
-            # --- Apply sentiment filter when EXECUTING trades ---
-            # Rules (when sentiment filter is ENABLED):
-            # - CE trades: Only allowed in BULLISH or NEUTRAL sentiment
-            # - PE trades: Only allowed in BEARISH or NEUTRAL sentiment
-            # When sentiment filter is DISABLED: Allow both CE and PE only when sentiment is NEUTRAL.
-            # CRITICAL: When user sets BULLISH or BEARISH (e.g. from control panel), always enforce:
-            #   BULLISH = CE only, BEARISH = PE only. Never bypass for explicit BULLISH/BEARISH.
+            # --- Apply sentiment filter (from MARKET_SENTIMENT: MODE + MANUAL_SENTIMENT or algo) ---
+            # NEUTRAL = both CE and PE allowed; BULLISH = CE only; BEARISH = PE only.
+            # bypass_sentiment_filter: allow both when sentiment is NEUTRAL or DEBUG_ENTRY2.
             
             sentiment_upper = (sentiment or '').upper()
-            bypass_sentiment_filter = self.debug_entry2 or (
-                not self.sentiment_filter_enabled and sentiment_upper == 'NEUTRAL'
-            )
-            
+            # Allow both CE and PE when sentiment is NEUTRAL or DEBUG_ENTRY2 (effective filter from MARKET_SENTIMENT only)
+            bypass_sentiment_filter = self.debug_entry2 or (sentiment_upper == 'NEUTRAL')
+
             if sentiment == 'BULLISH':
-                # BULLISH: Only execute CE trades, invalidate PE trades (unless filter is disabled)
-                # DEBUG_ENTRY2 or MARKET_SENTIMENT_FILTER disabled: Allow both CE and PE regardless of sentiment
+                # BULLISH: Only execute CE trades, invalidate PE trades (unless bypass: NEUTRAL or DEBUG_ENTRY2)
                 if bypass_sentiment_filter:
-                    # Allow both CE and PE when DEBUG_ENTRY2 is enabled
                     if ce_entry:
                         # CRITICAL FIX: ce_entry_type is already set correctly above (line 1337)
                         # Do NOT overwrite it with ce_entry (boolean) - this was causing Entry2 trades to be marked as Entry1
-                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "MARKET_SENTIMENT_FILTER disabled"
+                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "sentiment NEUTRAL"
                         self.logger.info(f"[{bypass_reason}] BULLISH sentiment: CE entry condition {ce_entry_type} met. Placing CE trade for {self.ce_symbol} (sentiment filter bypassed).")
                         # Execute CE trade even in BULLISH sentiment when DEBUG_ENTRY2 is enabled
                         # Dispatch immediate feedback event
@@ -1714,7 +1705,7 @@ class EntryConditionManager:
                     if pe_entry:
                         # CRITICAL FIX: pe_entry_type is already set correctly above (line 1386)
                         # Do NOT overwrite it with pe_entry (boolean) - this was causing Entry2 trades to be marked as Entry1
-                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "MARKET_SENTIMENT_FILTER disabled"
+                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "sentiment NEUTRAL"
                         self.logger.info(f"[{bypass_reason}] BULLISH sentiment: PE entry condition {pe_entry_type} met. Placing PE trade for {self.pe_symbol} (sentiment filter bypassed).")
                         # Execute PE trade even in BULLISH sentiment when DEBUG_ENTRY2 is enabled
                         # Dispatch immediate feedback event
@@ -1808,7 +1799,6 @@ class EntryConditionManager:
                         self.logger.debug("Crossover indices reset after successful trade")
                 elif pe_entry:
                     # PE entry condition met but sentiment is BULLISH - invalidate (PE not allowed in BULLISH)
-                    # Skip invalidation if sentiment filter is disabled or DEBUG_ENTRY2 is enabled
                     if not bypass_sentiment_filter:
                         self.logger.info(f"BULLISH sentiment: PE entry condition {pe_entry_type} met but invalidated - PE trades not allowed in BULLISH sentiment (only CE allowed)")
                 else:
@@ -1816,14 +1806,12 @@ class EntryConditionManager:
                         self.logger.debug(f"BULLISH sentiment: No entry conditions met (CE: {ce_entry}, PE: {pe_entry})")
             
             elif sentiment == 'BEARISH':
-                # BEARISH: Only execute PE trades, invalidate CE trades (unless filter is disabled)
-                # DEBUG_ENTRY2 or MARKET_SENTIMENT_FILTER disabled: Allow both CE and PE regardless of sentiment
+                # BEARISH: Only execute PE trades, invalidate CE trades (unless bypass: NEUTRAL or DEBUG_ENTRY2)
                 if bypass_sentiment_filter:
-                    # Allow both CE and PE when DEBUG_ENTRY2 is enabled
                     if ce_entry:
                         # CRITICAL FIX: ce_entry_type is already set correctly above (line 1337)
                         # Do NOT overwrite it with ce_entry (boolean) - this was causing Entry2 trades to be marked as Entry1
-                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "MARKET_SENTIMENT_FILTER disabled"
+                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "sentiment NEUTRAL"
                         self.logger.info(f"[{bypass_reason}] BEARISH sentiment: CE entry condition {ce_entry_type} met. Placing CE trade for {self.ce_symbol} (sentiment filter bypassed).")
                         # Execute CE trade even in BEARISH sentiment when filter is disabled
                         # Dispatch immediate feedback event
@@ -1871,9 +1859,8 @@ class EntryConditionManager:
                     if pe_entry:
                         # CRITICAL FIX: pe_entry_type is already set correctly above (line 1386)
                         # Do NOT overwrite it with pe_entry (boolean) - this was causing Entry2 trades to be marked as Entry1
-                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "MARKET_SENTIMENT_FILTER disabled"
+                        bypass_reason = "DEBUG_ENTRY2" if self.debug_entry2 else "sentiment NEUTRAL"
                         self.logger.info(f"[{bypass_reason}] BEARISH sentiment: PE entry condition {pe_entry_type} met. Placing PE trade for {self.pe_symbol} (sentiment filter bypassed).")
-                        # Execute PE trade even in BEARISH sentiment when filter is disabled
                         # Dispatch immediate feedback event
                         from event_system import Event, EventType, get_event_dispatcher
                         dispatcher = get_event_dispatcher()

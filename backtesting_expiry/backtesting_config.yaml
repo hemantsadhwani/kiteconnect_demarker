@@ -122,7 +122,7 @@ MARKET_SENTIMENT_FILTER:
 # Reduces backtest PnL (skips some winners). See docs/MARK2MARKET_IMPACT.md for per-day impact and dates.
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 100000
+  CAPITAL: 15000
   LOSS_MARK: 40   #Keep 40 when MODE: MANUAL
   PER_DAY: true
 STRATEGY:
@@ -180,7 +180,7 @@ ENTRY2:
   SKIP_FIRST: false
   # EXIT_WEAK_SIGNAL: only for entries between R1 and R2 (R1 < Nifty < R2). When high >= EXIT_WEAK_SIGNAL_PROFIT_PCT%,
   # check DeMarker: if < R_BAND exit as weak signal (7% TP); else start DYNAMIC_TRAILING_MA. S1-S2 zone not used.
-  EXIT_WEAK_SIGNAL: false
+  EXIT_WEAK_SIGNAL: true
   EXIT_WEAK_SIGNAL_PROFIT_PCT: 7.0      # profit % (from entry) at which to check weak signal
   EXIT_WEAK_SIGNAL_DEMARKER_R_BAND: 0.60 # R1–R2 zone only: exit if demarker < this
   DYNAMIC_TRAILING_WPR9: false
