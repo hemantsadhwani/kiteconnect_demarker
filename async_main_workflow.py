@@ -300,6 +300,9 @@ class AsyncTradingBot:
         self.entry_condition_check_task = None
         self.risk_watchdog_task = None
         self.drawdown_watchdog_task = None
+        # Risk watchdog: delay before treating broker-only position as inconsistent (allow new entry to register)
+        self._risk_watchdog_pending = {}  # symbol -> first_seen_time (broker has position, state/pm not yet)
+        self._risk_watchdog_grace_seconds = 10.0  # Wait this long before RISK_WATCHDOG exit
         # CPR for today (set when CPR computed at init; used for R1-R2 entry band and EXIT_WEAK_SIGNAL)
         self.cpr_today = None
 
@@ -514,27 +517,42 @@ class AsyncTradingBot:
                     
                     # If broker position doesn't exist or quantity is 0, skip (position is already closed)
                     if not broker_pos or broker_qty == 0:
+                        self._risk_watchdog_pending.pop(symbol, None)  # Clear any pending
                         logger.debug(
                             f"[RISK] Watchdog: {symbol} broker position is closed (qty={broker_qty}). "
                             f"Skipping - position already closed."
                         )
                         continue
 
-                    # CRITICAL: Skip if trade is already closed AND position manager says inactive
-                    # This handles cases where exit was already executed but broker position hasn't updated yet
-                    # BUT: Only skip if we're confident broker position will update soon
-                    # If broker position persists, it's a real inconsistency that needs fixing
+                    # When trade is in state or position manager is active, clear pending (no inconsistency)
+                    if trade or pm_active:
+                        self._risk_watchdog_pending.pop(symbol, None)
+
+                    # CRITICAL: Grace period when broker has position but state/pm say closed
+                    # Could be: (1) New entry just executed - state/pm not updated yet (race), or (2) Real inconsistency
+                    # Wait 10 seconds before treating as inconsistent so new entries have time to register
                     if not trade and not pm_active:
-                        # Both are False - our system says closed, but broker still shows position
-                        # This could be:
-                        # 1. Broker position is stale (order executed but not reflected yet) - wait
-                        # 2. Real inconsistency (order failed, position still open) - must exit
-                        # For now, we'll trigger exit to be safe - executor will verify broker position
-                        logger.warning(
-                            f"[RISK] Watchdog: {symbol} system says closed (trade_present=False, pm_active=False) "
-                            f"but broker shows position (qty={broker_qty}). This may be stale or real inconsistency."
+                        first_seen = self._risk_watchdog_pending.get(symbol)
+                        if first_seen is None:
+                            self._risk_watchdog_pending[symbol] = time.time()
+                            logger.warning(
+                                f"[RISK] Watchdog: {symbol} broker has position (qty={broker_qty}) but state/pm say closed. "
+                                f"Waiting {self._risk_watchdog_grace_seconds:.0f}s before treating as inconsistent (new entry may be registering)."
+                            )
+                            continue
+                        age = time.time() - first_seen
+                        if age < self._risk_watchdog_grace_seconds:
+                            logger.debug(
+                                f"[RISK] Watchdog: {symbol} still within grace ({age:.1f}s < {self._risk_watchdog_grace_seconds:.0f}s). "
+                                f"trade_present=False, pm_active=False, broker_qty={broker_qty}"
+                            )
+                            continue
+                        # Grace expired - treat as real inconsistency
+                        self._risk_watchdog_pending.pop(symbol, None)
+                        logger.critical(
+                            f"[RISK] Watchdog: {symbol} broker has position (qty={broker_qty}) but state/pm still closed after {age:.1f}s. "
+                            f"Treating as inconsistent. Triggering safety exit."
                         )
-                        # Continue to trigger exit - executor will verify and handle appropriately
 
                     # CRITICAL: Grace period for newly entered trades
                     # Newly entered trades need time to:

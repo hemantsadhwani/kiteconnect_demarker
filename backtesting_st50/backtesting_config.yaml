@@ -4,7 +4,7 @@ ANALYSIS:
   CALCULATE_PNL: true
   CALCULATE_WIN_RATE: true
   GENERATE_REPORTS: true
-  GENERATE_STRATEGY_PLOTS: true
+  GENERATE_STRATEGY_PLOTS: false
   INCLUDE_CHARTS: false
   SAVE_CSV_REPORTS: true
   SAVE_JSON_REPORTS: false
@@ -164,7 +164,7 @@ MARKET_SENTIMENT_FILTER:
   # MANUAL: Use fixed MANUAL_SENTIMENT for all trades.
   # HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (take all trades).
   # All modes use same backtest entry logic: CPR_TRADING_RANGE blocks entries above band_R2_upper and below band_S2_lower.
-  MODE: HYBRID
+  MODE: MANUAL
   SENTIMENT_VERSION: v5  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
   HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
@@ -174,7 +174,7 @@ MARKET_SENTIMENT_FILTER:
 MARK2MARKET:
   ENABLE: true
   CAPITAL: 100000
-  LOSS_MARK: 35   #Keep 40 when MODE: MANUAL
+  LOSS_MARK: 40   #Keep 40 when MODE: MANUAL
   PER_DAY: true
 STRATEGY:
   CE_ENTRY_CONDITIONS:
