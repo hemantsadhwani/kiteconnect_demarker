@@ -193,18 +193,18 @@ PRICE_ZONES:
 
 # Market Sentiment Configuration
 # Simplified architecture: MODE determines how sentiment is determined
-# AUTO: Use sentiment algorithm (v2, v3, etc.) - sentiment calculated automatically
+# AUTO: Use sentiment algorithm (v2, v5) - sentiment calculated automatically
 # MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE) - sentiment set via control panel
 # DISABLE: Stop all autonomous trades (manual BUY_CE/BUY_PE commands still allowed)
+# HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL
 MARKET_SENTIMENT:
-  MODE: MANUAL  # Options: AUTO | MANUAL | DISABLE
-                # AUTO: Use sentiment algorithm (v2, v3, etc.)
-                # MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE)
-                # DISABLE: Stop all autonomous trades
+  MODE: MANUAL  # Options: AUTO | MANUAL | DISABLE | HYBRID
+                # HYBRID: Strict sentiment in [S1,R1] only; outside = NEUTRAL
+  HYBRID_STRICT_ZONE: R1_S1  # Only when MODE=HYBRID
   
-  # Used when MODE=AUTO
-  SENTIMENT_VERSION: "v2"  # Options: "v1" | "v2" | "v3" (future)
-  CONFIG_PATH: "market_sentiment_v2/config.yaml"  # Path to sentiment analyzer config (auto-updated based on VERSION)
+  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
+  SENTIMENT_VERSION: "v5"  # Options: "v1" | "v2" | "v5"
+  CONFIG_PATH: "market_sentiment_v5/config.yaml"
   
   # Used when MODE=MANUAL
   MANUAL_SENTIMENT: NEUTRAL  # Options: BULLISH | BEARISH | NEUTRAL | DISABLE

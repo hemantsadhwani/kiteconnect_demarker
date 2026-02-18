@@ -1,0 +1,6 @@
+# Market Sentiment v5 - Production real-time config
+# CPR + Type 2 bands, NCP state machine. CPR levels/bands come from workflow (cpr_today) when provided.
+# Note: LAG_SENTIMENT_BY_ONE is a backtest-only option (to replicate real-time in CSV); not used in production.
+
+# Logging
+VERBOSE_SWING_LOGGING: false

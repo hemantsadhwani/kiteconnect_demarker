@@ -122,7 +122,7 @@ class AsyncAPIServer:
                 }, status=400)
 
             mode = mode.upper()
-            valid_modes = ["AUTO", "MANUAL", "DISABLE"]
+            valid_modes = ["AUTO", "MANUAL", "DISABLE", "HYBRID"]
             if mode not in valid_modes:
                 return web.json_response({
                     "status": "error",

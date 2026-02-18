@@ -61,7 +61,7 @@ class TradeStateManager:
                     self.state["sentiment"] = "NEUTRAL"
                 
                 # Validate sentiment_mode
-                allowed_modes = {"AUTO", "MANUAL", "DISABLE"}
+                allowed_modes = {"AUTO", "MANUAL", "DISABLE", "HYBRID"}
                 if self.state.get("sentiment_mode") not in allowed_modes:
                     self.logger.warning(
                         f"Invalid sentiment_mode '{self.state.get('sentiment_mode')}' in state file. Resetting to MANUAL."
@@ -427,12 +427,12 @@ class TradeStateManager:
         Set the sentiment mode and optionally the manual sentiment.
         
         Args:
-            mode: "AUTO" | "MANUAL" | "DISABLE"
+            mode: "AUTO" | "MANUAL" | "DISABLE" | "HYBRID"
             manual_sentiment: Required if mode="MANUAL", ignored otherwise
                              "BULLISH" | "BEARISH" | "NEUTRAL" | "DISABLE"
         """
         mode = str(mode).upper()
-        allowed_modes = {"AUTO", "MANUAL", "DISABLE"}
+        allowed_modes = {"AUTO", "MANUAL", "DISABLE", "HYBRID"}
         if mode not in allowed_modes:
             raise ValueError(f"Invalid mode '{mode}'. Allowed: {sorted(allowed_modes)}")
         
@@ -470,7 +470,11 @@ class TradeStateManager:
                         self.logger.info(f"[SENTIMENT_MODE_SWITCH] Storing previous mode '{current_mode}' and sentiment '{current_sentiment}' before setting to DISABLE")
                     
                     self.state["sentiment"] = manual_sentiment
-            # For AUTO mode, sentiment will be calculated by the algorithm, don't set it here
+            # For AUTO and HYBRID modes, sentiment will be calculated by the algorithm (HYBRID uses it in strict zone only)
+            if mode == "HYBRID":
+                # Keep current sentiment; algo will update when in strict zone
+                if current_sentiment not in self.ALLOWED_SENTIMENTS or current_sentiment == "DISABLE":
+                    self.state["sentiment"] = "NEUTRAL"
             
             self.logger.info(f"[SENTIMENT_MODE_SWITCH] Mode: {current_mode} → {mode}, Sentiment: {current_sentiment} → {self.state['sentiment']}")
             self.save_state()
@@ -479,7 +483,7 @@ class TradeStateManager:
         """Get the current sentiment mode."""
         with self._lock:
             mode = self.state.get("sentiment_mode", "MANUAL")
-            if mode not in {"AUTO", "MANUAL", "DISABLE"}:
+            if mode not in {"AUTO", "MANUAL", "DISABLE", "HYBRID"}:
                 return "MANUAL"
             return mode
 
@@ -487,7 +491,7 @@ class TradeStateManager:
         """Get the previous mode that was stored before DISABLE was set."""
         with self._lock:
             previous = self.state.get("previous_mode")
-            if previous and previous in {"AUTO", "MANUAL", "DISABLE"}:
+            if previous and previous in {"AUTO", "MANUAL", "DISABLE", "HYBRID"}:
                 return previous
             return None
 

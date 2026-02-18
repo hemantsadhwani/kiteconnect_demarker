@@ -248,8 +248,8 @@ class AsyncLiveTickerHandler:
                         self.completed_candles_data[instrument_token].append(completed_candle)
 
                         # 2. Process NIFTY candle for automated market sentiment (if enabled)
-                        # IMPORTANT: This must happen BEFORE entry condition scanning
-                        # to ensure sentiment is updated before trade scanning
+                        # CRITICAL: This must happen BEFORE CANDLE_FORMED dispatch and BEFORE entry condition scanning
+                        # so sentiment (v1/v2/v5) is always available before CE/PE evaluation. Same ordering for all versions.
                         if instrument_token == nifty_token and hasattr(self, 'trading_bot') and self.trading_bot.use_automated_sentiment:
                             # Use completed candle's timestamp (not current tick_time) to match option indicator timing
                             completed_candle_timestamp = completed_candle['timestamp']
@@ -1046,8 +1046,8 @@ class AsyncLiveTickerHandler:
                             logger.error(f"[X] Error deriving strikes from first NIFTY candle: {e}", exc_info=True)
                             # Continue processing - will retry on next candle
                     
-                    # IMPORTANT: Process sentiment FIRST (before entry condition scanning)
-                    # This ensures sentiment is updated before any trade scanning happens
+                    # CRITICAL: Process sentiment FIRST (before slab decision and before entry condition scanning)
+                    # Ensures sentiment (v1/v2/v5) is always available before CE/PE evaluation; same as v2 framework.
                     logger.debug(f"NIFTY candle completed - checking sentiment: use_automated_sentiment={self.trading_bot.use_automated_sentiment if hasattr(self, 'trading_bot') else 'N/A'}")
                     if self.trading_bot.use_automated_sentiment:
                         # Use completed candle's timestamp (not current tick_time) to match option indicator timing

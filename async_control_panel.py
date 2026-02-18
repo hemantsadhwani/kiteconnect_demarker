@@ -159,44 +159,47 @@ def main():
         enabled_option = None
         if current_mode == "AUTO":
             enabled_option = 1
+        elif current_mode == "HYBRID":
+            enabled_option = 2
         elif current_mode == "MANUAL":
             if current_sentiment == "BULLISH":
-                enabled_option = 2
-            elif current_sentiment == "BEARISH":
                 enabled_option = 3
-            elif current_sentiment == "NEUTRAL":
+            elif current_sentiment == "BEARISH":
                 enabled_option = 4
-            elif current_sentiment == "DISABLE":
+            elif current_sentiment == "NEUTRAL":
                 enabled_option = 5
+            elif current_sentiment == "DISABLE":
+                enabled_option = 6
         elif current_mode == "DISABLE":
-            enabled_option = 5
-        
+            enabled_option = 6
+
         # Display options
         print("   Enable MARKET_SENTIMENT to use these options")
         print(f"1. {'[ ENABLED]' if enabled_option == 1 else '[DISABLED]'} AUTO")
-        print(f"2. {'[ ENABLED]' if enabled_option == 2 else '[DISABLED]'} MANUAL Set to BULLISH")
-        print(f"3. {'[ ENABLED]' if enabled_option == 3 else '[DISABLED]'} MANUAL Set to BEARISH")
-        print(f"4. {'[ ENABLED]' if enabled_option == 4 else '[DISABLED]'} MANUAL Set to NEUTRAL")
-        print(f"5. {'[ ENABLED]' if enabled_option == 5 else '[DISABLED]'} MANUAL Set to DISABLE")
-        
+        print(f"2. {'[ ENABLED]' if enabled_option == 2 else '[DISABLED]'} HYBRID")
+        print(f"3. {'[ ENABLED]' if enabled_option == 3 else '[DISABLED]'} MANUAL Set to BULLISH")
+        print(f"4. {'[ ENABLED]' if enabled_option == 4 else '[DISABLED]'} MANUAL Set to BEARISH")
+        print(f"5. {'[ ENABLED]' if enabled_option == 5 else '[DISABLED]'} MANUAL Set to NEUTRAL")
+        print(f"6. {'[ ENABLED]' if enabled_option == 6 else '[DISABLED]'} MANUAL Set to DISABLE")
+
         print(f"\nCurrent Mode: {current_mode}")
         print(f"Current Sentiment: {current_sentiment}")
-        
+
         print("\n⚡ MANUAL OVERRIDES (Immediate Actions):")
-        print("6. Manually BUY CE")
-        print("7. Manually BUY PE")
-        
+        print("7. Manually BUY CE")
+        print("8. Manually BUY PE")
+
         print("\n⚙️ SYSTEM CONTROL:")
-        print("8. FORCE EXIT ALL POSITIONS")
-        print("9. FORCE EXIT CE POSITIONS ONLY")
-        print("10. FORCE EXIT PE POSITIONS ONLY")
-        print("11. Health Check")
-        
+        print("9. FORCE EXIT ALL POSITIONS")
+        print("10. FORCE EXIT CE POSITIONS ONLY")
+        print("11. FORCE EXIT PE POSITIONS ONLY")
+        print("12. Health Check")
+
         print("\n❌ EXIT:")
-        print("12. Exit Control Panel")
+        print("13. Exit Control Panel")
 
         try:
-            choice = input("\nEnter your choice (1-12): ").strip()
+            choice = input("\nEnter your choice (1-13): ").strip()
 
             if choice == '1':
                 # Set to AUTO mode
@@ -206,9 +209,17 @@ def main():
                     print("✅ Sentiment mode set to AUTO")
                     print("   Algorithm will calculate sentiment automatically")
                     print("="*50)
-                    # Wait for state file to be updated by async event handler
                     wait_for_state_update("AUTO")
             elif choice == '2':
+                # Set to HYBRID mode
+                result = set_sentiment_mode("HYBRID")
+                if result:
+                    print(f"\n{'='*50}")
+                    print("✅ Sentiment mode set to HYBRID")
+                    print("   Strict sentiment only when Nifty in [S1,R1]; outside = NEUTRAL")
+                    print("="*50)
+                    wait_for_state_update("HYBRID")
+            elif choice == '3':
                 # Set to MANUAL BULLISH
                 result = set_sentiment_mode("MANUAL", "BULLISH")
                 if result:
@@ -216,9 +227,8 @@ def main():
                     print("✅ Sentiment mode set to MANUAL_BULLISH")
                     print("   Only CE trades will be allowed")
                     print("="*50)
-                    # Wait for state file to be updated by async event handler
                     wait_for_state_update("MANUAL", "BULLISH")
-            elif choice == '3':
+            elif choice == '4':
                 # Set to MANUAL BEARISH
                 result = set_sentiment_mode("MANUAL", "BEARISH")
                 if result:
@@ -226,9 +236,8 @@ def main():
                     print("✅ Sentiment mode set to MANUAL_BEARISH")
                     print("   Only PE trades will be allowed")
                     print("="*50)
-                    # Wait for state file to be updated by async event handler
                     wait_for_state_update("MANUAL", "BEARISH")
-            elif choice == '4':
+            elif choice == '5':
                 # Set to MANUAL NEUTRAL
                 result = set_sentiment_mode("MANUAL", "NEUTRAL")
                 if result:
@@ -236,9 +245,8 @@ def main():
                     print("✅ Sentiment mode set to MANUAL_NEUTRAL")
                     print("   Both CE and PE trades will be allowed")
                     print("="*50)
-                    # Wait for state file to be updated by async event handler
                     wait_for_state_update("MANUAL", "NEUTRAL")
-            elif choice == '5':
+            elif choice == '6':
                 # Set to DISABLE
                 result = set_sentiment_mode("MANUAL", "DISABLE")
                 if result:
@@ -247,21 +255,20 @@ def main():
                     print("   All autonomous trades are PAUSED")
                     print("   Manual BUY_CE/BUY_PE commands still allowed")
                     print("="*50)
-                    # Wait for state file to be updated by async event handler
                     wait_for_state_update("MANUAL", "DISABLE")
-            elif choice == '6':
-                send_command("BUY_CE")
             elif choice == '7':
-                send_command("BUY_PE")
+                send_command("BUY_CE")
             elif choice == '8':
-                send_command("FORCE_EXIT")
+                send_command("BUY_PE")
             elif choice == '9':
-                send_command("FORCE_EXIT_CE")
+                send_command("FORCE_EXIT")
             elif choice == '10':
-                send_command("FORCE_EXIT_PE")
+                send_command("FORCE_EXIT_CE")
             elif choice == '11':
-                get_health()
+                send_command("FORCE_EXIT_PE")
             elif choice == '12':
+                get_health()
+            elif choice == '13':
                 print("👋 Exiting control panel.")
                 break
             else:

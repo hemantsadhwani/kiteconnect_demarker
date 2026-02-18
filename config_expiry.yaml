@@ -192,19 +192,13 @@ PRICE_ZONES:
     HIGH_PRICE: 250 # Maximum entry price (500 = no upper limit for now)
 
 # Market Sentiment Configuration
-# Simplified architecture: MODE determines how sentiment is determined
-# AUTO: Use sentiment algorithm (v2, v3, etc.) - sentiment calculated automatically
-# MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE) - sentiment set via control panel
-# DISABLE: Stop all autonomous trades (manual BUY_CE/BUY_PE commands still allowed)
+# MODE: AUTO | MANUAL | DISABLE | HYBRID (HYBRID = strict sentiment in [S1,R1] only; outside = NEUTRAL)
 MARKET_SENTIMENT:
-  MODE: MANUAL  # Options: AUTO | MANUAL | DISABLE
-                # AUTO: Use sentiment algorithm (v2, v3, etc.)
-                # MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE)
-                # DISABLE: Stop all autonomous trades
+  MODE: MANUAL
+  HYBRID_STRICT_ZONE: R1_S1  # Only when MODE=HYBRID
   
-  # Used when MODE=AUTO
-  SENTIMENT_VERSION: "v2"  # Options: "v1" | "v2" | "v3" (future)
-  CONFIG_PATH: "market_sentiment_v2/config.yaml"  # Path to sentiment analyzer config (auto-updated based on VERSION)
+  SENTIMENT_VERSION: "v5"  # "v1" | "v2" | "v5"
+  CONFIG_PATH: "market_sentiment_v5/config.yaml"
   
   # Used when MODE=MANUAL
   MANUAL_SENTIMENT: NEUTRAL  # Options: BULLISH | BEARISH | NEUTRAL | DISABLE

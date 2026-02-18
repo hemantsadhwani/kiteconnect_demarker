@@ -870,26 +870,29 @@ class AsyncTradingBot:
                 logger.warning(f"CPR_TRADING_RANGE: missing {upper_col} or {lower_col} in computed bands")
                 return
 
-            # Print CPR and CPR-derived bands for verification at startup
+            # Print all CPR levels and all CPR-derived Type 2 bands for verification at startup (see docs/HYBRID_AND_AUTOV5_PRODUCTION_PLAN.md §5.4)
             logger.info("=" * 60)
             logger.info("[CPR] CPR and bands (from previous day Nifty OHLC %s)", prev)
             logger.info("[CPR] Prev day OHLC: H=%.2f L=%.2f C=%.2f", high, low, close)
-            logger.info("[CPR] Pivot levels: P=%.2f  R1=%.2f  R2=%.2f  S1=%.2f  S2=%.2f", pivot, r1, r2, s1, s2)
+            logger.info("[CPR] All CPR levels (Pivot, R1-R4, S1-S4):")
+            logger.info("  P=%.2f  R1=%.2f  R2=%.2f  R3=%.2f  R4=%.2f", pivot, r1, r2, r3, r4)
+            logger.info("  S1=%.2f  S2=%.2f  S3=%.2f  S4=%.2f", s1, s2, s3, s4)
             logger.info("[CPR] Type 2 bands (38.2%%/61.8%%):")
             for name in ["Pivot", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4"]:
                 lo, up = bands.get(f"band_{name}_lower"), bands.get(f"band_{name}_upper")
                 if lo is not None and up is not None:
                     logger.info("  band_%s: lower=%.2f  upper=%.2f", name, lo, up)
             logger.info("[CPR] Trading range (config CPR_LOWER / CPR_UPPER):")
-            logger.info("  band_S2_lower = %.2f", cpr_lower)
-            logger.info("  band_R2_upper = %.2f", cpr_upper)
+            logger.info("  %s = %.2f", lower_col, cpr_lower)
+            logger.info("  %s = %.2f", upper_col, cpr_upper)
             logger.info("=" * 60)
 
-            # Store for live use: entry-band check (R1-R2) and EXIT_WEAK_SIGNAL
+            # Store for live use: entry-band check, HYBRID R1/S1, and for market_sentiment_v5 reuse (full levels + all bands)
             self.cpr_today = {
-                "R1": r1, "R2": r2, "S1": s1, "S2": s2,
+                "P": pivot, "R1": r1, "R2": r2, "R3": r3, "R4": r4, "S1": s1, "S2": s2, "S3": s3, "S4": s4,
                 "band_S2_lower": cpr_lower, "band_R2_upper": cpr_upper,
             }
+            self.cpr_today.update(bands)  # All Type 2 bands (band_Pivot_lower/upper, band_S1_*, ..., band_R4_*)
         except Exception as e:
             logger.warning(f"CPR_TRADING_RANGE: could not compute/print levels: {e}")
             self.cpr_today = None
@@ -912,8 +915,8 @@ class AsyncTradingBot:
             market_sentiment_config = self.config.get('MARKET_SENTIMENT', {})
             sentiment_mode = market_sentiment_config.get('MODE', 'MANUAL').upper()
             
-            # Determine if automated sentiment should be used
-            self.use_automated_sentiment = (sentiment_mode == 'AUTO')
+            # Determine if automated sentiment should be used (AUTO and HYBRID both need the sentiment manager for strict zone / algo)
+            self.use_automated_sentiment = (sentiment_mode == 'AUTO' or sentiment_mode == 'HYBRID')
             logger.info(f"Sentiment mode: {sentiment_mode}")
             logger.info(f"Automated market sentiment enabled: {self.use_automated_sentiment}")
 
@@ -999,7 +1002,7 @@ class AsyncTradingBot:
             should_initialize_from_config = (
                 not state_file_exists or
                 not current_mode or 
-                current_mode not in ['AUTO', 'MANUAL', 'DISABLE']
+                current_mode not in ['AUTO', 'MANUAL', 'DISABLE', 'HYBRID']
             )
             
             # For MANUAL mode: Always sync sentiment from config.yaml on startup (config is source of truth)
@@ -1019,6 +1022,12 @@ class AsyncTradingBot:
                     self.state_manager.set_sentiment_mode('AUTO')
                     self.state_manager.set_sentiment('NEUTRAL')  # Default until algorithm calculates
                     logger.info(f"Synced sentiment from config.yaml: AUTO mode "
+                              f"(previous: mode={current_mode}, sentiment={current_sentiment})")
+            elif config_sentiment_mode == 'HYBRID':
+                if should_initialize_from_config or current_mode != 'HYBRID':
+                    self.state_manager.set_sentiment_mode('HYBRID')
+                    self.state_manager.set_sentiment('NEUTRAL')  # Default; algo updates when in strict zone
+                    logger.info(f"Synced sentiment from config.yaml: HYBRID mode "
                               f"(previous: mode={current_mode}, sentiment={current_sentiment})")
 
             # Reconcile with broker
@@ -1220,37 +1229,49 @@ class AsyncTradingBot:
         try:
             logger.info("Initializing Automated Market Sentiment Manager...")
             
-            # Get version from config (default to v1 for backward compatibility)
             sentiment_config = self.config.get('MARKET_SENTIMENT', {})
-            version = sentiment_config.get('VERSION', 'v1')
+            version = sentiment_config.get('SENTIMENT_VERSION') or sentiment_config.get('VERSION', 'v1')
+            if isinstance(version, str):
+                version = version.strip().lower()
+            if version.startswith('v'):
+                version = version
+            else:
+                version = f"v{version}" if version.isdigit() else 'v1'
             
-            # Import the correct version
-            if version == 'v2':
+            # Import the correct version (v5 can accept cpr_today from workflow to avoid duplicate computation)
+            cpr_today = getattr(self, 'cpr_today', None)
+            if version == 'v5':
+                from market_sentiment_v5.realtime_sentiment_manager import RealTimeMarketSentimentManager
+                default_config_path = 'market_sentiment_v5/config.yaml'
+                logger.info("Using Market Sentiment v5 (CPR + Type 2 bands; reuses workflow cpr_today)")
+                sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
+                if 'v5' not in sentiment_config_path:
+                    sentiment_config_path = default_config_path
+                self.market_sentiment_manager = RealTimeMarketSentimentManager(
+                    sentiment_config_path, self.kite, cpr_today=cpr_today
+                )
+            elif version == 'v2':
                 from market_sentiment_v2.realtime_sentiment_manager import RealTimeMarketSentimentManager
                 default_config_path = 'market_sentiment_v2/config.yaml'
                 logger.info("Using Market Sentiment v2 (improved implementation)")
+                sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
+                if version == 'v2' and 'v1' in sentiment_config_path:
+                    sentiment_config_path = default_config_path
+                self.market_sentiment_manager = RealTimeMarketSentimentManager(sentiment_config_path, self.kite)
             else:
                 from market_sentiment_v1.realtime_sentiment_manager import RealTimeMarketSentimentManager
                 default_config_path = 'market_sentiment_v1/config.yaml'
                 logger.info("Using Market Sentiment v1 (legacy implementation)")
+                sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
+                if version == 'v1' and 'v2' in sentiment_config_path:
+                    sentiment_config_path = default_config_path
+                self.market_sentiment_manager = RealTimeMarketSentimentManager(sentiment_config_path, self.kite)
             
-            # Get config path for market sentiment (auto-update if VERSION is set but CONFIG_PATH doesn't match)
-            sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
-            # Ensure config path matches version
-            if version == 'v2' and 'v1' in sentiment_config_path:
-                sentiment_config_path = 'market_sentiment_v2/config.yaml'
-                logger.warning(f"Auto-updated CONFIG_PATH to match VERSION={version}: {sentiment_config_path}")
-            elif version == 'v1' and 'v2' in sentiment_config_path:
-                sentiment_config_path = 'market_sentiment_v1/config.yaml'
-                logger.warning(f"Auto-updated CONFIG_PATH to match VERSION={version}: {sentiment_config_path}")
-            
-            self.market_sentiment_manager = RealTimeMarketSentimentManager(sentiment_config_path, self.kite)
-            
-            # For v2: No cold start - analyzer initializes when first candle is processed (matches backtesting)
-            # For v1: Perform cold start if method exists
-            if version == 'v2':
-                logger.info(f"[OK] Automated Market Sentiment Manager (v2) initialized. "
-                          f"Analyzer will initialize when first candle is processed (matches backtesting behavior). "
+            # v2 and v5: No cold start - analyzer initializes when first candle is processed (v5 may use cpr_today from workflow)
+            # v1: Perform cold start if method exists
+            if version in ('v2', 'v5'):
+                logger.info(f"[OK] Automated Market Sentiment Manager ({version}) initialized. "
+                          f"Analyzer will initialize when first candle is processed. "
                           f"(config: {sentiment_config_path})")
             else:
                 # v1 still uses cold start
@@ -1278,13 +1299,13 @@ class AsyncTradingBot:
                                 try:
                                     # Check if we're in AUTO mode (new architecture)
                                     current_mode = self.state_manager.get_sentiment_mode()
-                                    manual_override = (current_mode != 'AUTO')
+                                    manual_override = (current_mode not in ('AUTO', 'HYBRID'))
                                 except Exception as e:
                                     logger.debug(f"Could not check sentiment mode during initialization: {e}")
                                     manual_override = False
                             
-                            # Only update sentiment if in AUTO mode
-                            if current_mode == 'AUTO':
+                            # Only update sentiment if in AUTO or HYBRID mode (algo drives sentiment)
+                            if current_mode in ('AUTO', 'HYBRID'):
                                 current_state_sentiment = self.state_manager.get_sentiment()
                                 if current_state_sentiment != initial_sentiment:
                                     self.state_manager.set_sentiment(initial_sentiment)
@@ -1292,7 +1313,7 @@ class AsyncTradingBot:
                                 else:
                                     logger.debug(f"State manager already has correct sentiment: {initial_sentiment}")
                             else:
-                                logger.info(f"Not in AUTO mode (current: {current_mode}) - not syncing automated sentiment (calculated: {initial_sentiment})")
+                                logger.info(f"Not in AUTO/HYBRID mode (current: {current_mode}) - not syncing automated sentiment (calculated: {initial_sentiment})")
                     else:
                         logger.error("Cold start failed - sentiment manager may not work correctly")
                         # Don't raise - allow bot to continue with manual sentiment

@@ -8,6 +8,29 @@ from threading import Lock
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+
+def compute_effective_sentiment_hybrid(
+    mode: str,
+    sentiment: str,
+    nifty: Optional[float],
+    r1: Optional[float],
+    s1: Optional[float],
+) -> str:
+    """
+    Compute effective sentiment for entry. HYBRID: NEUTRAL when Nifty outside [S1,R1].
+    Used by check_all_entry_conditions and by tests/simulation.
+    """
+    if mode != "HYBRID":
+        return sentiment
+    if sentiment in ("BUY_CE", "BUY_PE", "FORCE_EXIT", "FORCE_EXIT_CE", "FORCE_EXIT_PE"):
+        return sentiment
+    if nifty is None or r1 is None or s1 is None:
+        return "NEUTRAL"
+    if not (float(s1) <= float(nifty) <= float(r1)):
+        return "NEUTRAL"
+    return sentiment
+
+
 class EntryConditionManager:
     @staticmethod
     def _safe_format_float(value, default="NaN"):
@@ -117,8 +140,10 @@ class EntryConditionManager:
         
         # Load MARKET_SENTIMENT: effective sentiment (MODE + MANUAL_SENTIMENT or algo) drives filtering.
         # NEUTRAL = both CE and PE allowed; BULLISH = CE only; BEARISH = PE only (no separate ENABLED flag).
+        # HYBRID: strict sentiment only when Nifty at entry is in HYBRID_STRICT_ZONE (e.g. R1_S1); outside = NEUTRAL.
         market_sentiment_config = config.get('MARKET_SENTIMENT', {})
         sentiment_filter_config = config.get('MARKET_SENTIMENT_FILTER', {})  # Legacy fallback for ALLOW_MULTIPLE_SYMBOL_POSITIONS only
+        self.hybrid_strict_zone = (market_sentiment_config.get('HYBRID_STRICT_ZONE') or 'R1_S1').strip().upper()
         self.allow_multiple_symbol_positions = market_sentiment_config.get(
             'ALLOW_MULTIPLE_SYMBOL_POSITIONS',
             sentiment_filter_config.get('ALLOW_MULTIPLE_SYMBOL_POSITIONS', True)
@@ -1320,6 +1345,16 @@ class EntryConditionManager:
                     self.logger.debug(f"Current bar index: {self.current_bar_index}")
                     self.logger.debug(f"Active trades: {list(active_trades.keys()) if active_trades else 'None'}")
             
+            # --- HYBRID mode: effective sentiment = NEUTRAL when Nifty outside R1-S1 zone ---
+            current_mode = self.state_manager.get_sentiment_mode()
+            nifty = self._get_current_nifty_price() if current_mode == 'HYBRID' else None
+            cpr = getattr(self, 'cpr_today', None) if current_mode == 'HYBRID' else None
+            r1 = cpr.get('R1') if cpr else None
+            s1 = cpr.get('S1') if cpr else None
+            effective_sentiment = compute_effective_sentiment_hybrid(current_mode, sentiment, nifty, r1, s1)
+            if current_mode == 'HYBRID' and effective_sentiment == 'NEUTRAL' and sentiment != 'NEUTRAL':
+                self.logger.debug(f"HYBRID: Nifty {nifty} outside R1-S1 ({r1}/{s1}), using NEUTRAL")
+            
             # --- Handle Immediate Action Commands (from the API queue) ---
             # Manual commands (BUY_CE, BUY_PE) are ALWAYS allowed regardless of sentiment mode
             # They bypass all sentiment filtering including DISABLE mode
@@ -1384,14 +1419,14 @@ class EntryConditionManager:
             # When DISABLE: do NOT trade on manual or auto sentiment (no autonomous/signal-based entries).
             # Forced trades BUY_CE/BUY_PE are handled above (before this check) and are always allowed
             # regardless of sentiment - they are explicit user commands, not sentiment-based.
-            if sentiment == 'DISABLE':
+            if effective_sentiment == 'DISABLE':
                 current_mode = self.state_manager.get_sentiment_mode()
                 self.logger.info(f"DISABLE sentiment active (mode: {current_mode}) - All autonomous trades are PAUSED (AUTO and MANUAL sentiment-based trades blocked)")
                 return  # Block all autonomous trade execution
 
             # --- Handle NEUTRAL sentiment ---
-            # Normalize so we match NEUTRAL regardless of casing (state may sometimes be lowercase)
-            _sentiment = (str(sentiment).strip().upper() if sentiment else "") or ""
+            # Normalize so we match NEUTRAL regardless of casing; use effective_sentiment (HYBRID may force NEUTRAL outside R1-S1)
+            _sentiment = (str(effective_sentiment).strip().upper() if effective_sentiment else "") or ""
             if _sentiment == 'NEUTRAL':
                 verbose_debug = os.getenv('VERBOSE_DEBUG', 'false').lower() == 'true'
                 if verbose_debug:
@@ -1557,7 +1592,8 @@ class EntryConditionManager:
             # --- Handle BULLISH and BEARISH sentiments ---
             # CRITICAL FIX: Always check BOTH CE and PE indicators every candle, regardless of sentiment
             # Sentiment only determines which trades to EXECUTE, not which indicators to CHECK
-            if sentiment not in ['BULLISH', 'BEARISH']:
+            # Use effective_sentiment (HYBRID may have forced NEUTRAL outside R1-S1)
+            if effective_sentiment not in ['BULLISH', 'BEARISH']:
                 return
 
             if not self._is_trading_hours():
@@ -1686,13 +1722,13 @@ class EntryConditionManager:
 
             # --- Apply sentiment filter (from MARKET_SENTIMENT: MODE + MANUAL_SENTIMENT or algo) ---
             # NEUTRAL = both CE and PE allowed; BULLISH = CE only; BEARISH = PE only.
-            # bypass_sentiment_filter: allow both when sentiment is NEUTRAL or DEBUG_ENTRY2.
+            # bypass_sentiment_filter: allow both when effective_sentiment is NEUTRAL or DEBUG_ENTRY2 (HYBRID may force NEUTRAL outside R1-S1).
             
-            sentiment_upper = (sentiment or '').upper()
+            sentiment_upper = (effective_sentiment or '').upper()
             # Allow both CE and PE when sentiment is NEUTRAL or DEBUG_ENTRY2 (effective filter from MARKET_SENTIMENT only)
             bypass_sentiment_filter = self.debug_entry2 or (sentiment_upper == 'NEUTRAL')
 
-            if sentiment == 'BULLISH':
+            if effective_sentiment == 'BULLISH':
                 # BULLISH: Only execute CE trades, invalidate PE trades (unless bypass: NEUTRAL or DEBUG_ENTRY2)
                 if bypass_sentiment_filter:
                     if ce_entry:
@@ -1846,7 +1882,7 @@ class EntryConditionManager:
                     if verbose_debug:
                         self.logger.debug(f"BULLISH sentiment: No entry conditions met (CE: {ce_entry}, PE: {pe_entry})")
             
-            elif sentiment == 'BEARISH':
+            elif effective_sentiment == 'BEARISH':
                 # BEARISH: Only execute PE trades, invalidate CE trades (unless bypass: NEUTRAL or DEBUG_ENTRY2)
                 if bypass_sentiment_filter:
                     if ce_entry:
@@ -3338,6 +3374,13 @@ class EntryConditionManager:
         latest = df_indicators.iloc[-1]
         return float(latest['close'])
     
+    @staticmethod
+    def _is_in_r1_s1_zone(nifty_at_entry: Optional[float], r1: Optional[float], s1: Optional[float]) -> bool:
+        """True if Nifty at entry is within R1-S1 zone (S1 <= nifty <= R1). Used for HYBRID mode strict zone."""
+        if nifty_at_entry is None or r1 is None or s1 is None:
+            return False
+        return float(s1) <= float(nifty_at_entry) <= float(r1)
+
     def _get_nifty_price_at_930(self) -> Optional[float]:
         """
         Get cached NIFTY 9:30 price (zero-latency access).
