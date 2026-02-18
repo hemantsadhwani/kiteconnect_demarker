@@ -1760,25 +1760,30 @@ class EntryConditionManager:
                             zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
                             self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {self.ce_symbol} at {current_time_str}{zone_info}")
                         else:
-                            # Validate price zone before executing trade
-                            is_valid, current_price = self._validate_price_zone(self.ce_symbol, ticker_handler)
-                            if not is_valid:
-                                self.logger.warning(f"Price zone validation failed for {self.ce_symbol} - skipping trade")
+                            # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+                            cpr_valid, _ = self._validate_cpr_trading_range(self.ce_symbol)
+                            if not cpr_valid:
+                                pass  # already logged in _validate_cpr_trading_range
                             else:
-                                # Execute the trade
-                                trade_result = self.strategy_executor.execute_trade_entry(self.ce_symbol, 'CE', ticker_handler, entry_type=ce_entry_type)
-                                if trade_result:
-                                    if ce_entry_type == 2:
-                                        self.logger.info(f"[OK] Entry2 trade successfully executed for {self.ce_symbol}")
-                                    else:
-                                        self.logger.info(f"Trade execution result for {self.ce_symbol}: {trade_result}")
+                                # Validate price zone before executing trade
+                                is_valid, current_price = self._validate_price_zone(self.ce_symbol, ticker_handler)
+                                if not is_valid:
+                                    self.logger.warning(f"Price zone validation failed for {self.ce_symbol} - skipping trade")
                                 else:
-                                    self.logger.warning(f"[X] Trade execution failed for {self.ce_symbol}")
-                                
-                                # Reset crossover indices if trade was successful
-                                if trade_result:
-                                    self._reset_crossover_indices()
-                                    self.logger.debug("Crossover indices reset after successful trade")
+                                    # Execute the trade
+                                    trade_result = self.strategy_executor.execute_trade_entry(self.ce_symbol, 'CE', ticker_handler, entry_type=ce_entry_type)
+                                    if trade_result:
+                                        if ce_entry_type == 2:
+                                            self.logger.info(f"[OK] Entry2 trade successfully executed for {self.ce_symbol}")
+                                        else:
+                                            self.logger.info(f"Trade execution result for {self.ce_symbol}: {trade_result}")
+                                    else:
+                                        self.logger.warning(f"[X] Trade execution failed for {self.ce_symbol}")
+                                    
+                                    # Reset crossover indices if trade was successful
+                                    if trade_result:
+                                        self._reset_crossover_indices()
+                                        self.logger.debug("Crossover indices reset after successful trade")
                     if pe_entry:
                         # CRITICAL FIX: pe_entry_type is already set correctly above (line 1386)
                         # Do NOT overwrite it with pe_entry (boolean) - this was causing Entry2 trades to be marked as Entry1
@@ -1808,25 +1813,30 @@ class EntryConditionManager:
                             zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
                             self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {self.pe_symbol} at {current_time_str}{zone_info}")
                         else:
-                            # Validate price zone before executing trade
-                            is_valid, current_price = self._validate_price_zone(self.pe_symbol, ticker_handler)
-                            if not is_valid:
-                                self.logger.warning(f"Price zone validation failed for {self.pe_symbol} - skipping trade")
+                            # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+                            cpr_valid, _ = self._validate_cpr_trading_range(self.pe_symbol)
+                            if not cpr_valid:
+                                pass  # already logged in _validate_cpr_trading_range
                             else:
-                                # Execute the trade
-                                trade_result = self.strategy_executor.execute_trade_entry(self.pe_symbol, 'PE', ticker_handler, entry_type=pe_entry_type)
-                                if trade_result:
-                                    if pe_entry_type == 2:
-                                        self.logger.info(f"[OK] Entry2 trade successfully executed for {self.pe_symbol}")
-                                    else:
-                                        self.logger.info(f"Trade execution result for {self.pe_symbol}: {trade_result}")
+                                # Validate price zone before executing trade
+                                is_valid, current_price = self._validate_price_zone(self.pe_symbol, ticker_handler)
+                                if not is_valid:
+                                    self.logger.warning(f"Price zone validation failed for {self.pe_symbol} - skipping trade")
                                 else:
-                                    self.logger.warning(f"[X] Trade execution failed for {self.pe_symbol}")
+                                    # Execute the trade
+                                    trade_result = self.strategy_executor.execute_trade_entry(self.pe_symbol, 'PE', ticker_handler, entry_type=pe_entry_type)
+                                    if trade_result:
+                                        if pe_entry_type == 2:
+                                            self.logger.info(f"[OK] Entry2 trade successfully executed for {self.pe_symbol}")
+                                        else:
+                                            self.logger.info(f"Trade execution result for {self.pe_symbol}: {trade_result}")
+                                    else:
+                                        self.logger.warning(f"[X] Trade execution failed for {self.pe_symbol}")
                                 
-                                # Reset crossover indices if trade was successful
-                                if trade_result:
-                                    self._reset_crossover_indices()
-                                    self.logger.debug("Crossover indices reset after successful trade")
+                                    # Reset crossover indices if trade was successful
+                                    if trade_result:
+                                        self._reset_crossover_indices()
+                                        self.logger.debug("Crossover indices reset after successful trade")
                 elif ce_entry:
                     self.logger.info(f"BULLISH sentiment: CE entry condition {ce_entry_type} met. Placing CE trade for {self.ce_symbol}.")
                     
@@ -1852,6 +1862,11 @@ class EntryConditionManager:
                         disabled_zone = self._get_current_time_zone()
                         zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
                         self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {self.ce_symbol} at {current_time_str}{zone_info}")
+                        return
+                    
+                    # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+                    cpr_valid, _ = self._validate_cpr_trading_range(self.ce_symbol)
+                    if not cpr_valid:
                         return
                     
                     # Validate price zone before executing trade
@@ -1914,25 +1929,30 @@ class EntryConditionManager:
                             zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
                             self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {self.ce_symbol} at {current_time_str}{zone_info}")
                         else:
-                            # Validate price zone before executing trade
-                            is_valid, current_price = self._validate_price_zone(self.ce_symbol, ticker_handler)
-                            if not is_valid:
-                                self.logger.warning(f"Price zone validation failed for {self.ce_symbol} - skipping trade")
+                            # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+                            cpr_valid, _ = self._validate_cpr_trading_range(self.ce_symbol)
+                            if not cpr_valid:
+                                pass  # already logged in _validate_cpr_trading_range
                             else:
-                                # Execute the trade
-                                trade_result = self.strategy_executor.execute_trade_entry(self.ce_symbol, 'CE', ticker_handler, entry_type=ce_entry_type)
-                                if trade_result:
-                                    if ce_entry_type == 2:
-                                        self.logger.info(f"[OK] Entry2 trade successfully executed for {self.ce_symbol}")
-                                    else:
-                                        self.logger.info(f"Trade execution result for {self.ce_symbol}: {trade_result}")
+                                # Validate price zone before executing trade
+                                is_valid, current_price = self._validate_price_zone(self.ce_symbol, ticker_handler)
+                                if not is_valid:
+                                    self.logger.warning(f"Price zone validation failed for {self.ce_symbol} - skipping trade")
                                 else:
-                                    self.logger.warning(f"[X] Trade execution failed for {self.ce_symbol}")
+                                    # Execute the trade
+                                    trade_result = self.strategy_executor.execute_trade_entry(self.ce_symbol, 'CE', ticker_handler, entry_type=ce_entry_type)
+                                    if trade_result:
+                                        if ce_entry_type == 2:
+                                            self.logger.info(f"[OK] Entry2 trade successfully executed for {self.ce_symbol}")
+                                        else:
+                                            self.logger.info(f"Trade execution result for {self.ce_symbol}: {trade_result}")
+                                    else:
+                                        self.logger.warning(f"[X] Trade execution failed for {self.ce_symbol}")
                                 
-                                # Reset crossover indices if trade was successful
-                                if trade_result:
-                                    self._reset_crossover_indices()
-                                    self.logger.debug("Crossover indices reset after successful trade")
+                                    # Reset crossover indices if trade was successful
+                                    if trade_result:
+                                        self._reset_crossover_indices()
+                                        self.logger.debug("Crossover indices reset after successful trade")
                     if pe_entry:
                         # CRITICAL FIX: pe_entry_type is already set correctly above (line 1386)
                         # Do NOT overwrite it with pe_entry (boolean) - this was causing Entry2 trades to be marked as Entry1
@@ -1961,25 +1981,30 @@ class EntryConditionManager:
                             zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
                             self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {self.pe_symbol} at {current_time_str}{zone_info}")
                         else:
-                            # Validate price zone before executing trade
-                            is_valid, current_price = self._validate_price_zone(self.pe_symbol, ticker_handler)
-                            if not is_valid:
-                                self.logger.warning(f"Price zone validation failed for {self.pe_symbol} - skipping trade")
+                            # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+                            cpr_valid, _ = self._validate_cpr_trading_range(self.pe_symbol)
+                            if not cpr_valid:
+                                pass  # already logged in _validate_cpr_trading_range
                             else:
-                                # Execute the trade
-                                trade_result = self.strategy_executor.execute_trade_entry(self.pe_symbol, 'PE', ticker_handler, entry_type=pe_entry_type)
-                                if trade_result:
-                                    if pe_entry_type == 2:
-                                        self.logger.info(f"[OK] Entry2 trade successfully executed for {self.pe_symbol}")
-                                    else:
-                                        self.logger.info(f"Trade execution result for {self.pe_symbol}: {trade_result}")
+                                # Validate price zone before executing trade
+                                is_valid, current_price = self._validate_price_zone(self.pe_symbol, ticker_handler)
+                                if not is_valid:
+                                    self.logger.warning(f"Price zone validation failed for {self.pe_symbol} - skipping trade")
                                 else:
-                                    self.logger.warning(f"[X] Trade execution failed for {self.pe_symbol}")
+                                    # Execute the trade
+                                    trade_result = self.strategy_executor.execute_trade_entry(self.pe_symbol, 'PE', ticker_handler, entry_type=pe_entry_type)
+                                    if trade_result:
+                                        if pe_entry_type == 2:
+                                            self.logger.info(f"[OK] Entry2 trade successfully executed for {self.pe_symbol}")
+                                        else:
+                                            self.logger.info(f"Trade execution result for {self.pe_symbol}: {trade_result}")
+                                    else:
+                                        self.logger.warning(f"[X] Trade execution failed for {self.pe_symbol}")
                                 
-                                # Reset crossover indices if trade was successful
-                                if trade_result:
-                                    self._reset_crossover_indices()
-                                    self.logger.debug("Crossover indices reset after successful trade")
+                                    # Reset crossover indices if trade was successful
+                                    if trade_result:
+                                        self._reset_crossover_indices()
+                                        self.logger.debug("Crossover indices reset after successful trade")
                 elif pe_entry:
                     self.logger.info(f"BEARISH sentiment: PE entry condition {pe_entry_type} met. Placing PE trade for {self.pe_symbol}.")
                     
@@ -2005,6 +2030,11 @@ class EntryConditionManager:
                         disabled_zone = self._get_current_time_zone()
                         zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else " (no trade zone)"
                         self.logger.info(f"[TIME] Time distribution filter: Trade blocked for {self.pe_symbol} at {current_time_str}{zone_info}")
+                        return
+                    
+                    # CPR trading range: NIFTY must be within [band_S2_lower, band_R2_upper]
+                    cpr_valid, _ = self._validate_cpr_trading_range(self.pe_symbol)
+                    if not cpr_valid:
                         return
                     
                     # Validate price zone before executing trade
