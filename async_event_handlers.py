@@ -263,6 +263,7 @@ class AsyncEventHandlers:
                                     del self._indicator_updates_received[ts]
                                 
                                 # Only proceed if all updates received AND not already checked AND not in progress
+                                # (all_ready already requires sentiment_updated when use_automated_sentiment, so no stale sentiment)
                                 if all_ready and self._last_entry_check_timestamp != timestamp_minute and not self._entry_check_in_progress:
                                     # Set both flags BEFORE creating task to prevent race condition
                                     self._last_entry_check_timestamp = timestamp_minute

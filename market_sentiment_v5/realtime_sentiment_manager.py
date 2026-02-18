@@ -114,11 +114,86 @@ class RealTimeMarketSentimentManager:
                 return True
         return False
 
+    def _backfill_candle_history(self, candle_date: datetime.date, first_live_timestamp: datetime) -> None:
+        """
+        Backfill _candle_history from market open to (first_live_timestamp - 1 min).
+        Ensures production state matches test_realtime_sentiment (same prior candles => same sentiment).
+        """
+        if not self.kite or not self.analyzer:
+            return
+        from_dt = datetime.combine(candle_date, MARKET_START_TIME)
+        to_dt = first_live_timestamp - timedelta(minutes=1)
+        if to_dt < from_dt:
+            return
+        if self.config.get("backfill_from_market_open") is False:
+            return
+        data: List[Dict] = []
+        chunk_hours = 2
+        chunk_delta = timedelta(hours=chunk_hours)
+        current_start = from_dt
+        while current_start <= to_dt:
+            current_end = min(current_start + chunk_delta, to_dt)
+            try:
+                chunk = self.kite.historical_data(
+                    instrument_token=NIFTY_TOKEN,
+                    from_date=current_start,
+                    to_date=current_end,
+                    interval="minute",
+                )
+                if chunk:
+                    data.extend(chunk)
+            except Exception as e:
+                logger.warning("v5 backfill: Kite historical_data failed %s to %s: %s", current_start, current_end, e)
+            current_start = current_end + timedelta(minutes=1)
+            if current_start <= to_dt:
+                import time
+                time.sleep(0.3)
+        if not data:
+            return
+        def _parse_date(d):
+            dt = d["date"]
+            if isinstance(dt, str):
+                try:
+                    dt = datetime.strptime(dt, "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    try:
+                        dt = datetime.fromisoformat(dt.replace("Z", "+00:00"))
+                    except Exception:
+                        return None
+            if hasattr(dt, "to_pydatetime"):
+                dt = dt.to_pydatetime()
+            if dt.tzinfo:
+                dt = dt.replace(tzinfo=None)
+            return dt
+
+        data_sorted = sorted(data, key=lambda x: x["date"])
+        for c in data_sorted:
+            dt = _parse_date(c)
+            if dt is None:
+                continue
+            self._candle_history.append({
+                "open": float(c["open"]),
+                "high": float(c["high"]),
+                "low": float(c["low"]),
+                "close": float(c["close"]),
+                "date": dt,
+            })
+        logger.info(
+            "v5 backfill: loaded %d candles from %s to %s (so sentiment matches test/full history)",
+            len(self._candle_history),
+            from_dt.strftime("%H:%M"),
+            to_dt.strftime("%H:%M"),
+        )
+
     def process_candle(self, ohlc: Dict, timestamp: datetime) -> Optional[str]:
         """Process a completed 1-minute NIFTY candle; return current sentiment."""
         candle_date = timestamp.date()
         if not self._ensure_initialized(candle_date, ohlc):
-            logger.warning("v5: cannot init analyzer for %s", candle_date)
+            logger.warning(
+                "v5: cannot init analyzer for %s (cpr_today=%s). Sentiment will stay NEUTRAL until init succeeds.",
+                candle_date,
+                self.cpr_today is not None,
+            )
             return None
         if self.current_date and candle_date != self.current_date:
             self._candle_history = []
@@ -128,6 +203,8 @@ class RealTimeMarketSentimentManager:
             else:
                 if not self._ensure_initialized(candle_date, ohlc):
                     return None
+        if len(self._candle_history) == 0 and self.kite:
+            self._backfill_candle_history(candle_date, timestamp)
         row = {
             "open": float(ohlc["open"]),
             "high": float(ohlc["high"]),
@@ -138,7 +215,12 @@ class RealTimeMarketSentimentManager:
         self._candle_history.append(row)
         df = pd.DataFrame(self._candle_history)
         out = self.analyzer.apply_sentiment_logic(df)
-        self._last_sentiment = str(out.iloc[-1]["market_sentiment"]).strip().upper()
+        last_row = out.iloc[-1]
+        self._last_sentiment = str(last_row["market_sentiment"]).strip().upper()
+        ncp = float(last_row["ncp"])
+        in_any = self.analyzer.is_in_band(ncp, self.analyzer.bands)
+        band_containing = self.analyzer.band_containing(ncp, self.analyzer.bands)
+        pivot = self.analyzer.pivot
         logger.info(
             "[%s] Market Sentiment (v5): %s | OHLC: O=%.2f H=%.2f L=%.2f C=%.2f",
             timestamp.strftime("%H:%M:%S"),
@@ -148,6 +230,18 @@ class RealTimeMarketSentimentManager:
             row["low"],
             row["close"],
         )
+        if self._last_sentiment == "NEUTRAL":
+            if in_any and band_containing is not None:
+                low_b, high_b = band_containing
+                logger.info(
+                    "[%s] v5 NEUTRAL reason: NCP=%.2f inside band [%.2f, %.2f] (pivot=%.2f; outside bands would be BULLISH if NCP>pivot else BEARISH)",
+                    timestamp.strftime("%H:%M:%S"), ncp, low_b, high_b, pivot,
+                )
+            else:
+                logger.info(
+                    "[%s] v5 NEUTRAL reason: NCP=%.2f (pivot=%.2f) in_any=%s band_containing=%s (state from prior candle)",
+                    timestamp.strftime("%H:%M:%S"), ncp, pivot, in_any, band_containing,
+                )
         return self._last_sentiment
 
     def get_current_sentiment(self) -> Optional[str]:

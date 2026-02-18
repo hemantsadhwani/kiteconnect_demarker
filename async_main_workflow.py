@@ -1243,7 +1243,13 @@ class AsyncTradingBot:
             if version == 'v5':
                 from market_sentiment_v5.realtime_sentiment_manager import RealTimeMarketSentimentManager
                 default_config_path = 'market_sentiment_v5/config.yaml'
-                logger.info("Using Market Sentiment v5 (CPR + Type 2 bands; reuses workflow cpr_today)")
+                if cpr_today is None:
+                    logger.warning(
+                        "Market Sentiment v5: cpr_today is None (CPR_TRADING_RANGE may be disabled). "
+                        "v5 will try to init from Kite OHLC; if that fails, sentiment will stay NEUTRAL."
+                    )
+                else:
+                    logger.info("Using Market Sentiment v5 (CPR + Type 2 bands; reuses workflow cpr_today)")
                 sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
                 if 'v5' not in sentiment_config_path:
                     sentiment_config_path = default_config_path

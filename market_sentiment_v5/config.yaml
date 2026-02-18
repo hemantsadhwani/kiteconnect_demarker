@@ -2,5 +2,9 @@
 # CPR + Type 2 bands, NCP state machine. CPR levels/bands come from workflow (cpr_today) when provided.
 # Note: LAG_SENTIMENT_BY_ONE is a backtest-only option (to replicate real-time in CSV); not used in production.
 
+# When true (default), on first candle of the day we backfill from 9:15 so sentiment matches test_realtime_sentiment.
+# Set to false to use only live candles (sentiment may differ from test for the same OHLC).
+# backfill_from_market_open: true
+
 # Logging
 VERBOSE_SWING_LOGGING: false

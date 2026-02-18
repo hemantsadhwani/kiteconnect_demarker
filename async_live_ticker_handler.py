@@ -82,9 +82,32 @@ class AsyncLiveTickerHandler:
         """
         nifty_token = 256265
         try:
-            # --- Pass 1: Update LTP/TICK_UPDATE for all; process NIFTY candle (slab check) first ---
-            # So "NIFTY candle completed for slab check" appears before "[DATA UPDATE] CE/PE DataFrame updated"
+            # --- Pass 1a: Process NIFTY ticks first so NIFTY calculated price + sentiment log before CE/PE ---
             for tick in ticks:
+                if tick.get('instrument_token') != nifty_token:
+                    continue
+                if 'exchange_timestamp' in tick:
+                    tick_time = tick['exchange_timestamp']
+                elif 'timestamp' in tick:
+                    tick_time = tick['timestamp']
+                else:
+                    tick_time = datetime.now()
+                ltp = tick.get('last_price') or tick.get('last_traded_price')
+                self.latest_ltp[nifty_token] = ltp
+                self.event_dispatcher.dispatch_event(
+                    Event(EventType.TICK_UPDATE, {'token': nifty_token, 'ltp': ltp, 'last_price': ltp, 'timestamp': tick_time}, source='websocket_handler')
+                )
+                logger.debug(f"[CHART] NIFTY tick received: LTP={ltp}, time={tick_time.strftime('%H:%M:%S')}, minute={tick_time.minute}")
+                await self._check_dynamic_trailing_ma_activation(nifty_token, ltp)
+                if hasattr(self, 'trading_bot'):
+                    await self._process_nifty_candle_for_dynamic_atm(tick, tick_time, tick_time.minute)
+                else:
+                    logger.warning("Trading bot not available - cannot process NIFTY tick")
+
+            # --- Pass 1b: Update LTP/TICK_UPDATE for CE/PE (non-NIFTY) ---
+            for tick in ticks:
+                if tick.get('instrument_token') == nifty_token:
+                    continue
                 if 'exchange_timestamp' in tick:
                     tick_time = tick['exchange_timestamp']
                 elif 'timestamp' in tick:
@@ -93,24 +116,11 @@ class AsyncLiveTickerHandler:
                     tick_time = datetime.now()
                 instrument_token = tick['instrument_token']
                 ltp = tick.get('last_price') or tick.get('last_traded_price')
-
                 self.latest_ltp[instrument_token] = ltp
                 self.event_dispatcher.dispatch_event(
-                    Event(EventType.TICK_UPDATE, {
-                        'token': instrument_token,
-                        'ltp': ltp,
-                        'last_price': ltp,
-                        'timestamp': tick_time
-                    }, source='websocket_handler')
+                    Event(EventType.TICK_UPDATE, {'token': instrument_token, 'ltp': ltp, 'last_price': ltp, 'timestamp': tick_time}, source='websocket_handler')
                 )
-
-                if instrument_token == nifty_token:
-                    logger.debug(f"[CHART] NIFTY tick received: LTP={ltp}, time={tick_time.strftime('%H:%M:%S')}, minute={tick_time.minute}")
-                    await self._check_dynamic_trailing_ma_activation(instrument_token, ltp)
-                    if hasattr(self, 'trading_bot'):
-                        await self._process_nifty_candle_for_dynamic_atm(tick, tick_time, tick_time.minute)
-                    else:
-                        logger.warning("Trading bot not available - cannot process NIFTY tick")
+                await self._check_dynamic_trailing_ma_activation(instrument_token, ltp)
 
             # --- Pass 2: CE/PE candle build and completion (NIFTY already processed this batch) ---
             for tick in ticks:
@@ -193,23 +203,30 @@ class AsyncLiveTickerHandler:
                             root_logger = logging.getLogger()
                             root_logger.info("=" * 48)
                             
-                            # Log current sentiment information
+                            # Log sentiment mode only. For AUTO/HYBRID, sentiment (BULLISH/BEARISH/NEUTRAL)
+                            # is computed later from NIFTY candle vs CPR bands, so we don't show it here.
                             try:
-                                # Read sentiment from state file (same approach as control panel)
-                                config_path = 'config.yaml'
-                                if os.path.exists(config_path):
-                                    with open(config_path, 'r') as f:
-                                        config = yaml.safe_load(f)
-                                        state_file_path = config.get('TRADE_STATE_FILE_PATH', 'output/trade_state.json')
-                                    
-                                    if os.path.exists(state_file_path):
-                                        with open(state_file_path, 'r') as f:
-                                            state = json.load(f)
-                                            sentiment = state.get('sentiment', 'NEUTRAL').upper()
-                                            sentiment_mode = state.get('sentiment_mode', 'MANUAL').upper()
-                                            root_logger.info(f"📊 Sentiment: {sentiment_mode}/{sentiment}")
-                            except Exception as e:
-                                # Silently fail - don't break logging if sentiment can't be read
+                                sentiment_mode = 'MANUAL'
+                                sentiment = 'NEUTRAL'
+                                if hasattr(self, 'trading_bot') and getattr(self.trading_bot, 'state_manager', None):
+                                    sentiment_mode = (self.trading_bot.state_manager.get_sentiment_mode() or 'MANUAL').upper()
+                                    sentiment = (self.trading_bot.state_manager.get_sentiment() or 'NEUTRAL').upper()
+                                else:
+                                    config_path = 'config.yaml'
+                                    if os.path.exists(config_path):
+                                        with open(config_path, 'r') as f:
+                                            config = yaml.safe_load(f)
+                                            state_file_path = config.get('TRADE_STATE_FILE_PATH', 'output/trade_state.json')
+                                        if state_file_path and os.path.exists(state_file_path):
+                                            with open(state_file_path, 'r') as f:
+                                                state = json.load(f)
+                                                sentiment_mode = state.get('sentiment_mode', 'MANUAL').upper()
+                                                sentiment = state.get('sentiment', 'NEUTRAL').upper()
+                                if sentiment_mode in ('AUTO', 'HYBRID'):
+                                    root_logger.info(f"📊 Sentiment: {sentiment_mode}")
+                                else:
+                                    root_logger.info(f"📊 Sentiment: {sentiment_mode}/{sentiment}")
+                            except Exception:
                                 pass
                             
                             self._last_separator_minute = current_minute
@@ -665,22 +682,24 @@ class AsyncLiveTickerHandler:
         Process completed NIFTY candle for automated market sentiment analysis.
         Optimized for time-critical real-time processing.
         """
+        ts_str = candle_timestamp.strftime("%H:%M:%S") if candle_timestamp else "N/A"
         try:
-            logger.debug(f"_process_nifty_candle_for_sentiment called at {candle_timestamp.strftime('%H:%M:%S')}")
+            logger.info("Processing NIFTY candle for sentiment: candle_ts=%s", ts_str)
             
             if not hasattr(self, 'trading_bot'):
                 logger.warning("Trading bot not available for sentiment processing")
                 return
             
             if not self.trading_bot.use_automated_sentiment:
-                logger.debug("Automated sentiment is disabled - skipping sentiment processing")
+                logger.info("Automated sentiment disabled - skipping sentiment for candle %s", ts_str)
                 return
             
-            if not self.trading_bot.market_sentiment_manager:
-                logger.warning("Market sentiment manager not initialized - cannot process sentiment")
+            if not getattr(self.trading_bot, 'market_sentiment_manager', None):
+                logger.warning(
+                    "Market sentiment manager not initialized - cannot process sentiment for candle %s (AUTO/HYBRID will show default NEUTRAL)",
+                    ts_str,
+                )
                 return
-            
-            logger.debug("All checks passed - processing sentiment")
             
             # Extract OHLC from completed candle
             ohlc = {
@@ -701,7 +720,23 @@ class AsyncLiveTickerHandler:
                 ohlc,
                 candle_timestamp
             )
-            
+            logger.info(
+                "Sentiment result for candle %s: %s",
+                ts_str,
+                sentiment if sentiment else "None (v5/v2 init failed or not ready)",
+            )
+            # If algo returned None (e.g. analyzer not initialized), use last known sentiment from manager if any
+            if not sentiment and hasattr(self.trading_bot.market_sentiment_manager, 'get_current_sentiment'):
+                try:
+                    sentiment = self.trading_bot.market_sentiment_manager.get_current_sentiment()
+                except Exception:
+                    sentiment = None
+            if not sentiment:
+                logger.info(
+                    "[%s] AUTO/HYBRID: sentiment not updated this candle (process_candle returned None). "
+                    "Check logs for 'v5: cannot init analyzer' or CPR/previous-day OHLC.",
+                    ts_str,
+                )
             if sentiment:
                 # Check if manual sentiment override is enabled
                 manual_override = False
@@ -731,8 +766,14 @@ class AsyncLiveTickerHandler:
                         self.trading_bot.state_manager.set_sentiment(sentiment)
                         logger.info(f"[{candle_timestamp.strftime('%H:%M:%S')}] Market sentiment CHANGED: {current_sentiment} -> {sentiment}")
                     else:
-                        # Log every minute even if unchanged (for debugging)
                         logger.debug(f"[{candle_timestamp.strftime('%H:%M:%S')}] Market sentiment: {sentiment} (unchanged)")
+                    # Always log that this candle's sentiment was evaluated from v5/algo (so user can tell code vs default)
+                    root_logger_sentiment = logging.getLogger()
+                    root_logger_sentiment.info(
+                        "📊 Sentiment for candle %s: %s (from v5)",
+                        candle_timestamp.strftime("%H:%M:%S"),
+                        sentiment,
+                    )
                     
                     # CRITICAL: Mark sentiment as updated for this timestamp to synchronize with entry condition checks
                     # This ensures entry conditions use the latest sentiment, not stale sentiment
@@ -1048,16 +1089,21 @@ class AsyncLiveTickerHandler:
                     
                     # CRITICAL: Process sentiment FIRST (before slab decision and before entry condition scanning)
                     # Ensures sentiment (v1/v2/v5) is always available before CE/PE evaluation; same as v2 framework.
-                    logger.debug(f"NIFTY candle completed - checking sentiment: use_automated_sentiment={self.trading_bot.use_automated_sentiment if hasattr(self, 'trading_bot') else 'N/A'}")
+                    ts_str = completed_candle_timestamp.strftime("%H:%M:%S") if completed_candle_timestamp else "N/A"
+                    use_auto = getattr(self.trading_bot, "use_automated_sentiment", False)
+                    logger.info(
+                        "NIFTY candle completed for candle %s - use_automated_sentiment=%s, will %s run sentiment",
+                        ts_str,
+                        use_auto,
+                        "" if use_auto else "NOT",
+                    )
                     if self.trading_bot.use_automated_sentiment:
                         # Use completed candle's timestamp (not current tick_time) to match option indicator timing
-                        # This ensures sentiment is calculated on the same candle timestamp as option indicators
                         if completed_candle_timestamp is None:
                             completed_candle_timestamp = completed_candle.get('timestamp')
-                        logger.debug(f"[{completed_candle_timestamp.strftime('%H:%M:%S') if completed_candle_timestamp else 'N/A'}] Processing NIFTY candle for sentiment")
                         await self._process_nifty_candle_for_sentiment(completed_candle, completed_candle_timestamp)
                     else:
-                        logger.debug(f"[{tick_time.strftime('%H:%M:%S')}] Skipping sentiment (use_automated_sentiment=False)")
+                        logger.info("[%s] Skipping sentiment (use_automated_sentiment=False)", ts_str)
                     
                     # Process for dynamic ATM slab change (if enabled) - triggers symbol update if slab changed
                     # CRITICAL: Prevent slab changes when there are active trades OR Entry2 confirmation window is active
