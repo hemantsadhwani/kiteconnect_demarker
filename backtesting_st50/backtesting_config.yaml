@@ -28,70 +28,66 @@ BACKTESTING_EXPIRY:
   BACKTESTING_DATA_TYPE:
     DYNAMIC_DATA: ENABLE
     STATIC_DATA: ENABLE
+  # Lean validation: 1 date from 2025 + 1 from 2026 to verify 2025 appears in report. Restore full list when done.
   BACKTESTING_DAYS:
   - '2025-10-15'
-  - '2025-10-16'
-  - '2025-10-17'
-  - '2025-10-27'
-  - '2025-10-31'
-  - '2025-11-06'
-  - '2025-11-07'
-  - '2025-11-10'
-  - '2025-11-14'
-  - '2025-11-17'
-  - '2025-11-19'
-  - '2025-11-20'
-  - '2025-11-21'
-  - '2025-11-24'
-  - '2025-11-26'
-  - '2025-12-03'
-  - '2025-12-11'
-  - '2025-12-15'
-
-  - '2026-01-16'
-  - '2026-01-19'
-  - '2026-01-22'
-
-  - '2026-01-28'
-  - '2026-01-29'
-
-  - '2025-10-23'
-  - '2025-10-29'
-  - '2025-10-30'
-  - '2025-11-13'
-  - '2025-11-28'
-  - '2025-12-01'
-  - '2025-12-04'
-  - '2025-12-05'
-  - '2025-12-10'
-  - '2026-01-07'
-  - '2026-01-08'
-  - '2026-01-14'
-  - '2026-01-23'
-
-
-  - '2025-10-24'
-  - '2025-11-03'
-  - '2025-11-12'
-  - '2025-11-27'
-  - '2025-12-08'
-  - '2025-12-12'
-  - '2026-01-09'
-  - '2026-01-12'
-  - '2026-01-21'
-  - '2026-01-30'
-
-  - '2026-02-02'
-
-  - '2026-02-01'
-  - '2026-02-04'
-  - '2026-02-05'  
-  - '2026-02-06'
-  - '2026-02-09'
-  - '2026-02-11'
-  - '2026-02-12'
-  - '2026-02-13'
-  - '2026-02-16'
+  - '2026-02-18'
+  # Full list (commented for lean run):
+  # - '2025-10-16'
+  # - '2025-10-17'
+  # - '2025-10-23'
+  # - '2025-10-24'
+  # - '2025-10-27'
+  # - '2025-10-29'
+  # - '2025-10-30'
+  # - '2025-10-31'
+  # - '2025-11-03'
+  # - '2025-11-06'
+  # - '2025-11-07'
+  # - '2025-11-10'
+  # - '2025-11-12'
+  # - '2025-11-13'
+  # - '2025-11-14'
+  # - '2025-11-17'
+  # - '2025-11-19'
+  # - '2025-11-20'
+  # - '2025-11-21'
+  # - '2025-11-24'
+  # - '2025-11-26'
+  # - '2025-11-27'
+  # - '2025-11-28'
+  # - '2025-12-01'
+  # - '2025-12-03'
+  # - '2025-12-04'
+  # - '2025-12-05'
+  # - '2025-12-08'
+  # - '2025-12-10'
+  # - '2025-12-11'
+  # - '2025-12-12'
+  # - '2025-12-15'
+  # - '2026-01-07'
+  # - '2026-01-08'
+  # - '2026-01-09'
+  # - '2026-01-12'
+  # - '2026-01-14'
+  # - '2026-01-16'
+  # - '2026-01-19'
+  # - '2026-01-21'
+  # - '2026-01-22'
+  # - '2026-01-23'
+  # - '2026-01-28'
+  # - '2026-01-29'
+  # - '2026-01-30'
+  # - '2026-02-01'
+  # - '2026-02-02'
+  # - '2026-02-04'
+  # - '2026-02-05'
+  # - '2026-02-06'
+  # - '2026-02-09'
+  # - '2026-02-11'
+  # - '2026-02-12'
+  # - '2026-02-13'
+  # - '2026-02-16'
   BACKTESTING_STRIKE_TYPE:
   - ATM
   - OTM
@@ -111,6 +107,7 @@ BACKTESTING_EXPIRY:
   - FEB03
   - FEB10
   - FEB17
+  - FEB24
 # CPR-derived allowed trading range: trading only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 # Values are read from analytics/cpr_dates.csv (generate with grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py).
 # Worth it: "Above R2" zone has negative PnL; this filter blocks entries above band_R2_upper and below band_S2_lower.
@@ -164,11 +161,11 @@ MARKET_SENTIMENT_FILTER:
   # MANUAL: Use fixed MANUAL_SENTIMENT for all trades.
   # HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (take all trades).
   # All modes use same backtest entry logic: CPR_TRADING_RANGE blocks entries above band_R2_upper and below band_S2_lower.
-  MODE: MANUAL
+  MODE: HYBRID
   SENTIMENT_VERSION: v5  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
   HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
-  ALLOW_MULTIPLE_SYMBOL_POSITIONS: false  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
+  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
 # High-Water Mark trailing stop: stop trading for the day when next trade would breach LOSS_MARK% from day high.
 # Reduces backtest PnL (skips some winners). See docs/MARK2MARKET_IMPACT.md for per-day impact and dates.
 MARK2MARKET:

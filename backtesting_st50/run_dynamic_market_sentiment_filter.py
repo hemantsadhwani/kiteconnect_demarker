@@ -1087,10 +1087,21 @@ def main():
         if atm_summary:
             summaries.append(atm_summary)
 
-        # Always create summary file, even if all trades are 0 (so day appears in HTML report)
+        # Always create summary file so day appears in HTML report (even when CE/PE trade files missing or empty)
         if not summaries:
-            logger.warning(f"No summaries generated for {entry_type} (OTM/ATM both returned None) - this should not happen")
-            continue
+            logger.warning(f"No summaries for {entry_type} (OTM/ATM both None) - writing minimal summary so day appears in report")
+            summaries = [
+                {
+                    'Strike Type': 'DYNAMIC_ATM',
+                    'Total Trades': 0,
+                    'Filtered Trades': 0,
+                    'Winning Trades': 0,
+                    'Filtering Efficiency': '0.0%',
+                    'Un-Filtered P&L': '0.00%',
+                    'Filtered P&L': '0.00%',
+                    'Win Rate': '0.0%',
+                }
+            ]
 
         summary_df = pd.DataFrame(summaries)
         entry_type_lower = entry_type.lower()

@@ -152,14 +152,8 @@ def load_expiry_config():
             except:
                 return None
 
-        # Build expiry week date map using year from backtesting days so mapping is correct
-        expiry_dates = {}
-        for expiry_week in expiry_week_labels:
-            expiry_date = parse_expiry_week(expiry_week, year_hint=default_year)
-            if expiry_date:
-                expiry_dates[expiry_week] = expiry_date
-        
-        # For unmapped dates, assign to the closest expiry week (before or on the expiry date)
+        # For unmapped dates, assign to the closest expiry week using the *trading day's year*
+        # so 2025-10-15 -> OCT20 (2025), not JAN13 (2026).
         for day_str in backtesting_days:
             day_date = datetime.strptime(day_str, '%Y-%m-%d').date()
             day_label = day_date.strftime('%b%d').upper()
@@ -168,33 +162,37 @@ def load_expiry_config():
             if day_label in mapped_day_labels:
                 continue
             
-            # Find the appropriate expiry week: the one where the date is before or on the expiry date
-            # and is closest to it (but not after the next expiry)
+            # Build expiry dates in the same year as the trading day so 2025 days map to 2025 expiries
+            day_year = day_date.year
+            expiry_dates_for_year = {}
+            for expiry_week in expiry_week_labels:
+                exp_date = parse_expiry_week(expiry_week, year_hint=day_year)
+                if exp_date:
+                    expiry_dates_for_year[expiry_week] = exp_date
+            
+            # Find the closest expiry >= day_date (same year)
             best_expiry = None
             best_expiry_date = None
+            for expiry_week, expiry_date in expiry_dates_for_year.items():
+                if expiry_date >= day_date and (best_expiry_date is None or expiry_date < best_expiry_date):
+                    best_expiry = expiry_week
+                    best_expiry_date = expiry_date
             
-            for expiry_week, expiry_date in expiry_dates.items():
-                # Date should be before or on the expiry date
-                # Also handle year boundaries: if day_date is in 2026 and expiry_date is in 2026,
-                # we need to check if they're in the same year context
-                if day_date <= expiry_date or (day_date.year == 2026 and expiry_date.year == 2026 and day_date <= expiry_date):
-                    # Find the expiry that's closest but not after the date
-                    if best_expiry_date is None or expiry_date < best_expiry_date:
-                        # But make sure this expiry is after the date (or equal)
-                        if expiry_date >= day_date:
-                            best_expiry = expiry_week
-                            best_expiry_date = expiry_date
-            
-            # If no expiry found (date is after all expiries), assign to the last expiry
+            # If no expiry in same year (e.g. DEC31), use next year's first expiry or last in list
             if best_expiry is None and expiry_week_labels:
-                best_expiry = expiry_week_labels[-1]
+                next_year_dates = {ew: parse_expiry_week(ew, year_hint=day_year + 1) for ew in expiry_week_labels}
+                next_year_dates = {k: v for k, v in next_year_dates.items() if v and v >= day_date}
+                if next_year_dates:
+                    best_expiry = min(next_year_dates, key=lambda ew: next_year_dates[ew])
+                else:
+                    best_expiry = expiry_week_labels[-1]
             
             if best_expiry:
                 if best_expiry not in expiry_config:
                     expiry_config[best_expiry] = []
                 if day_label not in expiry_config[best_expiry]:
                     expiry_config[best_expiry].append(day_label)
-                    logger.debug(f"Inferred mapping: {day_label} -> {best_expiry} (date: {day_str})")
+                    logger.debug(f"Inferred mapping: {day_label} -> {best_expiry} (date: {day_str}, year: {day_year})")
         
         # Sort day labels within each expiry week
         for expiry_week in expiry_config:

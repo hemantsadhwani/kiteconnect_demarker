@@ -1237,6 +1237,13 @@ class EnhancedExpiryAnalysis:
             return 'neutral';
         }
         
+        function getYearForExpiry(expiryWeek) {
+            const monthMap = { 'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6, 'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12 };
+            const match = String(expiryWeek || '').toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
+            if (match) { const month = monthMap[match[1]] || 0; return month <= 2 ? 2026 : 2025; }
+            return '';
+        }
+        
         function generateSummaryCards() {
             const summaryCards = document.getElementById('summaryCards');
             let totalDays = 0;
@@ -1326,11 +1333,17 @@ class EnhancedExpiryAnalysis:
                 return parseExpiry(b) - parseExpiry(a); // Latest first
             });
             
+            let lastYear = null;
             sortedExpiries.forEach(expiry => {
+                const year = getYearForExpiry(expiry.expiry_week);
+                if (year !== lastYear) {
+                    lastYear = year;
+                    html += `<div class="expiry-section" style="margin-top: 24px;"><div class="expiry-header" style="background: #343a40; font-size: 1em;">——— ${year} ———</div></div>`;
+                }
                 html += `
                     <div class="expiry-section">
                         <div class="expiry-header">
-                            ${expiry.expiry_week} - Total P&L: ${formatPnl(expiry.summary.total_pnl || 0)}
+                            ${expiry.expiry_week} (${year}) - Total P&L: ${formatPnl(expiry.summary.total_pnl || 0)}
                         </div>
                 `;
                 

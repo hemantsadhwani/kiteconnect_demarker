@@ -4,11 +4,14 @@ Independent Indicators Calculator for Backtesting Data
 This script calculates technical indicators for OHLC data files independently of data fetching.
 
 Usage:
-    python run_indicators.py                           # Process all configured expiry weeks and days (always recalculates)
-    python run_indicators.py --expiry OCT20            # Process only OCT20 expiry (always recalculates)
-    python run_indicators.py --date 2025-10-24         # Process only specific date (always recalculates)
+    python run_indicators.py                           # Process all TRADING_DAYS (or NEW_DAY only if set in config)
+    python run_indicators.py --date 2026-02-19         # Process only this date (overrides config)
+    python run_indicators.py --expiry FEB24            # Process only FEB24 expiry
     python run_indicators.py --skip-existing           # Skip files that already have indicators
     python run_indicators.py --expiry OCT20 --date 2025-10-24  # Process specific expiry and date
+
+  For a new trading day only: set NEW_DAY: "2026-02-19" in indicators_config.yaml (under TARGET_EXPIRY or top-level),
+  then run without --date. TRADING_DAYS stays full for backtest; only NEW_DAY is processed. Comment out NEW_DAY for full run.
 """
 
 import os
@@ -724,22 +727,33 @@ def main():
         return
     
     # Determine expiry weeks and trading days to process
+    # NEW_DAY in config: process only that date (incremental run for new trading day); --date overrides
+    target_expiry = config.get('TARGET_EXPIRY') or {}
+    new_day_str = target_expiry.get('NEW_DAY') or config.get('NEW_DAY')
+    if isinstance(new_day_str, str):
+        new_day_str = new_day_str.strip()
+    else:
+        new_day_str = None
+
     if args.expiry and args.date:
         # Process specific expiry and date
         expiry_weeks = [args.expiry]
         trading_dates = [datetime.strptime(args.date, '%Y-%m-%d').date()]
         logger.info(f"Processing specific expiry: {args.expiry}, date: {args.date}")
     elif args.expiry:
-        # Process specific expiry with all its trading days
+        # Process specific expiry with all its trading days (or only NEW_DAY if set)
         expiry_weeks = [args.expiry]
-        trading_dates = [
-            datetime.strptime(day, '%Y-%m-%d').date() 
-            for day in config['TARGET_EXPIRY']['TRADING_DAYS']
-        ]
-        logger.info(f"Processing specific expiry: {args.expiry}")
+        if new_day_str and not args.date:
+            trading_dates = [datetime.strptime(new_day_str, '%Y-%m-%d').date()]
+            logger.info(f"Processing expiry: {args.expiry}, NEW_DAY only: {new_day_str}")
+        else:
+            trading_dates = [
+                datetime.strptime(day, '%Y-%m-%d').date()
+                for day in config['TARGET_EXPIRY']['TRADING_DAYS']
+            ]
+            logger.info(f"Processing specific expiry: {args.expiry}")
     elif args.date:
-        # Process specific date across all expiry weeks
-        # Support both EXPIRY_WEEK_LABELS (list) and EXPIRY_WEEK_LABEL (single value) for backward compatibility
+        # Process specific date across all expiry weeks (--date overrides config)
         expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
         if isinstance(expiry_week_config, list):
             expiry_weeks = expiry_week_config
@@ -747,16 +761,24 @@ def main():
             expiry_weeks = [expiry_week_config] if expiry_week_config else []
         trading_dates = [datetime.strptime(args.date, '%Y-%m-%d').date()]
         logger.info(f"Processing specific date: {args.date}")
+    elif new_day_str:
+        # NEW_DAY only: process just this date (all expiry weeks so we find the right folder)
+        expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
+        if isinstance(expiry_week_config, list):
+            expiry_weeks = expiry_week_config
+        else:
+            expiry_weeks = [expiry_week_config] if expiry_week_config else []
+        trading_dates = [datetime.strptime(new_day_str, '%Y-%m-%d').date()]
+        logger.info("Processing NEW_DAY only: %s (TRADING_DAYS unchanged for backtest)", new_day_str)
     else:
         # Process all configured expiry weeks and trading days
-        # Support both EXPIRY_WEEK_LABELS (list) and EXPIRY_WEEK_LABEL (single value) for backward compatibility
         expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
         if isinstance(expiry_week_config, list):
             expiry_weeks = expiry_week_config
         else:
             expiry_weeks = [expiry_week_config] if expiry_week_config else []
         trading_dates = [
-            datetime.strptime(day, '%Y-%m-%d').date() 
+            datetime.strptime(day, '%Y-%m-%d').date()
             for day in config['TARGET_EXPIRY']['TRADING_DAYS']
         ]
         logger.info("Processing all configured expiry weeks and trading days")

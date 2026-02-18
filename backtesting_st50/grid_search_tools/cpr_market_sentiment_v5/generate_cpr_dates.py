@@ -284,6 +284,23 @@ def load_backtesting_days(config_path: Path) -> list[str]:
     return normalized
 
 
+def load_new_day_from_config(script_dir: Path) -> str | None:
+    """
+    Load optional NEW_DAY (single date YYYY-MM-DD) from cpr_market_sentiment_v5/config.yaml.
+    When set, only this date is fetched; result is appended to cpr_dates.csv or same row updated if already present.
+    """
+    v5_config = script_dir / "config.yaml"
+    if not v5_config.exists():
+        return None
+    with open(v5_config, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    new_day = config.get("NEW_DAY")
+    if not new_day or not isinstance(new_day, str):
+        return None
+    new_day = str(pd.to_datetime(new_day).date())
+    return new_day
+
+
 def load_dates_for_cpr(backtesting_root: Path, script_dir: Path) -> list[str]:
     """
     Load the list of dates (YYYY-MM-DD) to generate CPR for.
@@ -316,19 +333,6 @@ def main() -> None:
     except OSError:
         pass
 
-    # Use BACKTESTING_DAYS so CPR is generated for every backtest date (2025 and 2026).
-    # Previously used only DATE_MAPPINGS + current year, so 2025 dates were missing and Entry2 skipped.
-    backtesting_days = load_dates_for_cpr(backtesting_root, script_dir)
-    if not backtesting_days:
-        logger.error(
-            "No dates to generate CPR for. Add BACKTESTING_DAYS in backtesting_config.yaml "
-            "or DATE_MAPPINGS in %s (e.g. dec03: DEC09).",
-            script_dir / "config.yaml",
-        )
-        sys.exit(1)
-    logger.info("Loaded %d dates from BACKTESTING_DAYS (backtesting_config.yaml) for CPR", len(backtesting_days))
-    logger.info("Fetching previous day OHLC from Kite API (daily candles)...")
-
     try:
         from trading_bot_utils import get_kite_api_instance
     except ImportError as e:
@@ -340,6 +344,66 @@ def main() -> None:
     if kite is None:
         logger.error("Kite API instance is None. Check credentials / login.")
         sys.exit(1)
+
+    base_columns = [
+        "date", "PDH", "PDL", "TC", "P", "BC", "R1", "R2", "R3", "R4", "S1", "S2", "S3", "S4",
+    ] + BAND_LOWER_UPPER_COLUMNS
+    out_path_v5 = script_dir / "cpr_dates.csv"
+    analytics_path = backtesting_root / "analytics" / "cpr_dates.csv"
+
+    # NEW_DAY mode: only fetch this date; append at end or update same row if already present
+    new_day = load_new_day_from_config(script_dir)
+    if new_day:
+        logger.info("NEW_DAY mode: fetching only %s (append or update in cpr_dates.csv)", new_day)
+        prev_h, prev_l, prev_c = get_prev_day_ohlc_from_kite(kite, new_day)
+        if prev_h is None or prev_l is None or prev_c is None:
+            prev_dt = previous_trading_day(pd.to_datetime(new_day).date())
+            logger.error("No Kite daily OHLC for %s (prev %s). Cannot update.", new_day, date_to_day_label(prev_dt))
+            sys.exit(1)
+        cpr = compute_cpr(prev_h, prev_l, prev_c)
+        fib_bands = compute_cpr_fib_bands(cpr)
+        type2_bands = compute_cpr_type2_bands(cpr)
+        row = {"date": new_day, **cpr, **fib_bands, **type2_bands}
+
+        # Load existing CSV if present; drop row for this date so we replace (update) or append
+        if out_path_v5.exists():
+            existing_full = pd.read_csv(out_path_v5)
+            existing_full["date"] = existing_full["date"].astype(str).str.strip()
+            had_row = (existing_full["date"] == new_day).any()
+            existing_df = existing_full[existing_full["date"] != new_day]
+            new_row_df = pd.DataFrame([row]).reindex(columns=base_columns)
+            out_df = pd.concat([existing_df, new_row_df], ignore_index=True)
+            action = "updated" if had_row else "appended"
+        else:
+            out_df = pd.DataFrame([row], columns=base_columns)
+            action = "appended (new file)"
+
+        for band in ALL_BAND_NAMES:
+            mid = (out_df[f"band_{band}_lower"] + out_df[f"band_{band}_upper"]) / 2
+            out_df[f"band_{band}_5"] = mid.rolling(5, min_periods=1).mean().round(2)
+        out_df = out_df.reindex(columns=CPR_COLUMNS)
+        analytics_path.parent.mkdir(parents=True, exist_ok=True)
+        out_df.to_csv(out_path_v5, index=False)
+        out_df.to_csv(analytics_path, index=False)
+        logger.info("Wrote %d rows to %s (%s row for %s)", len(out_df), out_path_v5, action, new_day)
+        logger.info("Also wrote to %s", analytics_path)
+        try:
+            os.chdir(orig_cwd)
+        except OSError:
+            pass
+        return
+
+    # Full run: all dates from BACKTESTING_DAYS or DATE_MAPPINGS
+    backtesting_days = load_dates_for_cpr(backtesting_root, script_dir)
+    if not backtesting_days:
+        logger.error(
+            "No dates to generate CPR for. Add BACKTESTING_DAYS in backtesting_config.yaml "
+            "or DATE_MAPPINGS in %s (e.g. dec03: DEC09), or set NEW_DAY for single-date append/update.",
+            script_dir / "config.yaml",
+        )
+        sys.exit(1)
+    logger.info("Loaded %d dates from BACKTESTING_DAYS (backtesting_config.yaml) for CPR", len(backtesting_days))
+    logger.info("Fetching previous day OHLC from Kite API (daily candles)...")
 
     rows = []
     missing_prev = []
@@ -373,9 +437,6 @@ def main() -> None:
 
     # Write to v5 folder (this script's directory) and to analytics for analyze_trades_above_r1_below_s1.py
     # Always build with full column set so output has CPR + all bands even with 0 rows or mixed runs
-    base_columns = [
-        "date", "PDH", "PDL", "TC", "P", "BC", "R1", "R2", "R3", "R4", "S1", "S2", "S3", "S4",
-    ] + BAND_LOWER_UPPER_COLUMNS
     out_df = pd.DataFrame(rows, columns=base_columns)
     # band_*_5 = 5-period rolling mean of band midpoint (average of lower and upper)
     for band in ALL_BAND_NAMES:
@@ -383,10 +444,8 @@ def main() -> None:
         out_df[f"band_{band}_5"] = mid.rolling(5, min_periods=1).mean().round(2)
     # Enforce full column order and presence (avoids ever writing CPR-only when many dates / other scripts)
     out_df = out_df.reindex(columns=CPR_COLUMNS)
-    out_path_v5 = script_dir / "cpr_dates.csv"
     out_df.to_csv(out_path_v5, index=False)
     logger.info("Wrote %d rows (%d columns: 14 CPR + %d band cols) to %s", len(out_df), len(CPR_COLUMNS), len(CPR_BAND_COLUMNS), out_path_v5)
-    analytics_path = backtesting_root / "analytics" / "cpr_dates.csv"
     analytics_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(analytics_path, index=False)
     logger.info("Also wrote to %s", analytics_path)
