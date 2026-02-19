@@ -139,7 +139,7 @@ Code references:
 
 - Production “window block” W%R(28): `entry_conditions.py` ~1069–1077 (`wpr_28_ok_2`).
 - Production same-candle W%R(28): ~756–774 (`wpr_28_above_threshold_ok`).
-- Backtest W%R(28): `strategy.py` ~1289–1302 (in-window), ~1236–1240 (same-candle).
+- Backtest W%R(28): `strategy.py` ~1289–1302 (in-window), ~1236–1240 (same-candle). **Status:** Backtest aligned with production: W%R(28) uses `(wpr_28_crosses_above_basic or (wpr_slow_current > wpr_28_oversold)) and (flexible_stochrsi_confirmation or is_bearish)` in same-candle and window blocks (flexible mode does not require `is_bearish`).
 
 ---
 

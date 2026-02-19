@@ -1216,19 +1216,22 @@ class Entry2BacktestStrategyFixed:
             
             # Continue to check for confirmations on the same trigger candle
             # CRITICAL: If trigger and confirmations happen on same candle, check them immediately
-            # Slow W%R confirmation requires SuperTrend1 to be bearish (STRICT)
-            wpr_28_crosses_above = (wpr_slow_prev <= self.wpr_28_oversold) and (wpr_slow_current > self.wpr_28_oversold) and is_bearish
+            # W%R(28) confirmation: production parity — flexible = no SuperTrend requirement; strict = is_bearish required (crossover or already above)
+            wpr_28_crosses_above_basic_here = (wpr_slow_prev <= self.wpr_28_oversold) and (wpr_slow_current > self.wpr_28_oversold)
+            wpr_28_confirm_ok_same = (wpr_28_crosses_above_basic_here or (wpr_slow_current > self.wpr_28_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
             if self.flexible_stochrsi_confirmation:
                 stoch_rsi_condition = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold)
             else:
                 stoch_rsi_condition = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
             
-            # WPR28 confirmation: Only confirm on crossover (not just currently above)
-            if wpr_28_crosses_above:
+            # WPR28 confirmation: crossover or already above; flexible = no bearish required, strict = bearish required
+            if wpr_28_confirm_ok_same:
                 state_machine['wpr_28_confirmed_in_window'] = True
-                logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (crossed above {self.wpr_28_oversold} from {wpr_slow_prev:.2f} to {wpr_slow_current:.2f}, same candle as trigger, SuperTrend1 bearish)")
-            elif wpr_slow_current > self.wpr_28_oversold and is_bearish:
-                logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) but hasn't crossed yet (prev={wpr_slow_prev:.2f}) - same candle as trigger")
+                mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                if wpr_28_crosses_above_basic_here:
+                    logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (crossed above {self.wpr_28_oversold} from {wpr_slow_prev:.2f} to {wpr_slow_current:.2f}, same candle as trigger, {mode_desc} mode)")
+                else:
+                    logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (already above {self.wpr_28_oversold} at {wpr_slow_current:.2f}, same candle as trigger, {mode_desc} mode)")
             
             if stoch_rsi_condition:
                 state_machine['stoch_rsi_confirmed_in_window'] = True
@@ -1274,21 +1277,18 @@ class Entry2BacktestStrategyFixed:
             # Countdown is kept for logging/debugging but window logic uses trigger_bar_index
             
             # Check for confirmations and remember them if they occur
-            # Slow W%R confirmation: Requires SuperTrend1 to be bearish (STRICT requirement)
-            # CRITICAL FIX: Confirm if WPR28 CROSSES above threshold at current_index OR if it's already above
-            # (crossover might have happened in a previous bar within the confirmation window)
-            if wpr_28_crosses_above:
-                state_machine['wpr_28_confirmed_in_window'] = True
-                logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (crossed above {self.wpr_28_oversold} from {wpr_slow_prev:.2f} to {wpr_slow_current:.2f}, SuperTrend1 bearish) - trigger was at {trigger_bar_index}")
-            elif wpr_slow_current > self.wpr_28_oversold and is_bearish:
-                # CRITICAL FIX: If WPR28 is above threshold and we haven't confirmed yet, confirm it now
-                # The crossover might have happened in a previous bar (e.g., at trigger_bar_index or trigger_bar_index+1)
-                # As long as we're still in the confirmation window and the condition is met, we should confirm
+            # W%R(28) confirmation: production parity — (crossover OR already above) AND (flexible OR is_bearish)
+            # Flexible = no SuperTrend requirement; strict = is_bearish required for both crossover and already above
+            wpr_28_confirm_ok_window = (wpr_28_crosses_above_basic or (wpr_slow_current > self.wpr_28_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+            if wpr_28_confirm_ok_window:
                 if not state_machine.get('wpr_28_confirmed_in_window', False):
                     state_machine['wpr_28_confirmed_in_window'] = True
-                    logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (already above {self.wpr_28_oversold} at {wpr_slow_current:.2f}, SuperTrend1 bearish, crossover happened earlier) - trigger was at {trigger_bar_index}")
+                    mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                    if wpr_28_crosses_above_basic:
+                        logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (crossed above {self.wpr_28_oversold} from {wpr_slow_prev:.2f} to {wpr_slow_current:.2f}, {mode_desc} mode) - trigger was at {trigger_bar_index}")
+                    else:
+                        logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (already above {self.wpr_28_oversold} at {wpr_slow_current:.2f}, {mode_desc} mode, crossover happened earlier) - trigger was at {trigger_bar_index}")
                 else:
-                    # Log when WPR28 is above but already confirmed (for debugging)
                     logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) and already confirmed (prev={wpr_slow_prev:.2f}) - trigger was at {trigger_bar_index}")
             
             # StochRSI confirmation: Mode-dependent (flexible or strict)
