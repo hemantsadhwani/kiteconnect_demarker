@@ -58,7 +58,7 @@ TRADE_SETTINGS:
     useEntry3: false # Disabled - Entry 3 (StochRSI K/D crossover with SuperTrend) for PE
     
   WAIT_BARS_RSI: 3 # Bars to wait for StochRSI confirmation
-  ENTRY2_CONFIRMATION_WINDOW: 4 # Number of candles (T, T+1, T+2) for WPR28 and StochRSI confirmations
+  ENTRY2_CONFIRMATION_WINDOW: 5 # Number of candles (T, T+1, T+2) for WPR28 and StochRSI confirmations
   # Entry2 logic mode: true = Flexible (StochRSI can confirm even if SuperTrend turns bullish)
   #                    false = Strict (All confirmations must occur when SuperTrend is bearish)
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
@@ -66,7 +66,9 @@ TRADE_SETTINGS:
   # This allows more frequent trades to test trigger + confirmation logic in real-time
   # When disabled, uses production Entry2 with full SuperTrend and sentiment requirements
   DEBUG_ENTRY2: false
-  
+  # WPR_INVALIDATION: When true, invalidate Entry2 trigger if both W%R(9) and W%R(28) go below oversold during confirmation window (or before execution). Reset state and look for new trigger. Set false to disable (e.g. per market).
+  WPR_INVALIDATION: false
+
   # SKIP_FIRST Feature Configuration
   # Skips the first Entry2 signal after SuperTrend switches from bullish to bearish
   # ONLY when both Nifty 9:30 sentiment and CPR Pivot sentiment are BEARISH

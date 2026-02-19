@@ -233,7 +233,8 @@ ENTRY2:
   DYNAMIC_TRAILING_WPR9: false
   DYNAMIC_TRAILING_MA: true
   DYNAMIC_TRAILING_MA_THRESH: 7
-  WPR9_INVALIDATION: false
+  # WPR_INVALIDATION: If true, during confirmation window invalidate trigger when both W%R(9) <= oversold and W%R(28) <= oversold on current candle (matches production).
+  WPR_INVALIDATION: false
   ST_STOP_LOSS_PERCENT: true
   ST_SL_WHEN_TRAILING_TP: true
   SL_TO_PRICE: false

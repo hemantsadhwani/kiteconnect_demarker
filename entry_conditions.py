@@ -133,10 +133,15 @@ class EntryConditionManager:
         # When enabled: Entry2 skips SuperTrend and sentiment checks for testing trigger + confirmation logic
         # When disabled: Uses production Entry2 with full SuperTrend and sentiment requirements
         self.debug_entry2 = strategy_config.get('DEBUG_ENTRY2', False)
+        self.wpr_invalidation = strategy_config.get('WPR_INVALIDATION', False)
         if self.debug_entry2:
             self.logger.warning("⚠️  DEBUG_ENTRY2 is ENABLED - Entry2 will skip SuperTrend and sentiment checks for testing!")
         else:
             self.logger.info("DEBUG_ENTRY2 is disabled - using production Entry2 with full requirements")
+        if self.wpr_invalidation:
+            self.logger.info("WPR_INVALIDATION is enabled - Entry2 trigger invalidated when both W%%R(9) and W%%R(28) go below oversold during confirmation window")
+        else:
+            self.logger.info("WPR_INVALIDATION is disabled - both-W%%R-below-oversold invalidation off")
         
         # Load MARKET_SENTIMENT: effective sentiment (MODE + MANUAL_SENTIMENT or algo) drives filtering.
         # NEUTRAL = both CE and PE allowed; BULLISH = CE only; BEARISH = PE only (no separate ENABLED flag).
@@ -1047,16 +1052,14 @@ class EntryConditionManager:
                 self._reset_entry2_state_machine(symbol)
                 return False
             
-            # CRITICAL INVALIDATION CHECK: If both WPR fast and WPR slow go below their respective oversold thresholds,
-            # invalidate the trigger immediately and reset all conditions including confirmation window.
-            # This prevents entries when momentum has reversed back into oversold territory.
-            wpr_fast_below_threshold = pd.notna(wpr_fast_current) and wpr_fast_current <= self.wpr_9_oversold
-            wpr_slow_below_threshold = pd.notna(wpr_slow_current) and wpr_slow_current <= self.wpr_28_oversold
-            
-            if wpr_fast_below_threshold and wpr_slow_below_threshold:
-                self.logger.info(f"[INVALIDATION] Entry2 trigger invalidated for {symbol}: Both W%R fast ({wpr_fast_current:.2f} <= {self.wpr_9_oversold}) and W%R slow ({wpr_slow_current:.2f} <= {self.wpr_28_oversold}) went below their oversold thresholds during confirmation window. Resetting state machine and starting fresh.")
-                self._reset_entry2_state_machine(symbol)
-                return False
+            # WPR_INVALIDATION: If enabled, invalidate trigger when both W%R(9) and W%R(28) go below oversold during confirmation window.
+            if self.wpr_invalidation:
+                wpr_fast_below_threshold = pd.notna(wpr_fast_current) and wpr_fast_current <= self.wpr_9_oversold
+                wpr_slow_below_threshold = pd.notna(wpr_slow_current) and wpr_slow_current <= self.wpr_28_oversold
+                if wpr_fast_below_threshold and wpr_slow_below_threshold:
+                    self.logger.info(f"[INVALIDATION] Entry2 trigger invalidated for {symbol}: Both W%R fast ({wpr_fast_current:.2f} <= {self.wpr_9_oversold}) and W%R slow ({wpr_slow_current:.2f} <= {self.wpr_28_oversold}) went below their oversold thresholds during confirmation window. Resetting state machine and starting fresh.")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
             
             # Now check confirmations (only if window hasn't expired)
             # CRITICAL FIX: Check confirmations AFTER window expiration check
@@ -1121,16 +1124,14 @@ class EntryConditionManager:
             if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
                 print(f"[ENTRY2 DEBUG] Success condition check for {symbol}: W%R(28) confirmed={state_machine['wpr_28_confirmed_in_window']}, StochRSI confirmed={state_machine['stoch_rsi_confirmed_in_window']}")
             
-            # CRITICAL INVALIDATION CHECK: Re-check invalidation right before success condition
-            # This ensures that even if confirmations were received earlier, if both WPRs go below thresholds
-            # on the current candle, we invalidate the trigger before executing the trade.
-            wpr_fast_below_threshold_final = pd.notna(wpr_fast_current) and wpr_fast_current <= self.wpr_9_oversold
-            wpr_slow_below_threshold_final = pd.notna(wpr_slow_current) and wpr_slow_current <= self.wpr_28_oversold
-            
-            if wpr_fast_below_threshold_final and wpr_slow_below_threshold_final:
-                self.logger.info(f"[INVALIDATION] Entry2 trigger invalidated for {symbol} (before execution): Both W%R fast ({wpr_fast_current:.2f} <= {self.wpr_9_oversold}) and W%R slow ({wpr_slow_current:.2f} <= {self.wpr_28_oversold}) went below their oversold thresholds. Resetting state machine even though confirmations were received.")
-                self._reset_entry2_state_machine(symbol)
-                return False
+            # WPR_INVALIDATION: Re-check right before success; if both WPRs below oversold on current candle, invalidate before executing.
+            if self.wpr_invalidation:
+                wpr_fast_below_threshold_final = pd.notna(wpr_fast_current) and wpr_fast_current <= self.wpr_9_oversold
+                wpr_slow_below_threshold_final = pd.notna(wpr_slow_current) and wpr_slow_current <= self.wpr_28_oversold
+                if wpr_fast_below_threshold_final and wpr_slow_below_threshold_final:
+                    self.logger.info(f"[INVALIDATION] Entry2 trigger invalidated for {symbol} (before execution): Both W%R fast ({wpr_fast_current:.2f} <= {self.wpr_9_oversold}) and W%R slow ({wpr_slow_current:.2f} <= {self.wpr_28_oversold}) went below their oversold thresholds. Resetting state machine even though confirmations were received.")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
             
             if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
                 # Check SKIP_FIRST before allowing entry

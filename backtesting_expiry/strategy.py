@@ -403,11 +403,9 @@ class Entry2BacktestStrategyFixed:
         self.wpr_28_oversold = thresholds.get('WPR_SLOW_OVERSOLD', -80)
         self.stoch_rsi_oversold = thresholds.get('STOCH_RSI_OVERSOLD', 20)
         
-        # WPR_9 invalidation exit (must be after thresholds are loaded)
-        self.wpr9_invalidation = entry2_config.get('WPR9_INVALIDATION', False)
-        # Use WPR_FAST_OVERSOLD from THRESHOLDS config, with fallback to config value or default
-        default_invalidation_thresh = thresholds.get('WPR_FAST_OVERSOLD', -80)
-        self.wpr9_invalidation_thresh = entry2_config.get('WPR9_INVALIDATION_THRESH', default_invalidation_thresh)
+        # WPR invalidation (production-aligned): when true, during confirmation window invalidate trigger
+        # if both W%R(9) <= wpr_9_oversold and W%R(28) <= wpr_28_oversold on current candle; reset state and look for new trigger.
+        self.wpr_invalidation = entry2_config.get('WPR_INVALIDATION', entry2_config.get('WPR9_INVALIDATION', False))
         
         # Load Entry2 confirmation window: DEMARKER uses DEMARKER_CONFIRMATION_WINDOW (3), WPR uses WPR_CONFIRMATION_WINDOW (4)
         # Set after entry2_trigger is loaded below; placeholder here for backward compatibility
@@ -1175,16 +1173,16 @@ class Entry2BacktestStrategyFixed:
                 trigger_type = "W%R(28)"
             logger.info(f"Entry2: NEW TRIGGER DETECTED at index {current_index} for {symbol}: Triggered by {trigger_type} crossover - W%R(9) {wpr_fast_prev:.2f}->{wpr_fast_current:.2f}, W%R(28) {wpr_slow_prev:.2f}->{wpr_slow_current:.2f}, is_bearish={is_bearish}, current_state={state_machine['state']}")
             # Do NOT replace trigger when already in AWAITING_CONFIRMATION: wait for current trigger to be invalidated
-            # (by confirmation window expiry or WPR9 invalidation) before accepting a new trigger.
+            # (by confirmation window expiry or WPR invalidation) before accepting a new trigger.
             if state_machine['state'] == 'AWAITING_CONFIRMATION':
                 old_trigger_bar_index = state_machine.get('trigger_bar_index')
-                logger.debug(f"Entry2: Ignoring new trigger at index {current_index} - already in AWAITING_CONFIRMATION (trigger at {old_trigger_bar_index}); wait for window expiry or WPR9 invalidation before new trigger")
+                logger.debug(f"Entry2: Ignoring new trigger at index {current_index} - already in AWAITING_CONFIRMATION (trigger at {old_trigger_bar_index}); wait for window expiry or WPR invalidation before new trigger")
         
         # --- INVALIDATION CHECKS FOR ACTIVE STATE (HIGHEST PRIORITY) ---
         if state_machine['state'] == 'AWAITING_CONFIRMATION':
             trigger_bar_index = state_machine.get('trigger_bar_index')
             
-            # Reset if window expires OR if Fast W%R dips back below -80 (after trigger bar)
+            # Reset if window expires OR if both W%R below oversold (WPR invalidation, production-aligned)
             if trigger_bar_index is not None:
                 # Check window expiration
                 # Window includes T, T+1, T+2, ..., T+(CONFIRMATION_WINDOW-1) (CONFIRMATION_WINDOW bars total)
@@ -1196,25 +1194,14 @@ class Entry2BacktestStrategyFixed:
                     logger.debug(f"Entry2: Window expired at index {current_index} (trigger was at {trigger_bar_index}, window={self.entry2_confirmation_window})")
                     self._reset_entry2_state_machine(symbol)
                     # After reset, continue to check for new trigger on same candle (fall through)
-                else:
-                    # Invalidation: if trigger source W%R crosses back below oversold before the *other* W%R has confirmed, invalidate
-                    trigger_src = state_machine.get('trigger_source')
-                    wpr_28_crosses_below = (wpr_slow_prev > self.wpr_28_oversold) and (wpr_slow_current <= self.wpr_28_oversold)
-                    invalidate = False
-                    if trigger_src == 'wpr_9' and self.wpr9_invalidation and wpr_9_crosses_below and current_index > trigger_bar_index:
-                        if not state_machine.get('wpr_28_confirmed_in_window', False):
-                            invalidate = True
-                            logger.info(f"Entry2: Trigger INVALIDATED at index {current_index} - W%R(9) crossed below {self.wpr_9_oversold} (trigger was W%R(9), W%R(28) not confirmed yet)")
-                    elif trigger_src == 'wpr_28' and wpr_28_crosses_below and current_index > trigger_bar_index:
-                        if not state_machine.get('wpr_9_confirmed_in_window', False):
-                            invalidate = True
-                            logger.info(f"Entry2: Trigger INVALIDATED at index {current_index} - W%R(28) crossed below {self.wpr_28_oversold} (trigger was W%R(28), W%R(9) not confirmed yet)")
-                    elif trigger_src == 'both' and self.wpr9_invalidation and wpr_9_crosses_below and current_index > trigger_bar_index:
-                        if not state_machine.get('wpr_28_confirmed_in_window', False):
-                            invalidate = True
-                            logger.info(f"Entry2: Trigger INVALIDATED at index {current_index} - W%R(9) crossed below (trigger was both, W%R(28) not confirmed yet)")
-                    if invalidate:
+                # WPR invalidation (production-aligned): if both W%R(9) and W%R(28) are below oversold on current candle, invalidate trigger and reset state.
+                elif self.wpr_invalidation and current_index > trigger_bar_index:
+                    wpr_fast_below = pd.notna(wpr_fast_current) and wpr_fast_current <= self.wpr_9_oversold
+                    wpr_slow_below = pd.notna(wpr_slow_current) and wpr_slow_current <= self.wpr_28_oversold
+                    if wpr_fast_below and wpr_slow_below:
+                        logger.info(f"Entry2: Trigger INVALIDATED at index {current_index} - Both W%R(9) ({wpr_fast_current:.2f} <= {self.wpr_9_oversold}) and W%R(28) ({wpr_slow_current:.2f} <= {self.wpr_28_oversold}) below oversold during confirmation window (trigger was at {trigger_bar_index}). Resetting state machine and starting fresh.")
                         self._reset_entry2_state_machine(symbol)
+                        # After reset, continue to check for new trigger on same candle (fall through)
         
         # --- CHECK FOR NEW TRIGGER (when state is AWAITING_TRIGGER) ---
         # This includes cases where state was just reset due to invalidation
@@ -1346,6 +1333,15 @@ class Entry2BacktestStrategyFixed:
                 in_window = current_index < window_expires_at
                 
                 logger.info(f"Entry2: Confirmation check at index {current_index} (trigger at {trigger_bar_index}, trigger_source={state_machine.get('trigger_source')}, {bars_since_trigger} bars since trigger): WPR9_confirmed={state_machine.get('wpr_9_confirmed_in_window', False)}, WPR28_confirmed={state_machine.get('wpr_28_confirmed_in_window', False)}, StochRSI_confirmed={state_machine.get('stoch_rsi_confirmed_in_window', False)}")
+            
+            # WPR invalidation (production-aligned): right before signal, if both W%R below oversold on current candle, invalidate even if confirmations were met.
+            if self.wpr_invalidation:
+                wpr_fast_below_final = pd.notna(wpr_fast_current) and wpr_fast_current <= self.wpr_9_oversold
+                wpr_slow_below_final = pd.notna(wpr_slow_current) and wpr_slow_current <= self.wpr_28_oversold
+                if wpr_fast_below_final and wpr_slow_below_final:
+                    logger.info(f"Entry2: Trigger invalidated at index {current_index} (before signal): Both W%R(9) ({wpr_fast_current:.2f} <= {self.wpr_9_oversold}) and W%R(28) ({wpr_slow_current:.2f} <= {self.wpr_28_oversold}) below oversold. Resetting state machine even though confirmations were received.")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
             
             # Success: StochRSI + the *other* W%R (than trigger). Trigger=wpr_9 -> need wpr_28; trigger=wpr_28 -> need wpr_9; trigger=both -> need either.
             other_wpr_confirmed = (
@@ -2171,35 +2167,6 @@ class Entry2BacktestStrategyFixed:
                 logger.debug(f"SuperTrend1 column not found in data for {symbol} at bar {current_index}. Skipping validation.")
         
         return True  # Validation passed
-
-    def _check_wpr9_invalidation(self, df: pd.DataFrame, bar_index: int) -> bool:
-        """Check if WPR_9 has gone below the invalidation threshold (invalidation exit)"""
-        if not self.wpr9_invalidation:
-            return False
-        
-        # Get current WPR_9 value and SuperTrend direction
-        current_row = df.iloc[bar_index]
-        # Support both new fast_wpr and legacy wpr_9 column names
-        current_wpr_9 = current_row.get('fast_wpr', current_row.get('wpr_9'))
-        current_supertrend_dir = current_row.get('supertrend1_dir', None)
-        
-        # WPR9_INVALIDATION should only be active when supertrend1_dir = -1 (bearish)
-        # Disable when supertrend1_dir = 1 (bullish) as per requirements
-        if current_supertrend_dir == 1:
-            logger.debug(f"WPR9 invalidation disabled: SuperTrend1 is bullish (dir=1) at bar {bar_index}")
-            return False
-        
-        # Check if WPR_9 is below the invalidation threshold (more negative)
-        # WPR_9 ranges from -100 to 0, so -81 is below -80
-        if pd.isna(current_wpr_9):
-            return False
-        
-        # WPR_9 goes below invalidation threshold means it becomes more negative (e.g., -81 < -80)
-        if current_wpr_9 < self.wpr9_invalidation_thresh:
-            logger.info(f"WPR_9 invalidation detected: WPR_9 = {current_wpr_9:.2f} is below invalidation threshold {self.wpr9_invalidation_thresh}")
-            return True
-        
-        return False
 
     def _check_supertrend_stop_loss(self, df: pd.DataFrame, bar_index: int) -> Tuple[bool, str, float]:
         """
@@ -3086,15 +3053,6 @@ class Entry2BacktestStrategyFixed:
                         self._exit_position(df, i, f"Fixed {exit_reason} Exit", exit_price)
                         continue  # Skip other exit checks and entry logic
                     
-                    # Check for WPR_9 invalidation exit (Entry2 only, only if SL/TP not hit)
-                    if self.entry_type == 'Entry2' and self.wpr9_invalidation and self._check_wpr9_invalidation(df, i):
-                        # Exit immediately when invalidation condition is met (realistic execution)
-                        exit_price = df.iloc[i]['close']  # Use current bar's close as exit price
-                        exit_bar_index = i  # Exit on the same bar where condition was met
-                        
-                        logger.info(f"WPR_9 invalidation exit: WPR_9 went below {self.wpr9_invalidation_thresh} at bar {i}. Exiting immediately at {exit_price:.2f}")
-                        self._exit_position(df, exit_bar_index, "WPR_9 Invalidation Exit", exit_price)
-                        continue  # Skip other exit checks and entry logic
                     
                 
                 # Check for pending Entry1 confirmation first (before checking new signals)
