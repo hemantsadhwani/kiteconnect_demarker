@@ -198,7 +198,7 @@ PRICE_ZONES:
 # DISABLE: Stop all autonomous trades (manual BUY_CE/BUY_PE commands still allowed)
 # HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (allow both CE and PE)
 MARKET_SENTIMENT:
-  MODE: HYBRID  # Options: AUTO | MANUAL | DISABLE | HYBRID
+  MODE: MANUAL  # Options: AUTO | MANUAL | DISABLE | HYBRID
                 # AUTO: Use sentiment algorithm (v2, v5)
                 # MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE)
                 # DISABLE: Stop all autonomous trades
