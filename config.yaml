@@ -67,7 +67,7 @@ TRADE_SETTINGS:
   # When disabled, uses production Entry2 with full SuperTrend and sentiment requirements
   DEBUG_ENTRY2: false
   # WPR_INVALIDATION: When true, invalidate Entry2 trigger if both W%R(9) and W%R(28) go below oversold during confirmation window (or before execution). Reset state and look for new trigger. Set false to disable (e.g. per market).
-  WPR_INVALIDATION: false
+  WPR_INVALIDATION: true
 
   # SKIP_FIRST Feature Configuration
   # Skips the first Entry2 signal after SuperTrend switches from bullish to bearish

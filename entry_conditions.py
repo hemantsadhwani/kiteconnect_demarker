@@ -736,15 +736,16 @@ class EntryConditionManager:
         
         # --- PROCESS CONFIRMATION STATE ---
         if state_machine['state'] == 'AWAITING_CONFIRMATION':
+            current_bar_index_for_window = len(df_with_indicators) - 1  # df-based so we don't expire one bar early
             if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
-                self.logger.info(f"Entry2: Processing AWAITING_CONFIRMATION state for {symbol}, current_bar_index={self.current_bar_index}")
+                self.logger.info(f"Entry2: Processing AWAITING_CONFIRMATION state for {symbol}, current_bar_index={self.current_bar_index}, current_bar_index_for_window={current_bar_index_for_window}")
             
             trigger_bar_index = state_machine.get('trigger_bar_index')
             # Window expiration (align with backtest): valid bars are T .. T+window-1; expire when current_bar >= T+window
             if trigger_bar_index is not None:
                 window_end = trigger_bar_index + self.entry2_confirmation_window
-                if self.current_bar_index >= window_end:
-                    self.logger.debug(f"Entry2: Window expired for {symbol} at bar {self.current_bar_index} (trigger={trigger_bar_index}, window_end={window_end}) - resetting before confirmation check")
+                if current_bar_index_for_window >= window_end:
+                    self.logger.debug(f"Entry2: Window expired for {symbol} at bar {current_bar_index_for_window} (trigger={trigger_bar_index}, window_end={window_end}) - resetting before confirmation check")
                     self._reset_entry2_state_machine(symbol)
                     return False
             
@@ -926,13 +927,15 @@ class EntryConditionManager:
                     self.logger.info(f"Entry2: Trigger detected for {symbol} - {trigger_reason}: W%R(9) {wpr_fast_prev:.2f} -> {wpr_fast_current:.2f}, W%R(28) {wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}, SuperTrend bearish")
                     state_machine['state'] = 'AWAITING_CONFIRMATION'
                     state_machine['confirmation_countdown'] = self.entry2_confirmation_window  # Start N-candle window
-                    state_machine['trigger_bar_index'] = self.current_bar_index  # Store trigger bar index for window calculation
+                    # Use df-based bar index so window expiry matches the candle we're evaluating (avoids expiring one bar early)
+                    trigger_bar_index_new = len(df_with_indicators) - 1
+                    state_machine['trigger_bar_index'] = trigger_bar_index_new
                     state_machine['trigger_source'] = 'both' if both_cross_same_candle else ('wpr_9' if trigger_from_wpr9 else 'wpr_28')
                     state_machine['wpr_9_confirmed_in_window'] = False
                     state_machine['wpr_28_confirmed_in_window'] = False
                     state_machine['stoch_rsi_confirmed_in_window'] = False
-                    window_end = self.current_bar_index + self.entry2_confirmation_window
-                    self.logger.info(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {self.current_bar_index} (trigger_source={state_machine['trigger_source']}, confirm with other W%%R + StochRSI), window expires at bar {window_end}")
+                    window_end = trigger_bar_index_new + self.entry2_confirmation_window
+                    self.logger.info(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {trigger_bar_index_new} (trigger_source={state_machine['trigger_source']}, confirm with other W%%R + StochRSI), window expires at bar {window_end}")
                     
                     # CRITICAL: Check for confirmations on the same trigger candle
                     # Confirmation = StochRSI + the *other* W%R (trigger=wpr_9 -> need wpr_28; trigger=wpr_28 -> need wpr_9; trigger=both -> need either)
@@ -1011,13 +1014,16 @@ class EntryConditionManager:
         
         # --- PROCESS CONFIRMATION STATE ---
         if state_machine['state'] == 'AWAITING_CONFIRMATION':
+            # Use dataframe-based bar index for window so we don't expire on the same bar we're evaluating.
+            # (global current_bar_index is incremented before entry check, so we'd otherwise expire one bar early.)
+            current_bar_index_for_window = len(df_with_indicators) - 1
             if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
-                self.logger.info(f"Entry2: Processing AWAITING_CONFIRMATION state for {symbol}, current_bar_index={self.current_bar_index}")
+                self.logger.info(f"Entry2: Processing AWAITING_CONFIRMATION state for {symbol}, current_bar_index={self.current_bar_index}, current_bar_index_for_window={current_bar_index_for_window}")
             
             trigger_bar_index = state_machine.get('trigger_bar_index')
             
             # CRITICAL FIX: Check window expiration FIRST, before checking confirmations
-            # This prevents trades from executing after the window has expired
+            # Use current_bar_index_for_window (df-based) so the last valid bar can still confirm.
             # Window includes bars T, T+1, T+2, ..., T+(CONFIRMATION_WINDOW-1) (CONFIRMATION_WINDOW bars total)
             # If trigger_bar=17 and window=4, valid bars are 17,18,19,20 (window_end=21)
             # Window expires when current_index >= window_end (bar 21 and beyond)
@@ -1026,21 +1032,19 @@ class EntryConditionManager:
                 window_end = trigger_bar_index + self.entry2_confirmation_window
                 # DEBUG: Log window calculation for troubleshooting
                 if self.debug_entry2:
-                    self.logger.debug(f"[DEBUG_ENTRY2] Entry2 window check for {symbol}: trigger_bar={trigger_bar_index}, current_bar={self.current_bar_index}, window_end={window_end}, within_window={self.current_bar_index < window_end}")
+                    self.logger.debug(f"[DEBUG_ENTRY2] Entry2 window check for {symbol}: trigger_bar={trigger_bar_index}, current_bar_for_window={current_bar_index_for_window}, window_end={window_end}, within_window={current_bar_index_for_window < window_end}")
                 
-                # Window expires when current_bar_index >= window_end
-                # If window_end=21, valid bars are 17,18,19,20 (current_bar_index < 21)
-                # Bar 21 expires (current_bar_index >= 21)
-                if self.current_bar_index >= window_end:
+                # Window expires when current_bar_index_for_window >= window_end
+                if current_bar_index_for_window >= window_end:
                     window_expired = True
                     wpr9_status = "OK" if state_machine.get('wpr_9_confirmed_in_window', False) else "X"
                     wpr28_status = "OK" if state_machine.get('wpr_28_confirmed_in_window', False) else "X"
                     stoch_status = "OK" if state_machine['stoch_rsi_confirmed_in_window'] else "X"
-                    self.logger.info(f"[TIME] Entry2: Window expired for {symbol} at bar {self.current_bar_index} (trigger={trigger_bar_index}, trigger_source={state_machine.get('trigger_source')}, window={self.entry2_confirmation_window}, end={window_end}) - W%R(9): {wpr9_status}, W%R(28): {wpr28_status}, StochRSI: {stoch_status}")
+                    self.logger.info(f"[TIME] Entry2: Window expired for {symbol} at bar {current_bar_index_for_window} (trigger={trigger_bar_index}, trigger_source={state_machine.get('trigger_source')}, window={self.entry2_confirmation_window}, end={window_end}) - W%R(9): {wpr9_status}, W%R(28): {wpr28_status}, StochRSI: {stoch_status}")
                     self._reset_entry2_state_machine(symbol)
                     return False
                 elif os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
-                    self.logger.info(f"Entry2: Window check for {symbol}: trigger_bar={trigger_bar_index}, current_bar={self.current_bar_index}, window_end={window_end}, within_window={self.current_bar_index < window_end}")
+                    self.logger.info(f"Entry2: Window check for {symbol}: trigger_bar={trigger_bar_index}, current_bar_for_window={current_bar_index_for_window}, window_end={window_end}, within_window={current_bar_index_for_window < window_end}")
             
             # Check for window expiration (fallback if trigger_bar_index not set)
             if state_machine['confirmation_countdown'] <= 0:
