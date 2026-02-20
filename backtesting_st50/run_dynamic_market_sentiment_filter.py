@@ -352,9 +352,11 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         else:
             logger.info(f"{kind} trade files are empty ({ce_path.name}, {pe_path.name}) - creating empty sentiment-filtered file")
         
-        # Create empty sentiment-filtered file with proper columns so Phase 3.5 (MARK2MARKET) can process it
-        # Note: Use realized_pnl_pct instead of pnl (pnl and realized_pnl are removed by convert_to_percentages)
-        empty_df = pd.DataFrame(columns=['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'realized_pnl_pct', 'high', 'swing_low', 'market_sentiment', 'filter_status'])
+        # Create empty sentiment-filtered file with same columns as ATM/OTM (so sentiment_pnl position matches)
+        empty_cols = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
+                      'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                      'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'trade_status_reason', 'market_sentiment', 'filter_status']
+        empty_df = pd.DataFrame(columns=empty_cols)
         try:
             empty_df.to_csv(output_file, index=False)
             logger.info(f"Created empty sentiment-filtered file: {output_file}")
@@ -919,6 +921,18 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     
     # Apply conversion before saving
     filtered_df = convert_to_percentages(filtered_df)
+    
+    # Enforce same column order as ATM for both ATM and OTM (so sentiment_pnl is in same position after trailing stop)
+    canonical_columns = [
+        'symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
+        'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+        'high', 'swing_low', 'symbol_html',
+        'realized_pnl_pct',  # becomes sentiment_pnl after apply_trailing_stop
+        'trade_status_reason', 'market_sentiment', 'filter_status'
+    ]
+    existing_canonical = [c for c in canonical_columns if c in filtered_df.columns]
+    extra_columns = [c for c in filtered_df.columns if c not in canonical_columns]
+    filtered_df = filtered_df[existing_canonical + extra_columns]
     
     # Try to write the file with error handling
     try:

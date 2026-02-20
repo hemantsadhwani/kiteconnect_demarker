@@ -614,42 +614,53 @@ class ConsolidatedDynamicOTMAnalysis:
             logger.info(f"Saved dynamic OTM slabs to: {slabs_file}")
         return True
 
-    def _get_symbol_prefix_from_expiry(self, expiry_week: str, is_monthly: bool):
+    def _get_symbol_prefix_from_expiry(self, expiry_week: str, is_monthly: bool, date_str: str = None):
         """
         Get the symbol prefix for file name construction based on expiry week.
+        When date_str (YYYY-MM-DD) is provided, year is derived from it so both 2025 and 2026 work (like ATM).
         Examples:
-        - OCT20 weekly -> 'NIFTY25O2025'
-        - OCT28 monthly -> 'NIFTY25OCT'
-        - NOV04 weekly -> 'NIFTY25NOV' (uses month abbreviation like monthly for cross-month expiries)
-        - NOV11 weekly -> 'NIFTY25NOV' (uses month abbreviation for November weekly expiries)
+        - OCT20 weekly -> 'NIFTY25O2025' or 'NIFTY26O2026' from date_str year
+        - FEB03 2026 -> 'NIFTY26203', FEB03 2025 -> 'NIFTY25F0325'
+        - JAN06 2026 -> 'NIFTY26JAN', JAN06 2025 -> 'NIFTY25JAN'
         """
         month_map = {
             'JAN': ('J', 'JAN'), 'FEB': ('F', 'FEB'), 'MAR': ('M', 'MAR'), 'APR': ('A', 'APR'),
             'MAY': ('M', 'MAY'), 'JUN': ('J', 'JUN'), 'JUL': ('J', 'JUL'), 'AUG': ('A', 'AUG'),
             'SEP': ('S', 'SEP'), 'OCT': ('O', 'OCT'), 'NOV': ('N', 'NOV'), 'DEC': ('D', 'DEC')
         }
-        
+        year_suffix = "25"
+        if date_str:
+            try:
+                year = datetime.strptime(date_str[:10], '%Y-%m-%d').year
+                year_suffix = str(year)[2:]  # 2025 -> "25", 2026 -> "26"
+            except (ValueError, TypeError):
+                pass
+        else:
+            month_label_pre = expiry_week[:3]
+            if month_label_pre in ("JAN", "FEB"):
+                year_suffix = "26"
+
         month_label = expiry_week[:3]  # OCT, NOV, etc.
         day_str = expiry_week[3:]      # 20, 28, 04, 11, etc.
-        
+
         if is_monthly:
-            # Monthly format: NIFTY25OCT
-            return f"NIFTY25{month_map[month_label][1]}"
+            return f"NIFTY{year_suffix}{month_map[month_label][1]}"
         else:
-            # Weekly format: check if it's a cross-month expiry or November expiry
-            # NOV04 and NOV11 weekly expiries use NOV abbreviation (like monthly)
             if expiry_week in ["NOV04", "NOV11"] or month_label == "NOV":
-                # Special case: November weekly expiries use NOV abbreviation (like monthly)
-                return f"NIFTY25NOV"
+                return f"NIFTY{year_suffix}NOV"
             elif month_label == "JAN":
-                # Special case: January weekly expiry uses JAN abbreviation (like monthly)
-                # Format: NIFTY26JAN (26 = year 2026, JAN = month)
-                year_suffix = "26"  # Default to 2026, can be made dynamic based on expiry_week context
                 return f"NIFTY{year_suffix}JAN"
+            elif month_label == "FEB":
+                try:
+                    mm = 2 * 100 + int(day_str)
+                    if year_suffix == "26":
+                        return f"NIFTY26{mm}"
+                    return f"NIFTY25{month_map[month_label][0]}{day_str}25"
+                except ValueError:
+                    return f"NIFTY{year_suffix}{month_map[month_label][0]}{day_str}{year_suffix}"
             else:
-                # Standard weekly: NIFTY25O2025 (O = October letter, 20 = day, 25 = year)
                 month_letter = month_map[month_label][0]
-                return f"NIFTY25{month_letter}{day_str}25"
+                return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"
     
     def _get_enabled_entry_types(self):
         """Get list of enabled entry types from config"""
@@ -759,6 +770,9 @@ class ConsolidatedDynamicOTMAnalysis:
                         month_letter = month_map[month_label][0]
                         if f"NIFTY25{month_letter}{day_str}" in filename:
                             weekly_count += 1
+                    # FEB-style weekly: NIFTY26203/26210/26217 (2026) or NIFTY25203 (2025)
+                    if month_label == "FEB" and re.match(r'NIFTY2[56]\d{3}\d{5}(?:PE|CE)$', filename):
+                        weekly_count += 1
             
             if monthly_count > weekly_count:
                 logger.info(f"Detected monthly format from files (monthly: {monthly_count}, weekly: {weekly_count})")
@@ -1022,8 +1036,13 @@ class ConsolidatedDynamicOTMAnalysis:
                                     strike_str = parts[1].replace('PE', '')
                                     break
                     elif re.search(r'NIFTY26\d{3}\d{5}PE$', symbol):
-                        # FEB03-style: NIFTY2620325250PE (26=year, 203=Feb03, 25250=strike) - same as ATM
+                        # FEB03-style 2026: NIFTY2620325250PE (26=year, 203=Feb03, 25250=strike)
                         match = re.search(r'NIFTY26\d{3}(\d{5})PE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
+                    elif re.search(r'NIFTY25\d{3}\d{5}PE$', symbol):
+                        # FEB-style 2025: NIFTY2520325250PE (25=year, 203=Feb03, 25250=strike)
+                        match = re.search(r'NIFTY25\d{3}(\d{5})PE$', symbol)
                         if match:
                             strike_str = match.group(1)
                     elif re.search(r'NIFTY26F\d{2}\d{2}\d+PE$', symbol):
@@ -1098,8 +1117,13 @@ class ConsolidatedDynamicOTMAnalysis:
                                     strike_str = parts[1].replace('CE', '')
                                     break
                     elif re.search(r'NIFTY26\d{3}\d{5}CE$', symbol):
-                        # FEB03-style: NIFTY2620325250CE (26=year, 203=Feb03, 25250=strike) - same as ATM
+                        # FEB03-style 2026: NIFTY2620325250CE (26=year, 203=Feb03, 25250=strike)
                         match = re.search(r'NIFTY26\d{3}(\d{5})CE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
+                    elif re.search(r'NIFTY25\d{3}\d{5}CE$', symbol):
+                        # FEB-style 2025: NIFTY2520325250CE (25=year, 203=Feb03, 25250=strike)
+                        match = re.search(r'NIFTY25\d{3}(\d{5})CE$', symbol)
                         if match:
                             strike_str = match.group(1)
                     elif re.search(r'NIFTY26F\d{2}\d{2}\d+CE$', symbol):
@@ -1915,8 +1939,8 @@ class ConsolidatedDynamicOTMAnalysis:
             pe_file_strike = pe_option_strike
             ce_file_strike = ce_option_strike
             
-            # Construct PE file name based on format using expiry week
-            symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly)
+            # Construct PE file name based on format using expiry week (date_str for year 25/26 like ATM)
+            symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly, date_str)
             pe_file = source_dir / f"{symbol_prefix}{pe_file_strike}PE_strategy.csv"
             logger.info(f"Looking for PE file: {pe_file}")
             if pe_file.exists():
@@ -1927,17 +1951,8 @@ class ConsolidatedDynamicOTMAnalysis:
                 logger.info(f"PE Entry2 signals in period: {len(period_pe_signals)}")
                 for _, signal in period_pe_signals.iterrows():
                     signal_time = signal['date'].strftime('%H:%M:%S')
-                    # Construct PE symbol name based on format
-                    if is_monthly:
-                        pe_symbol_name = f"NIFTY25OCT{pe_option_strike}PE"
-                    elif expiry_week.startswith("JAN"):
-                        # JAN format: NIFTY26JAN25300PE (full strike)
-                        pe_symbol_name = f"NIFTY26JAN{pe_file_strike}PE"
-                    elif expiry_week in ["NOV04", "NOV11"]:
-                        # NOV format: NIFTY25NOV25950PE (full strike)
-                        pe_symbol_name = f"NIFTY25NOV{pe_file_strike}PE"
-                    else:
-                        pe_symbol_name = f"NIFTY25O2025{pe_file_strike}PE"
+                    # Construct PE symbol name from prefix (supports year 25/26 from date_str)
+                    pe_symbol_name = f"{symbol_prefix}{pe_file_strike}PE"
                     
                     all_dynamic_trades.append({
                         'symbol': pe_symbol_name,
@@ -1949,8 +1964,8 @@ class ConsolidatedDynamicOTMAnalysis:
                     })
             ce_option_strike = period['ce_strike']
             
-            # Construct CE file name based on format using expiry week
-            symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly)
+            # Construct CE file name based on format using expiry week (date_str for year 25/26 like ATM)
+            symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly, date_str)
             ce_file = source_dir / f"{symbol_prefix}{ce_file_strike}CE_strategy.csv"
             logger.info(f"Looking for CE file: {ce_file}")
             if ce_file.exists():
@@ -1961,19 +1976,8 @@ class ConsolidatedDynamicOTMAnalysis:
                 logger.info(f"CE Entry2 signals in period: {len(period_ce_signals)}")
                 for _, signal in period_ce_signals.iterrows():
                     signal_time = signal['date'].strftime('%H:%M:%S')
-                    # Construct CE symbol name based on format using expiry week
-                    # OTM slabs now store full strikes, so use ce_file_strike directly
-                    if is_monthly:
-                        ce_symbol_name = f"NIFTY25OCT{ce_file_strike}CE"
-                    elif expiry_week.startswith("JAN"):
-                        # JAN format: NIFTY26JAN25400CE (full strike)
-                        ce_symbol_name = f"NIFTY26JAN{ce_file_strike}CE"
-                    elif expiry_week in ["NOV04", "NOV11"]:
-                        # NOV format: NIFTY25NOV25950CE (full strike)
-                        ce_symbol_name = f"NIFTY25NOV{ce_file_strike}CE"
-                    else:
-                        symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly)
-                        ce_symbol_name = f"{symbol_prefix}{ce_file_strike}CE"
+                    # Construct CE symbol name from prefix (supports year 25/26 from date_str)
+                    ce_symbol_name = f"{symbol_prefix}{ce_file_strike}CE"
                     
                     all_dynamic_trades.append({
                         'symbol': ce_symbol_name,
@@ -2105,21 +2109,27 @@ class ConsolidatedDynamicOTMAnalysis:
                     elif 'N11' in symbol:
                         # Handle NIFTY25N1125450PE format (NOV11 weekly)
                         strike_str = symbol.split('N11')[1].replace('PE', '')
+                    elif re.search(r'NIFTY26\d{3}\d{5}PE$', symbol):
+                        # FEB03/FEB10/FEB17-style weekly 2026: NIFTY2620325250PE
+                        match = re.search(r'NIFTY26\d{3}(\d{5})PE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
+                    elif re.search(r'NIFTY25\d{3}\d{5}PE$', symbol):
+                        # FEB-style weekly 2025: NIFTY2520325250PE
+                        match = re.search(r'NIFTY25\d{3}(\d{5})PE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
                     else:
                         # Generic: find last sequence of digits before PE
-                        # For formats like NIFTY2612025600PE, extract the last 5 digits (strike)
-                        # Try to find 4-6 digit strike at the end before PE
                         match = re.search(r'(\d{4,6})PE$', symbol)
                         if match:
                             strike_str = match.group(1)
-                            # If extracted number is too large (like 2612025600), try last 5 digits
                             if len(strike_str) > 6:
-                                # Extract last 5 digits as strike (e.g., 25600 from 2612025600)
                                 strike_str = strike_str[-5:]
                         else:
                             strike_str = None
                 elif symbol.endswith('CE'):
-                    # Try different formats: O2025 (weekly OCT), OCT (monthly), NOV (NOV04/NOV11), N11 (NOV11 weekly), JAN (JAN weekly), DEC (DEC weekly)
+                    # Try different formats: O2025 (weekly OCT), OCT (monthly), NOV, N11, JAN, DEC
                     if 'O2025' in symbol:
                         strike_str = symbol.split('O2025')[1].replace('CE', '')
                     elif 'OCT' in symbol:
@@ -2127,45 +2137,43 @@ class ConsolidatedDynamicOTMAnalysis:
                     elif 'NOV' in symbol:
                         strike_str = symbol.split('NOV')[1].replace('CE', '')
                     elif re.search(r'261\d{2}\d+CE$', symbol):
-                        # Handle January weekly format: NIFTY2611325450CE where 26=year, 1=month, 13=day, 25450=strike
-                        # Pattern: NIFTY26 + 1 + DD + strike + CE
                         match = re.search(r'261\d{2}(\d+)CE$', symbol)
                         if match:
-                            strike_str = match.group(1)  # Extract strike (e.g., "25450")
+                            strike_str = match.group(1)
                     elif 'JAN' in symbol:
-                        # Handle NIFTY26JAN25400CE format (JAN monthly/weekly with explicit JAN)
                         match = re.search(r'JAN(\d+)CE$', symbol)
                         if match:
-                            strike_str = match.group(1)  # Extract strike (e.g., "25400")
+                            strike_str = match.group(1)
                         else:
-                            # Fallback to old logic for backward compatibility
                             strike_str = symbol.split('JAN')[1].replace('CE', '')
                     elif re.search(r'D\d{2}\d+CE$', symbol) or 'DEC' in symbol:
-                        # Handle DEC format: NIFTY25D0225900CE where 25 is year (2025), D02 is DEC02, 25900 is strike
-                        # Pattern: D + 2 digits (day) + strike + CE
                         match = re.search(r'D\d{2}(\d+)CE$', symbol)
                         if match:
-                            strike_str = match.group(1)  # Extract strike (e.g., "25900")
+                            strike_str = match.group(1)
                         elif 'DEC' in symbol:
-                            # Fallback: try to extract after DEC
                             match = re.search(r'DEC(\d+)CE$', symbol)
                             if match:
                                 strike_str = match.group(1)
                             else:
                                 strike_str = symbol.split('DEC')[1].replace('CE', '')
                     elif 'N11' in symbol:
-                        # Handle NIFTY25N1125450CE format (NOV11 weekly)
                         strike_str = symbol.split('N11')[1].replace('CE', '')
+                    elif re.search(r'NIFTY26\d{3}\d{5}CE$', symbol):
+                        # FEB03/FEB10/FEB17-style weekly 2026: NIFTY2620325250CE
+                        match = re.search(r'NIFTY26\d{3}(\d{5})CE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
+                    elif re.search(r'NIFTY25\d{3}\d{5}CE$', symbol):
+                        # FEB-style weekly 2025: NIFTY2520325250CE
+                        match = re.search(r'NIFTY25\d{3}(\d{5})CE$', symbol)
+                        if match:
+                            strike_str = match.group(1)
                     else:
                         # Generic: find last sequence of digits before CE
-                        # For formats like NIFTY2612025600CE, extract the last 5 digits (strike)
-                        # Try to find 4-6 digit strike at the end before CE
                         match = re.search(r'(\d{4,6})CE$', symbol)
                         if match:
                             strike_str = match.group(1)
-                            # If extracted number is too large (like 2612025600), try last 5 digits
                             if len(strike_str) > 6:
-                                # Extract last 5 digits as strike (e.g., 25600 from 2612025600)
                                 strike_str = strike_str[-5:]
                         else:
                             strike_str = None
@@ -2679,24 +2687,24 @@ class ConsolidatedDynamicOTMAnalysis:
             ce_trades = completed_df[completed_df['option_type'] == 'CE'].copy()
             pe_trades = completed_df[completed_df['option_type'] == 'PE'].copy()
             
-            # CRITICAL FIX: Ensure all required columns exist in both DataFrames (matching ATM structure)
+            # CRITICAL FIX: Same column order as ATM so mkt_sentiment_trades has sentiment_pnl in same position
+            # ATM order: ... exit_price, running_capital, high_water_mark, drawdown_limit, trade_status, high, swing_low, symbol_html, realized_pnl_pct
             required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
-                              'realized_pnl_pct', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                              'high', 'swing_low', 'symbol_html']
+                              'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct']
             for col in required_columns:
                 if col not in ce_trades.columns:
                     ce_trades[col] = None
                 if col not in pe_trades.columns:
                     pe_trades[col] = None
             
-            # Ensure column order matches ATM structure
             ce_trades = ce_trades[required_columns]
             pe_trades = pe_trades[required_columns]
         else:
-            # Create empty DataFrames with proper column structure (matching ATM structure)
+            # Create empty DataFrames with same column order as ATM (realized_pnl_pct after symbol_html)
             required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
-                              'realized_pnl_pct', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                              'high', 'swing_low', 'symbol_html']
+                              'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct']
             ce_trades = pd.DataFrame(columns=required_columns)
             pe_trades = pd.DataFrame(columns=required_columns)
         
@@ -2779,10 +2787,10 @@ class ConsolidatedDynamicOTMAnalysis:
         ce_trades = convert_to_percentages(ce_trades)
         pe_trades = convert_to_percentages(pe_trades)
         
-        # Note: pnl and realized_pnl have been removed by convert_to_percentages, only realized_pnl_pct remains
+        # Note: pnl and realized_pnl have been removed by convert_to_percentages; column order must match ATM for mkt_sentiment
         required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
-                          'realized_pnl_pct', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                          'high', 'swing_low', 'symbol_html']
+                          'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                          'high', 'swing_low', 'symbol_html', 'realized_pnl_pct']
         if len(ce_trades) > 0:
             for col in required_columns:
                 if col not in ce_trades.columns:

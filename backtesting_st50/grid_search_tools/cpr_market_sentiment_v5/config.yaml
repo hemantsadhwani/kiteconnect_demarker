@@ -3,7 +3,7 @@
 # Optional: generate_cpr_dates.py "new day only" mode.
 # Set to a single date (YYYY-MM-DD) to fetch only that date: appended at end of cpr_dates.csv
 # if new; same row updated if run twice for the same date. Comment out for full run.
-NEW_DAY: "2026-02-19"
+NEW_DAY: "2026-02-20"
 
 # Date mappings: day_label -> expiry_week
 # Format: day_label (lowercase, e.g., nov21) -> expiry_week (uppercase, e.g., NOV25)
@@ -52,21 +52,23 @@ DATE_MAPPINGS:
   # jan21: JAN27
   # jan22: JAN27
   # jan23: JAN27
-  # jan28: FEB03
-  # jan29: FEB03
-  # jan30: FEB03
-  # feb01: FEB03
-  # feb02: FEB03
+  jan28: FEB03
+  jan29: FEB03
+  jan30: FEB03
+  feb01: FEB03
+  feb02: FEB03
 
-  # feb04: FEB10
-  # feb05: FEB10
-  # feb06: FEB10
-  # feb09: FEB10
-  # feb11: FEB17
-  # feb12: FEB17
-  # feb13: FEB17
-  # feb16: FEB17
+  feb04: FEB10
+  feb05: FEB10
+  feb06: FEB10
+  feb09: FEB10
+  feb11: FEB17
+  feb12: FEB17
+  feb13: FEB17
+  feb16: FEB17
+  feb18: FEB24
   feb19: FEB24
+  feb20: FEB24
 
 
 

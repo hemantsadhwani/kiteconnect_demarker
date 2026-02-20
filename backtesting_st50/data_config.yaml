@@ -9,7 +9,7 @@ TARGET_EXPIRY:
   # Trading days in the expiry week (Monday to Friday)
   # NOTE: Only include date mentioned in config (OCT16) - no past or future dates
   TRADING_DAYS:
-  - '2026-02-19'
+  - '2026-02-20'
 
 
 
