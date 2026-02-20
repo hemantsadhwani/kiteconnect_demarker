@@ -58,7 +58,7 @@ TRADE_SETTINGS:
     useEntry3: false # Disabled - Entry 3 (StochRSI K/D crossover with SuperTrend) for PE
     
   WAIT_BARS_RSI: 3 # Bars to wait for StochRSI confirmation
-  ENTRY2_CONFIRMATION_WINDOW: 5 # Number of candles (T, T+1, T+2) for WPR28 and StochRSI confirmations
+  ENTRY2_CONFIRMATION_WINDOW: 4 # Number of candles (T, T+1, T+2) for WPR28 and StochRSI confirmations
   # Entry2 logic mode: true = Flexible (StochRSI can confirm even if SuperTrend turns bullish)
   #                    false = Strict (All confirmations must occur when SuperTrend is bearish)
   FLEXIBLE_STOCHRSI_CONFIRMATION: true

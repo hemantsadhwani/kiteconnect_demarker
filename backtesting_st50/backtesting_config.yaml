@@ -78,15 +78,18 @@ BACKTESTING_EXPIRY:
   # - '2026-01-30'
   # - '2026-02-01'
   # - '2026-02-02'
-  # - '2026-02-04'
-  # - '2026-02-05'
-  # - '2026-02-06'
-  # - '2026-02-09'
-  # - '2026-02-11'
-  # - '2026-02-12'
-  # - '2026-02-13'
-  # - '2026-02-16'
-  # - '2026-02-18'
+
+  - '2026-02-04'
+  - '2026-02-05'
+  - '2026-02-06'
+  - '2026-02-09'
+
+  - '2026-02-11'
+  - '2026-02-12'
+  - '2026-02-13'
+  - '2026-02-16'
+
+  - '2026-02-18'
   - '2026-02-19'
   BACKTESTING_STRIKE_TYPE:
   - ATM
@@ -161,10 +164,10 @@ MARKET_SENTIMENT_FILTER:
   # MANUAL: Use fixed MANUAL_SENTIMENT for all trades.
   # HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (take all trades).
   # All modes use same backtest entry logic: CPR_TRADING_RANGE blocks entries above band_R2_upper and below band_S2_lower.
-  MODE: MANUAL
+  MODE: HYBRID
   SENTIMENT_VERSION: v5  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
   HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
-  MANUAL_SENTIMENT: BEARISH  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
+  MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
   ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
 # High-Water Mark trailing stop: stop trading for the day when next trade would breach LOSS_MARK% from day high.
 # Reduces backtest PnL (skips some winners). See docs/MARK2MARKET_IMPACT.md for per-day impact and dates.
