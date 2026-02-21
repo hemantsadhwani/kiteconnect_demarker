@@ -64,6 +64,12 @@ def _load_config():
                 # HYBRID: strict sentiment only when Nifty at entry is in this zone (e.g. R1_S1 = between R1 and S1); outside zone allow all (NEUTRAL)
                 hybrid_strict_zone = (sentiment_filter_config.get('HYBRID_STRICT_ZONE') or 'R1_S1').strip().upper()
                 
+                # CPR trading range: exclude trades when Nifty at entry is outside band (column names in cpr_dates.csv)
+                cpr_range = config.get('CPR_TRADING_RANGE', {})
+                cpr_range_enabled = cpr_range.get('ENABLED', False)
+                cpr_upper_col = (cpr_range.get('CPR_UPPER') or 'band_R2_upper').strip() if isinstance(cpr_range.get('CPR_UPPER'), str) else 'band_R2_upper'
+                cpr_lower_col = (cpr_range.get('CPR_LOWER') or 'band_S2_lower').strip() if isinstance(cpr_range.get('CPR_LOWER'), str) else 'band_S2_lower'
+                
                 return {
                     'price_zones': {
                         'DYNAMIC_ATM': (dynamic_atm_low, dynamic_atm_high),
@@ -76,6 +82,9 @@ def _load_config():
                     'sentiment_version': sentiment_version,
                     'manual_sentiment': manual_sentiment,
                     'sentiment_hybrid_strict_zone': hybrid_strict_zone,
+                    'cpr_trading_range_enabled': cpr_range_enabled,
+                    'cpr_upper_col': cpr_upper_col,
+                    'cpr_lower_col': cpr_lower_col,
                 }
             except Exception as e:
                 logger.warning(f"Could not load config from {config_path}: {e}")
@@ -92,7 +101,34 @@ def _load_config():
         'sentiment_version': 'v2',  # Default to v2
         'manual_sentiment': 'NEUTRAL',  # Default to NEUTRAL
         'sentiment_hybrid_strict_zone': 'R1_S1',
+        'cpr_trading_range_enabled': False,
+        'cpr_upper_col': 'band_R2_upper',
+        'cpr_lower_col': 'band_S2_lower',
     }
+
+def _load_cpr_bounds_for_date(trade_date: str, cpr_lower_col: str, cpr_upper_col: str) -> tuple:
+    """Load CPR trading range bounds for trade_date from cpr_dates.csv (CPR from daily OHLC / Kite API, not 1min).
+    Single path: analytics/trade_analytics_by_cpr_band/cpr_dates.csv. Returns (cpr_low, cpr_high) or (None, None)."""
+    script_dir = Path(__file__).resolve().parent
+    cpr_path = script_dir / 'analytics' / 'trade_analytics_by_cpr_band' / 'cpr_dates.csv'
+    if not cpr_path.exists():
+        logger.debug(f"CPR bounds file not found: {cpr_path}")
+        return (None, None)
+    try:
+        cpr_df = pd.read_csv(cpr_path)
+        if 'date' not in cpr_df.columns or cpr_lower_col not in cpr_df.columns or cpr_upper_col not in cpr_df.columns:
+            logger.debug(f"CPR file missing required columns (date, {cpr_lower_col}, {cpr_upper_col})")
+            return (None, None)
+        cpr_df['_date'] = pd.to_datetime(cpr_df['date']).dt.strftime('%Y-%m-%d')
+        row = cpr_df[cpr_df['_date'] == trade_date]
+        if row.empty:
+            return (None, None)
+        low = float(row.iloc[0][cpr_lower_col])
+        high = float(row.iloc[0][cpr_upper_col])
+        return (low, high)
+    except Exception as e:
+        logger.warning(f"Could not load CPR bounds from {cpr_path}: {e}")
+        return (None, None)
 
 def _load_price_zones_config():
     """Load PRICE_ZONES configuration from backtesting_config.yaml (backward compatibility)"""
@@ -830,6 +866,50 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                 filtered_df.loc[out_zone_mask, 'filter_status'] = filtered_df.loc[out_zone_mask, 'filter_status'].astype(str) + '; SKIPPED (OUTSIDE_PRICE_BAND)'
             if in_zone_mask.sum() == 0:
                 logger.warning(f"All {len(filtered_df)} sentiment-filtered trades are outside price zone (included in output with SKIPPED (OUTSIDE_PRICE_BAND))")
+    
+    # Apply CPR_TRADING_RANGE: mark trades where Nifty at entry is outside band_S2_lower--band_R2_upper as SKIPPED so Filtered Trades excludes them
+    if config.get('cpr_trading_range_enabled') and len(filtered_df) > 0:
+        cpr_low, cpr_high = _load_cpr_bounds_for_date(trade_date, config['cpr_lower_col'], config['cpr_upper_col'])
+        if cpr_low is None or cpr_high is None:
+            logger.warning(f"CPR_TRADING_RANGE: No bounds for date {trade_date} in cpr_dates.csv (columns {config.get('cpr_lower_col')}/{config.get('cpr_upper_col')}); Filtered Trades will not exclude by CPR band")
+        else:
+            nifty_at_entry_series = None
+            # Prefer nifty_at_entry from trade data if present (e.g. from analytics export)
+            if 'nifty_at_entry' in filtered_df.columns:
+                nifty_at_entry_series = pd.to_numeric(filtered_df['nifty_at_entry'], errors='coerce')
+                if nifty_at_entry_series.notna().any():
+                    logger.info(f"CPR_TRADING_RANGE: Using nifty_at_entry column from trade data for band [{cpr_low}, {cpr_high}]")
+            if nifty_at_entry_series is None or nifty_at_entry_series.isna().all():
+                # Resolve nifty 1min path: try base_dir (cwd-relative), then script-relative
+                script_dir = Path(__file__).resolve().parent
+                nifty_name = f"nifty50_1min_data_{day_label.lower()}.csv"
+                nifty_path = base_dir / nifty_name
+                if not nifty_path.exists():
+                    nifty_path = script_dir / base_dir / nifty_name
+                nifty_df_cpr = None
+                if nifty_path.exists():
+                    try:
+                        nifty_df_cpr = pd.read_csv(nifty_path)
+                    except Exception as e:
+                        logger.warning(f"CPR_TRADING_RANGE: Could not load nifty file {nifty_path.name}: {e}")
+                if nifty_df_cpr is not None and not nifty_df_cpr.empty:
+                    filtered_df = filtered_df.copy()
+                    entry_dt = pd.to_datetime(trade_date + ' ' + filtered_df['entry_time'].astype(str), errors='coerce')
+                    nifty_at_entry_series = entry_dt.apply(lambda t: _nifty_price_at_entry(nifty_df_cpr, t))
+                else:
+                    logger.warning(f"CPR_TRADING_RANGE: Nifty 1min file not found at {base_dir / nifty_name} or {script_dir / base_dir / nifty_name}; Filtered Trades will NOT exclude by CPR band. Ensure nifty50_1min_data_*.csv exists for each day.")
+            if nifty_at_entry_series is not None:
+                filtered_df = filtered_df.copy()
+                out_cpr_mask = (nifty_at_entry_series < cpr_low) | (nifty_at_entry_series > cpr_high) | nifty_at_entry_series.isna()
+                out_cpr_count = out_cpr_mask.sum()
+                if out_cpr_count > 0:
+                    logger.info(f"CPR_TRADING_RANGE [{cpr_low}, {cpr_high}]: {out_cpr_count} trades outside band will appear as SKIPPED (OUTSIDE_PRICE_BAND)")
+                    filtered_df.loc[out_cpr_mask, 'trade_status'] = 'SKIPPED (OUTSIDE_PRICE_BAND)'
+                    filtered_df.loc[out_cpr_mask, 'trade_status_reason'] = f'Nifty at entry outside CPR band ({cpr_low}-{cpr_high})'
+                    if 'filter_status' in filtered_df.columns:
+                        filtered_df.loc[out_cpr_mask, 'filter_status'] = filtered_df.loc[out_cpr_mask, 'filter_status'].astype(str) + '; SKIPPED (OUTSIDE_PRICE_BAND)'
+                else:
+                    logger.info(f"CPR_TRADING_RANGE [{cpr_low}, {cpr_high}]: all {len(filtered_df)} trades inside band")
     
     # Drop entry_time_dt column (used only for matching) and ensure entry_time is simple format
     if 'entry_time_dt' in filtered_df.columns:

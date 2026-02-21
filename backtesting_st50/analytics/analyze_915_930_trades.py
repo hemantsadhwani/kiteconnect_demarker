@@ -68,13 +68,11 @@ def parse_entry_time(entry_val) -> time | None:
 
 
 def get_pnl_series(df: pd.DataFrame):
-    """Return a numeric series of PnL (%). Prefer realized_pnl_pct, else pnl."""
-    if "realized_pnl_pct" in df.columns:
-        s = df["realized_pnl_pct"].astype(str).str.replace("%", "", regex=False)
-        return pd.to_numeric(s, errors="coerce")
-    if "pnl" in df.columns:
-        s = df["pnl"].astype(str).str.replace("%", "", regex=False)
-        return pd.to_numeric(s, errors="coerce")
+    """Return a numeric series of PnL (%). Prefer sentiment_pnl (mkt_sentiment), then realized_pnl_pct, then pnl."""
+    for col in ("sentiment_pnl", "realized_pnl_pct", "pnl"):
+        if col in df.columns:
+            s = df[col].astype(str).str.replace("%", "", regex=False)
+            return pd.to_numeric(s, errors="coerce")
     return pd.Series(dtype=float)
 
 
@@ -92,7 +90,9 @@ def analyze_file(date_str: str, trades_path: Path) -> dict | None:
         return None
     times = df["entry_time"].apply(parse_entry_time)
     in_window = times.apply(lambda t: t is not None and WINDOW_START <= t < WINDOW_END)
-    sub = df.loc[in_window]
+    sub = df.loc[in_window].copy()
+    if "trade_status" in sub.columns:
+        sub = sub[sub["trade_status"].astype(str).str.contains("EXECUTED", na=False)]
     if sub.empty:
         return {"date": date_str, "trades": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0, "total_pnl": 0.0}
     pnl = get_pnl_series(sub)

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Analyze DYNAMIC_ATM CPR zone trade files:
-- trades_dynamic_atm_below_s1.csv
-- trades_dynamic_atm_above_r1.csv
-- trades_dynamic_atm_between_r1_s1.csv
+Analyze DYNAMIC_ATM CPR zone trade files (from analyze_trades_cpr_zones_r1_s1.py):
+- Below S1 = trades_dynamic_atm_below_s2.csv + trades_dynamic_atm_between_s1_s2.csv
+- Above R1 = trades_dynamic_atm_between_r1_r2.csv + trades_dynamic_atm_above_r2.csv
+- Between R1 and S1 = trades_dynamic_atm_between_r1_s1.csv
 For each: current total PnL and win rate; simulate fixed take profit 7% and 10% using 'high'.
-If high >= TP%, assume exit at TP%; else keep actual realized_pnl_pct.
+If high >= TP%, assume exit at TP%; else keep actual PnL (sentiment_pnl or realized_pnl_pct).
 """
 
 from __future__ import annotations
@@ -17,15 +17,15 @@ import pandas as pd
 
 
 def load_pnl_and_high(csv_path: Path) -> pd.DataFrame:
-    """Load CSV and return DataFrame with numeric realized_pnl_pct and high."""
+    """Load CSV and return DataFrame with numeric pnl (sentiment_pnl or realized_pnl_pct) and high."""
     df = pd.read_csv(csv_path)
-    # realized_pnl_pct: strip % if present
-    if "realized_pnl_pct" in df.columns:
-        s = df["realized_pnl_pct"].astype(str).str.replace("%", "", regex=False)
-        df["pnl"] = pd.to_numeric(s, errors="coerce")
-    elif "pnl" not in df.columns:
+    for col in ("sentiment_pnl", "realized_pnl_pct"):
+        if col in df.columns:
+            s = df[col].astype(str).str.replace("%", "", regex=False)
+            df["pnl"] = pd.to_numeric(s, errors="coerce")
+            break
+    else:
         df["pnl"] = pd.to_numeric(df.get("realized_pnl_pct", 0), errors="coerce")
-    # high: numeric (max favorable excursion as %)
     if "high" in df.columns:
         df["high_num"] = pd.to_numeric(df["high"], errors="coerce")
     else:
@@ -59,22 +59,28 @@ def stats_from_pnl(pnl_series: pd.Series) -> dict:
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    below_s1_path = script_dir / "trades_dynamic_atm_below_s1.csv"
-    above_r1_path = script_dir / "trades_dynamic_atm_above_r1.csv"
+    below_s2_path = script_dir / "trades_dynamic_atm_below_s2.csv"
+    s1_s2_path = script_dir / "trades_dynamic_atm_between_s1_s2.csv"
+    r1_r2_path = script_dir / "trades_dynamic_atm_between_r1_r2.csv"
+    above_r2_path = script_dir / "trades_dynamic_atm_above_r2.csv"
     between_r1_s1_path = script_dir / "trades_dynamic_atm_between_r1_s1.csv"
 
-    if not below_s1_path.exists():
-        print(f"File not found: {below_s1_path}")
-        sys.exit(1)
-    if not above_r1_path.exists():
-        print(f"File not found: {above_r1_path}")
-        sys.exit(1)
-    if not between_r1_s1_path.exists():
-        print(f"File not found: {between_r1_s1_path}")
-        sys.exit(1)
+    for p in (below_s2_path, s1_s2_path, r1_r2_path, above_r2_path, between_r1_s1_path):
+        if not p.exists():
+            print(f"File not found: {p}")
+            print("Run first: python analyze_trades_cpr_zones_r1_s1.py")
+            sys.exit(1)
 
-    below = load_pnl_and_high(below_s1_path)
-    above = load_pnl_and_high(above_r1_path)
+    # Below S1 = below_s2 + between_s1_s2
+    below = pd.concat(
+        [load_pnl_and_high(below_s2_path), load_pnl_and_high(s1_s2_path)],
+        ignore_index=True,
+    )
+    # Above R1 = between_r1_r2 + above_r2
+    above = pd.concat(
+        [load_pnl_and_high(r1_r2_path), load_pnl_and_high(above_r2_path)],
+        ignore_index=True,
+    )
     between = load_pnl_and_high(between_r1_s1_path)
 
     def print_metrics_table(label: str, df: pd.DataFrame) -> None:
@@ -114,8 +120,8 @@ def main() -> None:
                 if len(subset) > 0:
                     print_metrics_table(f"  {opt} only", subset)
 
-    report("Below S1 (trades_dynamic_atm_below_s1.csv)", below)
-    report("Above R1 (trades_dynamic_atm_above_r1.csv)", above)
+    report("Below S1 (below_s2 + between_s1_s2)", below)
+    report("Above R1 (between_r1_r2 + above_r2)", above)
     report("Between R1 and S1 (trades_dynamic_atm_between_r1_s1.csv)", between)
 
     # Combined summary (all three zones)

@@ -5,11 +5,11 @@ Bands:
 - between band_R1_R2_upper & R2  (band_R1_R2_upper < Nifty < R2)
 - between band_R1_R2_upper & R1  (R1 <= Nifty <= band_R1_R2_upper)
 
-Prerequisite: Run analyze_trades_cpr_zones_r1_s1.py first to create trades_dynamic_atm_above_r1.csv.
+Prerequisite: Run analyze_trades_cpr_zones_r1_s1.py first (writes trades_dynamic_atm_between_r1_r2.csv).
 
 Uses:
-- trades_dynamic_atm_above_r1.csv (from analyze_trades_cpr_zones_r1_s1.py)
-- analytics/cpr_dates.csv for R2, band_R1_R2_upper per date
+- trades_dynamic_atm_between_r1_r2.csv (from analyze_trades_cpr_zones_r1_s1.py)
+- analytics/cpr_dates.csv for R1, R2, band_R1_R2_upper per date
 """
 
 from __future__ import annotations
@@ -21,11 +21,13 @@ import pandas as pd
 
 
 def load_trades(path: Path) -> pd.DataFrame:
-    """Load trades CSV and return DataFrame with numeric pnl and date."""
+    """Load trades CSV and return DataFrame with numeric pnl and date. Prefer sentiment_pnl then realized_pnl_pct."""
     df = pd.read_csv(path)
-    if "realized_pnl_pct" in df.columns:
-        s = df["realized_pnl_pct"].astype(str).str.replace("%", "", regex=False)
-        df["pnl"] = pd.to_numeric(s, errors="coerce")
+    for col in ("sentiment_pnl", "realized_pnl_pct"):
+        if col in df.columns:
+            s = df[col].astype(str).str.replace("%", "", regex=False)
+            df["pnl"] = pd.to_numeric(s, errors="coerce")
+            break
     else:
         df["pnl"] = pd.to_numeric(df.get("realized_pnl_pct", 0), errors="coerce")
     if "date" in df.columns:
@@ -80,14 +82,12 @@ def assign_r1_r2_band(row: pd.Series) -> str:
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    trades_path = script_dir / "trades_dynamic_atm_above_r1.csv"
-    cpr_path = script_dir / "cpr_dates.csv"
+    trades_path = script_dir / "trades_dynamic_atm_between_r1_r2.csv"
+    cpr_path = script_dir.parent / "cpr_dates.csv"
 
     if not trades_path.exists():
         print(f"Trades file not found: {trades_path}")
-        print("Run this first to generate it:")
-        print("  python analyze_trades_cpr_zones_r1_s1.py")
-        print("That script writes trades_dynamic_atm_above_r1.csv (and below_s1, between_r1_s1) from backtesting config.")
+        print("Run first: python analyze_trades_cpr_zones_r1_s1.py")
         sys.exit(1)
     if not cpr_path.exists():
         print(f"CPR dates file not found: {cpr_path}")
@@ -96,7 +96,7 @@ def main() -> None:
     trades = load_trades(trades_path)
     cpr = load_cpr_dates(cpr_path)
 
-    # Merge only band_R1_R2_upper from CPR (trades CSV may already have R2 from analyze_trades_cpr_zones_r1_s1.py; merging R2 too creates R2_x/R2_y and breaks assign_zone)
+    # Merge band_R1_R2_upper from CPR (trades CSV from cpr_zones already has R1, R2)
     cpr_sub = cpr[["date", "band_R1_R2_upper"]].copy() if "band_R1_R2_upper" in cpr.columns else cpr[["date"]].copy()
     trades = trades.merge(cpr_sub, on="date", how="left")
     if "band_R1_R2_upper" in trades.columns:
@@ -192,7 +192,7 @@ def main() -> None:
         ce_near_r1.to_csv(script_dir / "trades_between_r1_r2_by_zone_CE_near_r1.csv", index=False)
         print(f"  CE near R1: {len(ce_near_r1)} rows -> trades_between_r1_r2_by_zone_CE_near_r1.csv")
 
-    legacy_csv = script_dir / "trades_dynamic_atm_above_r1_by_zone.csv"
+    legacy_csv = script_dir / "trades_dynamic_atm_between_r1_r2_by_zone.csv"
     trades.to_csv(legacy_csv, index=False)
     print(f"Also written to: {legacy_csv}")
 
