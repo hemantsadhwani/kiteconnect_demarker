@@ -284,7 +284,8 @@ def run_script(script_name: str, *args, timeout=None) -> dict:
             'args': args,
             'success': True,
             'duration': duration,
-            'output': result.stdout if script_name == 'aggregate_weekly_sentiment.py' else None
+            'output': result.stdout if script_name == 'aggregate_weekly_sentiment.py' else None,
+            'stderr': result.stderr or ''
         }
     except subprocess.TimeoutExpired:
         duration = time.time() - start_time
@@ -382,11 +383,13 @@ def run_day_analysis_sequence(expiry: str, day: str, config: dict = None) -> dic
         task_duration = time.time() - task_start
         results.append({
             'task': task_name,
+            'script': script,
             'expiry': expiry,
             'day': day,
             'duration': task_duration,
             'success': result.get('success', False),
-            'error': result.get('error')
+            'error': result.get('error'),
+            'stderr': result.get('stderr', '')
         })
         
         if not result.get('success', False):
@@ -481,7 +484,16 @@ def run_phase_2_parallel(max_workers=None, config: dict = None):
     failed = len(all_task_results) - successful
     total_task_time = sum(r.get('duration', 0) for r in all_task_results)
     speedup = total_task_time / phase2_duration if phase2_duration > 0 else 1
-    
+
+    # Surface missing strategy-file warnings from OTM/ATM analysis (subprocess stderr)
+    for r in all_task_results:
+        stderr = r.get('stderr') or ''
+        if stderr and 'Missing strategy files' in stderr:
+            for line in stderr.splitlines():
+                if 'Missing strategy files' in line or '[OTM] Missing' in line or '[ATM] Missing' in line:
+                    summary_logger.warning(line.strip())
+                    break
+
     summary_logger.info(f"[PHASE 2 SUMMARY] Completed in {phase2_duration:.2f}s (~{phase2_duration/60:.1f} minutes)")
     summary_logger.info(f"  Used {max_workers} worker processes, Tasks: {len(all_task_results)} (Success: {successful}, Failed: {failed})")
     summary_logger.info(f"  Speedup: {speedup:.2f}x")

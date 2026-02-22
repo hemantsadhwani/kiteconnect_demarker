@@ -168,6 +168,7 @@ class TradeState:
             # Note: trailing_stop_manager is accessed via the parent ConsolidatedDynamicATMAnalysis instance
             # We'll update it after adding the trade, but we need to capture state before update
             # For now, we'll add placeholder values that will be updated after trade exit
+            exit_reason = (exit_data.get(f'{entry_type_lower}_exit_reason', '') or '') if hasattr(exit_data, 'get') else ''
             self.completed_trades.append({
                 'symbol': symbol,
                 'option_type': option_type,
@@ -176,12 +177,13 @@ class TradeState:
                 'entry_price': entry_price,
                 'exit_price': exit_price,
                 'pnl': pnl,
+                'exit_reason': exit_reason,
                 # Trailing stop columns (will be updated after trade exit)
-                'realized_pnl': None,  # Will be calculated
-                'running_capital': None,  # Will be set from trailing_stop_manager
-                'high_water_mark': None,  # Will be set from trailing_stop_manager
-                'drawdown_limit': None,  # Will be calculated
-                'trade_status': 'EXECUTED'  # Default, may be updated if stop triggered
+                'realized_pnl': None,
+                'running_capital': None,
+                'high_water_mark': None,
+                'drawdown_limit': None,
+                'trade_status': 'EXECUTED'
             })
             del self.active_trades[symbol]
             
@@ -1525,28 +1527,37 @@ class ConsolidatedDynamicATMAnalysis:
             logger.warning(f"Error detecting format from files: {e}")
             return None
     
-    def _get_symbol_prefix_from_expiry(self, expiry_week: str, is_monthly: bool):
+    def _get_symbol_prefix_from_expiry(self, expiry_week: str, is_monthly: bool, date_str: str = None):
         """
         Get the symbol prefix for file name construction based on expiry week.
+        When date_str (YYYY-MM-DD) is provided, year is derived so 2025/2026 match data_fetcher/Kite.
         Examples:
-        - OCT20 weekly -> 'NIFTY25O2025'
-        - OCT28 monthly -> 'NIFTY25OCT'
-        - NOV04 weekly -> 'NIFTY25NOV' (uses month abbreviation like monthly for cross-month expiries)
-        - NOV11 weekly -> 'NIFTY25NOV' (uses month abbreviation for November weekly expiries)
-        - NOV18 weekly -> 'NIFTY25NOV' (uses month abbreviation for November weekly expiries)
+        - OCT20 weekly -> 'NIFTY25O2025' or 'NIFTY26O2026' from date_str year
+        - FEB24 2026 weekly -> 'NIFTY26224' (matches format_option_symbol: NIFTY{yy}{month}{day})
+        - FEB24 monthly -> 'NIFTY26FEB'
         """
         month_map = {
             'JAN': ('J', 'JAN'), 'FEB': ('F', 'FEB'), 'MAR': ('M', 'MAR'), 'APR': ('A', 'APR'),
             'MAY': ('M', 'MAY'), 'JUN': ('J', 'JUN'), 'JUL': ('J', 'JUL'), 'AUG': ('A', 'AUG'),
             'SEP': ('S', 'SEP'), 'OCT': ('O', 'OCT'), 'NOV': ('N', 'NOV'), 'DEC': ('D', 'DEC')
         }
-        
-        month_label = expiry_week[:3]  # OCT, NOV, etc.
-        day_str = expiry_week[3:]      # 20, 28, 04, 11, 18, etc.
-        
+        year_suffix = "25"
+        if date_str:
+            try:
+                year = datetime.strptime(date_str[:10], '%Y-%m-%d').year
+                year_suffix = str(year)[2:]
+            except (ValueError, TypeError):
+                pass
+        else:
+            month_label_pre = expiry_week[:3]
+            if month_label_pre in ("JAN", "FEB"):
+                year_suffix = "26"
+
+        month_label = expiry_week[:3]
+        day_str = expiry_week[3:]
+
         if is_monthly:
-            # Monthly format: NIFTY25OCT
-            return f"NIFTY25{month_map[month_label][1]}"
+            return f"NIFTY{year_suffix}{month_map[month_label][1]}"
         else:
             # Weekly format: check if it's a cross-month expiry or November expiry
             # All November weekly expiries (NOV04, NOV11, NOV18, etc.) use NOV abbreviation (like monthly)
@@ -1554,17 +1565,49 @@ class ConsolidatedDynamicATMAnalysis:
                 # Special case: November weekly expiries use NOV abbreviation (like monthly)
                 return f"NIFTY25NOV"
             elif month_label == "JAN":
-                # Special case: January weekly expiry uses month number (1) instead of letter (J) to avoid ambiguity with July
-                # Format: NIFTY2610626 (26 = year, 1 = month, 06 = day, 26 = year suffix)
-                # Determine year from expiry_week context - JAN06 in 2026, JAN07 in 2027, etc.
-                # For now, assume 2026 for JAN (can be enhanced to detect from date_str if available)
-                year_suffix = "26"  # Default to 2026, can be made dynamic based on expiry_week context
                 return f"NIFTY{year_suffix}1{day_str}{year_suffix}"
+            elif month_label == "FEB":
+                # Match trading_bot_utils.format_option_symbol: NIFTY{yy}{month}{day} e.g. NIFTY26224
+                try:
+                    int(day_str)
+                    return f"NIFTY{year_suffix}2{day_str}"
+                except ValueError:
+                    month_letter = month_map[month_label][0]
+                    return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"
             else:
-                # Standard weekly: NIFTY25O2025 (O = October letter, 20 = day, 25 = year)
                 month_letter = month_map[month_label][0]
-                return f"NIFTY25{month_letter}{day_str}25"
-    
+                return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"
+
+    def _warn_missing_atm_strategy_files(self, all_periods: list, source_dir: Path, expiry_week: str,
+                                         is_monthly: bool, day_label: str, date_str: str = None):
+        """
+        Check that every strike referenced in ATM slabs has a corresponding strategy file.
+        Log a WARNING with count and list of missing files (same idea as OTM; data_fetcher bug affected both).
+        """
+        if not source_dir or not source_dir.exists():
+            return
+        unique_ce = set()
+        unique_pe = set()
+        for p in all_periods:
+            unique_ce.add(int(p['ce_strike']))
+            unique_pe.add(int(p['pe_strike']))
+        symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly, date_str)
+        missing = []
+        for strike in unique_ce:
+            path = source_dir / f"{symbol_prefix}{strike}CE_strategy.csv"
+            if not path.exists():
+                missing.append(path.name)
+        for strike in unique_pe:
+            path = source_dir / f"{symbol_prefix}{strike}PE_strategy.csv"
+            if not path.exists():
+                missing.append(path.name)
+        if missing:
+            logger.warning(
+                f"[ATM] Missing strategy files for {expiry_week}/{day_label}: {len(missing)} file(s) referenced in slabs but not found. "
+                "Re-run data_fetcher for this day (using nifty_price) or regenerate strategy from OHLC. Missing: %s",
+                ", ".join(sorted(missing))
+            )
+
     def _process_trades_for_entry_type(self, expiry_week: str, day_label: str, entry_type: str, 
                                        source_dir: Path, dest_dir: Path, all_periods: list, 
                                        base_expiry_week: str, is_monthly: bool, date_str: str,
@@ -1679,12 +1722,27 @@ class ConsolidatedDynamicATMAnalysis:
                     'data': exit_trade
                 })
         
-        # Sort all signals globally by time. CRITICAL: When exit and entry fall on the same bar
-        # (e.g. SL hit on 10:43 and new Entry2 trigger on 10:43, confirmation at 10:47), process
-        # EXIT before ENTRY so the active trade is cleared; the strategy already preserves the
-        # Entry2 state (trigger at 10:43) on exit, so the confirmation-at-10:47 entry is emitted
-        # and we take it. Key: (time, type_priority, symbol) with type_priority 0=exit first, 1=entry.
-        all_global_signals.sort(key=lambda x: (x['time'], (0 if x['type'] == 'exit' else 1), x['symbol']))
+        # Sort all signals globally by time. Two cases:
+        # 1) Same minute: entry (execution e.g. 13:44:01) and exit (bar 13:44:00) - process ENTRY
+        #    before EXIT so the exit closes the trade we just opened (fixes wrong pairing that
+        #    produced -13% when exit 14:15 was paired with entry 13:44:01).
+        # 2) Different minutes: e.g. exit at 10:43, entry at 10:47 - process EXIT before ENTRY
+        #    so the active trade is cleared before the new one; the strategy preserves Entry2
+        #    state on exit so the 10:47 entry is still emitted.
+        # Key: (time_floor_min, same_minute_entry_first, time, symbol).
+        def _signal_sort_key(x):
+            t = x['time']
+            try:
+                floor_min = t.floor('min') if hasattr(t, 'floor') else t
+            except Exception:
+                floor_min = t.replace(second=0, microsecond=0) if hasattr(t, 'replace') else t
+            if not hasattr(floor_min, 'replace') and hasattr(t, 'replace'):
+                floor_min = t.replace(second=0, microsecond=0)
+            # Within same minute: entry=0 before exit=1 so exit closes the trade we just opened.
+            if x['type'] == 'entry':
+                return (floor_min, 0, t, x['symbol'])
+            return (floor_min, 1, t, x['symbol'])
+        all_global_signals.sort(key=_signal_sort_key)
         
         # CRITICAL VALIDATION: Check for multiple strikes generating signals at the same time
         # In ATM, at any given time there should be only ONE strike per option type that's active
@@ -2235,18 +2293,20 @@ class ConsolidatedDynamicATMAnalysis:
                             # Find the candle at execution time (entry_time)
                             # Execution time is typically at the start of the next minute (e.g., 13:59:01)
                             # The price should be from the candle that starts at that minute (e.g., 13:59:00 candle's open)
-                            # Round down to the minute to find the candle
                             execution_minute = entry_time.replace(second=0, microsecond=0)
-                            
-                            # Find the row with date matching execution_minute
-                            matching_rows = df_symbol_full[df_symbol_full['date'] == execution_minute]
+                            # Normalize for comparison: strategy CSV may have tz (e.g. 09:27:00+05:30), entry_time may be naive
+                            exec_ts = pd.Timestamp(execution_minute)
+                            exec_naive = exec_ts.tz_localize(None) if exec_ts.tz is not None else exec_ts
+                            dates = df_symbol_full['date']
+                            dates_naive = dates.dt.tz_localize(None) if hasattr(dates.dtype, 'tz') and dates.dtype.tz is not None else dates
+                            matching_rows = df_symbol_full[dates_naive == exec_naive]
                             if not matching_rows.empty:
                                 execution_row = matching_rows.iloc[0]
                                 execution_price = execution_row.get('open', None)
                                 logger.debug(f"Found execution price for {symbol} at {entry_time}: {execution_price:.2f} (from {execution_minute} candle)")
                             else:
-                                # Fallback: find the closest row before or at execution time
-                                rows_before = df_symbol_full[df_symbol_full['date'] <= entry_time]
+                                # Fallback: find the closest row before or at execution time (use naive for comparison)
+                                rows_before = df_symbol_full[dates_naive <= exec_naive]
                                 if not rows_before.empty:
                                     execution_row = rows_before.iloc[-1]
                                     execution_price = execution_row.get('open', None)
@@ -2881,29 +2941,24 @@ class ConsolidatedDynamicATMAnalysis:
         else:
             # Create empty DataFrames with proper columns including trade_status
             # Note: Use realized_pnl_pct instead of pnl (pnl and realized_pnl are removed by convert_to_percentages)
-            base_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'realized_pnl_pct', 'high', 'swing_low', 'trade_status']
+            base_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'realized_pnl_pct', 'high', 'swing_low', 'trade_status', 'exit_reason']
             ce_trades = pd.DataFrame(columns=base_columns)
             pe_trades = pd.DataFrame(columns=base_columns)
         
-        # Add realized_pnl_pct column (percentage) for better readability
-        # Calculate as: ((exit_price - entry_price) / entry_price) * 100
-        if not ce_trades.empty and 'entry_price' in ce_trades.columns and 'exit_price' in ce_trades.columns:
+        # Add realized_pnl_pct from execution candle: (exit_price - entry_price) / entry_price * 100.
+        # entry_price is set to execution bar open when OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN (and lookup succeeds),
+        # so this gives PnL from execution candle. Do not use strategy entry2_pnl here so backtest matches execution-based PnL.
+        def set_realized_pnl_pct(df):
+            if df.empty or 'entry_price' not in df.columns or 'exit_price' not in df.columns:
+                return
             def calc_pnl_pct(row):
-                entry_price = row.get('entry_price', 0)
-                exit_price = row.get('exit_price', 0)
-                if pd.notna(entry_price) and pd.notna(exit_price) and entry_price > 0:
-                    return round(((exit_price - entry_price) / entry_price) * 100, 2)
+                ep, xp = row.get('entry_price', 0), row.get('exit_price', 0)
+                if pd.notna(ep) and pd.notna(xp) and ep > 0:
+                    return round(((xp - ep) / ep) * 100, 2)
                 return None
-            ce_trades['realized_pnl_pct'] = ce_trades.apply(calc_pnl_pct, axis=1)
-        
-        if not pe_trades.empty and 'entry_price' in pe_trades.columns and 'exit_price' in pe_trades.columns:
-            def calc_pnl_pct(row):
-                entry_price = row.get('entry_price', 0)
-                exit_price = row.get('exit_price', 0)
-                if pd.notna(entry_price) and pd.notna(exit_price) and entry_price > 0:
-                    return round(((exit_price - entry_price) / entry_price) * 100, 2)
-                return None
-            pe_trades['realized_pnl_pct'] = pe_trades.apply(calc_pnl_pct, axis=1)
+            df['realized_pnl_pct'] = df.apply(calc_pnl_pct, axis=1)
+        set_realized_pnl_pct(ce_trades)
+        set_realized_pnl_pct(pe_trades)
         
         # Convert high and swing_low to percentages, remove pnl and realized_pnl columns
         def convert_to_percentages(df):
@@ -3304,7 +3359,9 @@ class ConsolidatedDynamicATMAnalysis:
                 logger.info("No trades found, skipping trade-based blocking")
             if not nifty_file.exists():
                 logger.warning(f"NIFTY data file not found: {nifty_file}, skipping trade-based blocking")
-        
+
+        self._warn_missing_atm_strategy_files(all_periods, source_dir, expiry_week, is_monthly, day_label, date_str)
+
         # STEP 5: Process all trades with fully blocked slabs
         # After applying blocking in STEP 1-4, process all trades in one pass
         # This ensures all trades (executed and skipped) are tracked with status

@@ -473,7 +473,9 @@ class Entry2BacktestStrategyFixed:
         self.entry2_confirmation_window = _wpr_window if self.entry2_trigger == 'WPR' else _demarker_window
         self.entry2_delay_bars = max(0, int(entry2_config.get('ENTRY_DELAY_BARS', 0)))
         self.entry2_cooldown_enabled = entry2_config.get('COOLDOWN_ENABLED', False)
-        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, delay bars: {self.entry2_delay_bars}, cooldown enabled: {self.entry2_cooldown_enabled}")
+        self.entry2_optimal_entry_above_confirm_open = entry2_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
+        self.entry2_optimal_entry_wpr_invalidate = entry2_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, delay bars: {self.entry2_delay_bars}, cooldown enabled: {self.entry2_cooldown_enabled}, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -523,6 +525,8 @@ class Entry2BacktestStrategyFixed:
         # Deferred Entry2: when trigger/confirmation completes while in position, store and enter after exit
         self.deferred_entry2_bar = None
         self.deferred_entry2_trigger_bar = None
+        # Optimal entry: wait for first bar (after next candle) where open > confirmation high; invalidate if SL breached (and optionally both WPR below oversold)
+        self.pending_optimal_entry = {}
         
         # SuperTrend-based stop loss state tracking
         self.supertrend_switch_detected = False  # Whether SuperTrend became bullish (dir = 1)
@@ -579,6 +583,55 @@ class Entry2BacktestStrategyFixed:
         
         # Reset Entry1 pending confirmation
         self.entry1_pending_confirmation = None
+        # Reset optimal-entry pending (per symbol)
+        if hasattr(self, 'pending_optimal_entry'):
+            self.pending_optimal_entry = {}
+
+    def _check_pending_optimal_entry(self, df: pd.DataFrame, current_index: int, symbol: str) -> str:
+        """
+        Optimal entry: wait for first bar (after next candle after confirmation) where open > confirmation high.
+        While waiting: invalidate if SL (from would-be next-candle entry) breached; optionally both WPR9 and WPR28 below oversold.
+        Returns: 'enter' | 'invalidate' | 'wait'
+        """
+        pending = getattr(self, 'pending_optimal_entry', {}).get(symbol)
+        if not pending:
+            return 'wait'
+        confirm_bar = pending['confirm_bar']
+        confirm_high = float(pending['confirm_high'])
+        sl_price = float(pending['sl_price'])
+        row = df.iloc[current_index]
+        low = row.get('low')
+        open_price = row.get('open')
+        wpr_fast = row.get('fast_wpr', row.get('wpr_9', None))
+        wpr_slow = row.get('slow_wpr', row.get('wpr_28', None))
+        if pd.isna(low):
+            low = float('-inf')
+        else:
+            low = float(low)
+        if pd.notna(open_price):
+            open_price = float(open_price)
+        # Invalidation: SL breached (low <= sl_price)
+        sl_breached = low <= sl_price if sl_price > 0 else False
+        if sl_breached:
+            logger.info(f"Entry2 optimal entry: INVALIDATE at bar {current_index} for {symbol} (SL would have been breached: low={low:.2f} <= sl_price={sl_price:.2f})")
+            return 'invalidate'
+        # Optional: invalidate when both WPR below oversold (can kill winners on pullback)
+        if getattr(self, 'entry2_optimal_entry_wpr_invalidate', False):
+            wpr_both_below = (
+                pd.notna(wpr_fast) and float(wpr_fast) <= self.wpr_9_oversold and
+                pd.notna(wpr_slow) and float(wpr_slow) <= self.wpr_28_oversold
+            )
+            if wpr_both_below:
+                logger.info(f"Entry2 optimal entry: INVALIDATE at bar {current_index} for {symbol} (both WPR below oversold)")
+                return 'invalidate'
+        # Bar confirm_bar+1: skip entry on this candle; only invalidation checked above
+        if current_index <= confirm_bar + 1:
+            return 'wait'
+        # Bar >= confirm_bar+2: enter if open > confirm_high
+        if pd.notna(open_price) and open_price > confirm_high:
+            logger.info(f"Entry2 optimal entry: ENTER at bar {current_index} for {symbol} (open={open_price:.2f} > confirm_high={confirm_high:.2f})")
+            return 'enter'
+        return 'wait'
 
     def _normalize_stop_loss_config(self, raw_config) -> Dict[str, float]:
         """Ensure STOP_LOSS_PERCENT config is represented as a dict with above/between/below values."""
@@ -2475,15 +2528,17 @@ class Entry2BacktestStrategyFixed:
         
         # Calculate SL and TP prices (Entry2 logic)
         if self.position == 'LONG':
-            # Note: DYNAMIC_TRAILING_MA activation is now checked in the main loop BEFORE TP check
-            # This ensures MA trailing activates before TP exit can occur
-            
             tp_price = self.entry_price * (1 + self.take_profit_percent / 100)
             if getattr(self, 'sl_mode_use_swing_low', False) and getattr(self, 'entry_swing_low_sl_price', None) is not None:
                 sl_price = self.entry_swing_low_sl_price
             else:
                 active_stop_loss_percent = self._get_active_stop_loss_percent()
                 sl_price = self.entry_price * (1 - active_stop_loss_percent / 100)
+                if self.current_stop_loss_percent is None:
+                    config_pct = self._determine_stop_loss_percent(self.entry_price)
+                    config_sl_price = self.entry_price * (1 - config_pct / 100)
+                    if abs(sl_price - config_sl_price) > 0.02:
+                        sl_price = config_sl_price
             
             # Check if TP is hit within the candle (high >= tp_price)
             if high_price >= tp_price:
@@ -2495,14 +2550,22 @@ class Entry2BacktestStrategyFixed:
         
         return False, "", 0.0
 
-    def _mark_exit_in_dataframe(self, df: pd.DataFrame, current_index: int, exit_price: float):
-        """Mark exit in DataFrame based on entry type"""
+    def _mark_exit_in_dataframe(self, df: pd.DataFrame, current_index: int, exit_price: float, exit_reason: str = ""):
+        """Mark exit in DataFrame based on entry type (including exit_reason for downstream CSV)."""
         if not self.position or not self.entry_type:
             return
         
         # Round all prices to 2 decimals
         exit_price_rounded = round(exit_price, 2)
-        entry_price_rounded = round(self.entry_price, 2)
+        # Use execution bar's open for PnL so strategy CSV/HTML matches trade CSVs (execution-candle PnL)
+        if hasattr(self, 'entry_bar_index') and 0 <= self.entry_bar_index < len(df) and 'open' in df.columns:
+            exec_open = df.at[self.entry_bar_index, 'open']
+            if pd.notna(exec_open):
+                entry_price_rounded = round(float(exec_open), 2)
+            else:
+                entry_price_rounded = round(self.entry_price, 2)
+        else:
+            entry_price_rounded = round(self.entry_price, 2)
         
         # Calculate P&L
         if self.position == 'LONG':
@@ -2515,6 +2578,7 @@ class Entry2BacktestStrategyFixed:
         exit_type_col = f'{entry_type_lower}_exit_type'
         pnl_col = f'{entry_type_lower}_pnl'
         exit_price_col = f'{entry_type_lower}_exit_price'
+        exit_reason_col = f'{entry_type_lower}_exit_reason'
         
         if exit_type_col in df.columns:
             df.at[current_index, exit_type_col] = 'Exit'
@@ -2522,6 +2586,8 @@ class Entry2BacktestStrategyFixed:
             df.at[current_index, pnl_col] = pnl_percent
         if exit_price_col in df.columns:
             df.at[current_index, exit_price_col] = exit_price_rounded
+        if exit_reason_col in df.columns and exit_reason:
+            df.at[current_index, exit_reason_col] = exit_reason
 
     def _exit_position(self, df: pd.DataFrame, current_index: int, exit_reason: str, exit_price: float):
         """Exit a position and record trade"""
@@ -2556,8 +2622,8 @@ class Entry2BacktestStrategyFixed:
         
         logger.info(f"Exit {exit_reason}: Exited LONG at {exit_price:.2f} (bar {current_index}), P&L: {pnl_percent:.2f}%")
         
-        # Mark exit in DataFrame
-        self._mark_exit_in_dataframe(df, current_index, exit_price)
+        # Mark exit in DataFrame (including exit_reason for CSV)
+        self._mark_exit_in_dataframe(df, current_index, exit_price, exit_reason)
         
         # Reset position
         self.position = None
@@ -2763,6 +2829,8 @@ class Entry2BacktestStrategyFixed:
                     df['entry2_pnl'] = 0.0
                 if 'entry2_exit_price' not in df.columns:
                     df['entry2_exit_price'] = 0.0
+                if 'entry2_exit_reason' not in df.columns:
+                    df['entry2_exit_reason'] = ''
             
             # Entry3 columns (only if Entry3 is enabled)
             if use_entry3:
@@ -2830,29 +2898,25 @@ class Entry2BacktestStrategyFixed:
                             logger.debug(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend SL active={self.supertrend_stop_loss_active}, should_check={should_check_st_sl}, trailing_ma_active={self.is_dynamic_trailing_ma_active}, st_sl_when_trailing_tp={self.st_sl_when_trailing_tp}")
                             if should_check_st_sl:
                                 # Check if SuperTrend SL is hit
-                                # NOTE: SuperTrend direction convention: -1 = bearish, 1 = bullish
                                 if current_supertrend_dir == 1:
-                                    # SuperTrend is bullish - use current SuperTrend value as SL
-                                    # Use small tolerance for floating point precision
                                     prev_supertrend_value_rounded = round(current_supertrend_value, 2)
                                     if math.isclose(current_low, prev_supertrend_value_rounded, abs_tol=0.01) or current_low <= prev_supertrend_value_rounded:
-                                        exit_price = round(prev_supertrend_value_rounded, 2)  # Exit at SuperTrend SL price
+                                        exit_price = round(prev_supertrend_value_rounded, 2)
                                         trailing_tp_status = "active" if self.is_dynamic_trailing_ma_active else "inactive"
                                         logger.info(f"[SUPERTREND SL] Stop loss hit at bar {i} ({time_str}) (trailing TP {trailing_tp_status}): Low {current_low:.2f} <= ST SL {prev_supertrend_value_rounded:.2f}. Exiting immediately at SL price {exit_price:.2f}")
                                         self._exit_position(df, i, "SuperTrend Stop Loss Exit", exit_price)
-                                        continue  # Skip other exit checks and entry logic
+                                        continue
                                     else:
-                                        logger.debug(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend SL NOT hit - Low {current_low:.2f} > ST SL {prev_supertrend_value_rounded:.2f} (diff: {current_low - prev_supertrend_value_rounded:.2f})")
+                                        logger.debug(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend SL NOT hit - Low {current_low:.2f} > ST SL {prev_supertrend_value_rounded:.2f}")
                                 elif i > 0:
-                                    # SuperTrend turned bearish - check if price crossed below previous bullish SuperTrend
                                     prev_row = df.iloc[i - 1]
                                     prev_supertrend_value = round(prev_row.get('supertrend1', None), 2) if pd.notna(prev_row.get('supertrend1', None)) else None
                                     prev_supertrend_dir = prev_row.get('supertrend1_dir', None)
                                     if prev_supertrend_dir == 1 and pd.notna(prev_supertrend_value) and current_low <= prev_supertrend_value:
-                                        exit_price = round(prev_supertrend_value, 2)  # Exit at previous bullish SuperTrend value
+                                        exit_price = round(prev_supertrend_value, 2)
                                         logger.info(f"[SUPERTREND SL] Price crossed below SuperTrend at bar {i} ({time_str}): Low {current_low:.2f} <= ST SL {prev_supertrend_value:.2f}. Exiting immediately at SL price {exit_price:.2f}")
                                         self._exit_position(df, i, "SuperTrend Stop Loss Exit", exit_price)
-                                        continue  # Skip other exit checks and entry logic
+                                        continue
                         elif self.supertrend_stop_loss_active:
                             logger.debug(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend SL active but missing data - low={current_low}, st_value={current_supertrend_value}")
                         
@@ -2865,6 +2929,13 @@ class Entry2BacktestStrategyFixed:
                                 active_stop_loss_percent = self._get_active_stop_loss_percent()
                                 sl_price = round(self.entry_price * (1 - active_stop_loss_percent / 100), 2)
                                 sl_label = "Fixed Stop Loss"
+                                # Safeguard: Fixed SL exit must match config (e.g. 6.5% for entry>=140). Do not override if SL was moved (e.g. breakeven).
+                                if self.current_stop_loss_percent is None:
+                                    config_pct = self._determine_stop_loss_percent(self.entry_price)
+                                    config_sl_price = round(self.entry_price * (1 - config_pct / 100), 2)
+                                    if abs(sl_price - config_sl_price) > 0.02:
+                                        logger.warning(f"[FIXED SL] Correcting SL price {sl_price:.2f} -> config {config_sl_price:.2f} (entry={self.entry_price:.2f}, config_pct={config_pct}%)")
+                                        sl_price = config_sl_price
                             entry_price_rounded = round(self.entry_price, 2)
                             
                             logger.debug(f"[SL DEBUG] {time_str} (bar {i}): {sl_label} - Entry={entry_price_rounded:.2f}, SL Price={sl_price:.2f}, Low={current_low:.2f}, Low<=SL={current_low <= sl_price}")
@@ -2950,18 +3021,15 @@ class Entry2BacktestStrategyFixed:
                     
                     # Entry2-specific: Check for dynamic trailing exit (WPR9-based: EMA crossunder SMA)
                     if self.entry_type == 'Entry2' and self.is_dynamic_trailing_active and self._check_ema_crossunder_sma(df, i):
-                        # Exit at next bar's open (realistic timing for crossunder detection)
                         if i + 1 < len(df):
                             exit_price = df.iloc[i + 1]['open']
                             exit_bar_index = i + 1
                         else:
-                            # If we're at the last bar, use current bar's close
                             exit_price = df.iloc[i]['close']
                             exit_bar_index = i
-                        
                         logger.info(f"[DYNAMIC TRAILING WPR9] Fast MA crossed under Slow MA at bar {i}. Exiting at next bar open {exit_price:.2f}")
                         self._exit_position(df, exit_bar_index, "Dynamic Trailing WPR9 (EMA/SMA)", exit_price)
-                        continue  # Skip other exit checks and entry logic
+                        continue
                     
                     # Entry2-specific: Check for breakeven (SL_TO_PRICE) BEFORE SuperTrend stop loss
                     # This ensures breakeven is activated before other stop losses can trigger
@@ -2986,22 +3054,22 @@ class Entry2BacktestStrategyFixed:
                                 )
                     
                     # PRIORITY 2: Check for dynamic trailing exit (MA-based: Fast MA crossunder Slow MA) - Entry2 only
-                    # CRITICAL: This is evaluated at CANDLE CLOSE only (not tick-level)
-                    # The crossunder is detected at the end of the candle, then exit at next candle's open
+                    # Only exit on MA crossunder when SuperTrend is BULLISH; if ST still bearish, wait for ST to turn bullish then exit on next MA crossunder
                     if self.entry_type == 'Entry2' and self.is_dynamic_trailing_ma_active and self._check_ema_crossunder_sma(df, i):
-                        # Exit at next bar's open (realistic timing - crossunder detected at end of candle, exit at next candle open)
-                        if i + 1 < len(df):
-                            exit_price = df.iloc[i + 1]['open']
-                            exit_bar_index = i + 1
+                        current_st_dir = current_row.get('supertrend1_dir', None)
+                        if current_st_dir == 1:
+                            if i + 1 < len(df):
+                                exit_price = df.iloc[i + 1]['open']
+                                exit_bar_index = i + 1
+                            else:
+                                exit_price = current_row.get('close', None)
+                                exit_bar_index = i
+                            if pd.notna(exit_price):
+                                logger.info(f"[DYNAMIC TRAILING MA] Fast MA crossed under Slow MA at bar {i} (ST bullish). Exiting at next bar open {exit_price:.2f} (bar {exit_bar_index})")
+                                self._exit_position(df, exit_bar_index, "Dynamic Trailing MA (Fast/Slow MA)", exit_price)
+                                continue
                         else:
-                            # If we're at the last bar, use current bar's close
-                            exit_price = current_row.get('close', None)
-                            exit_bar_index = i
-                        
-                        if pd.notna(exit_price):
-                            logger.info(f"[DYNAMIC TRAILING MA] Fast MA crossed under Slow MA at bar {i} (candle close). Exiting at next bar open {exit_price:.2f} (bar {exit_bar_index})")
-                            self._exit_position(df, exit_bar_index, "Dynamic Trailing MA (Fast/Slow MA)", exit_price)
-                            continue  # Skip other exit checks and entry logic
+                            logger.debug(f"[DYNAMIC TRAILING MA] Bar {i}: MA crossunder detected but SuperTrend not bullish (dir={current_st_dir}); waiting for ST bullish then next MA crossunder.")
                     
                     # Check fixed exit conditions (Entry1 or Entry2)
                     # Entry2: Only check if neither dynamic trailing is active
@@ -3069,39 +3137,78 @@ class Entry2BacktestStrategyFixed:
                     
                     # Check Entry 2 signal FIRST (to ensure Entry2 PnL is consistent regardless of Entry1)
                     entry2_signal_detected = False
+                    pending_opt = getattr(self, 'pending_optimal_entry', {}).get(symbol)
                     
-                    # Determine which bar should be treated as the logical signal bar for Entry2:
-                    # - Prefer the index stored by _check_entry2_signal when it generated the signal
-                    # - Fallback to the current loop index if nothing was stored (defensive)
-                    signal_bar_index = i
-                    if hasattr(self, 'entry2_last_signal_index'):
-                        signal_bar_index = self.entry2_last_signal_index.get(symbol, i)
-                    
-                    if entry2_result:
-                        logger.info(f"Entry2 signal detected at index {i} for {symbol} (signal bar index={signal_bar_index})")
-                        
-                        # Entry2: Check risk validation at the logical signal bar
-                        should_enter = self._check_entry_risk_validation(df, signal_bar_index, symbol, count_filtered=True)
-                        
-                        if should_enter:
-                            # Entry2 uses the signal bar as the logical signal candle.
-                            # Actual execution price and bar index are handled inside _enter_position.
-                            # Only mark Entry in CSV when we actually take the trade (avoids Entry without Exit).
-                            entered = self._enter_position(df, signal_bar_index, "Entry2")
+                    # Optimal entry: wait for first bar (after next candle) where open > confirmation high; invalidate if SL breached
+                    if pending_opt is not None:
+                        result = self._check_pending_optimal_entry(df, i, symbol)
+                        if result == 'enter':
+                            if not hasattr(self, 'entry2_last_signal_index'):
+                                self.entry2_last_signal_index = {}
+                            self.entry2_last_signal_index[symbol] = i
+                            entered = self._enter_position(df, i - 1, "Entry2")  # execution at bar i's open
                             if entered:
                                 entry2_signal_detected = True
                                 if 'entry2_signal' in df.columns:
-                                    df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
+                                    df.at[i, 'entry2_signal'] = 'Entry2'
                                 if 'entry2_entry_type' in df.columns:
-                                    df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
+                                    df.at[i, 'entry2_entry_type'] = 'Entry'
                                 if 'entry2_pnl' in df.columns:
-                                    df.at[signal_bar_index, 'entry2_pnl'] = 0.0  # P&L is 0 at entry
-                                logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
-                        else:
-                            # Risk validation failed - don't mark signal (signal detected but filtered out)
-                            logger.debug(f"Entry2 signal at signal_bar_index={signal_bar_index} filtered out by risk validation - not marking entry2_signal")
+                                    df.at[i, 'entry2_pnl'] = 0.0
+                                logger.info(f"Entry2 optimal entry: Marked Entry at bar {i} for {symbol}")
+                            del self.pending_optimal_entry[symbol]
+                        elif result == 'invalidate':
+                            del self.pending_optimal_entry[symbol]
                     else:
-                        logger.debug(f"No Entry2 signal at index {i} for {symbol}")
+                        # Normal Entry2 path (or no pending)
+                        signal_bar_index = i
+                        if hasattr(self, 'entry2_last_signal_index'):
+                            signal_bar_index = self.entry2_last_signal_index.get(symbol, i)
+                        
+                        if entry2_result:
+                            logger.info(f"Entry2 signal detected at index {i} for {symbol} (signal bar index={signal_bar_index})")
+                            should_enter = self._check_entry_risk_validation(df, signal_bar_index, symbol, count_filtered=True)
+                            
+                            if should_enter:
+                                if getattr(self, 'entry2_optimal_entry_above_confirm_open', False):
+                                    # Defer: enter when a subsequent candle opens above confirmation high; invalidate if SL breached
+                                    next_bar = signal_bar_index + 1
+                                    if next_bar < len(df):
+                                        next_open = float(df.iloc[next_bar]['open'])
+                                        sl_pct = self._determine_stop_loss_percent(next_open)
+                                        sl_price = next_open * (1 - sl_pct / 100.0)
+                                        confirm_high = float(df.iloc[signal_bar_index]['high'])
+                                        if not hasattr(self, 'pending_optimal_entry'):
+                                            self.pending_optimal_entry = {}
+                                        self.pending_optimal_entry[symbol] = {'confirm_bar': signal_bar_index, 'confirm_high': confirm_high, 'sl_price': sl_price}
+                                        self._reset_entry2_state_machine(symbol)
+                                        logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f})")
+                                    else:
+                                        entered = self._enter_position(df, signal_bar_index, "Entry2")
+                                        if entered:
+                                            entry2_signal_detected = True
+                                            if 'entry2_signal' in df.columns:
+                                                df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
+                                            if 'entry2_entry_type' in df.columns:
+                                                df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
+                                            if 'entry2_pnl' in df.columns:
+                                                df.at[signal_bar_index, 'entry2_pnl'] = 0.0
+                                            logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
+                                else:
+                                    entered = self._enter_position(df, signal_bar_index, "Entry2")
+                                    if entered:
+                                        entry2_signal_detected = True
+                                        if 'entry2_signal' in df.columns:
+                                            df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
+                                        if 'entry2_entry_type' in df.columns:
+                                            df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
+                                        if 'entry2_pnl' in df.columns:
+                                            df.at[signal_bar_index, 'entry2_pnl'] = 0.0
+                                        logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
+                            else:
+                                logger.debug(f"Entry2 signal at signal_bar_index={signal_bar_index} filtered out by risk validation - not marking entry2_signal")
+                        else:
+                            logger.debug(f"No Entry2 signal at index {i} for {symbol}")
                     
                     # Check Entry 1 signal (only if Entry2 didn't trigger - Entry2 has priority)
                     if not entry2_signal_detected:

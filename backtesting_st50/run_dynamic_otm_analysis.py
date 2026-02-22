@@ -91,8 +91,31 @@ class TradeState:
             
             # Extract entry_price from entry_data (should be 'open' column from strategy file)
             entry_price = entry_data.get('open', entry_data.get('entry_price', 0.0))
-            # Extract exit_price from exit_data (should be 'close' column from strategy file)
-            exit_price = exit_data.get('close', exit_data.get('exit_price', 0.0))
+            if entry_price is not None:
+                try:
+                    entry_price = float(entry_price)
+                except (TypeError, ValueError):
+                    entry_price = None
+            if entry_price is None or (pd.isna(entry_price) if hasattr(pd, 'isna') else (entry_price != entry_price)) or entry_price <= 0:
+                entry_price = entry_data.get('entry_price', entry_data.get('close', None))
+                if entry_price is not None:
+                    try:
+                        entry_price = float(entry_price)
+                    except (TypeError, ValueError):
+                        entry_price = None
+                if entry_price is None or pd.isna(entry_price) or entry_price <= 0:
+                    entry_price = None  # Leave as None; downstream should not treat as valid
+            # Extract exit_price: use strategy-recorded entry2_exit_price when present (SL/TP price), else close
+            exit_price = exit_data.get('entry2_exit_price')
+            if exit_price is None or (isinstance(exit_price, (int, float)) and (pd.isna(exit_price) or exit_price == 0)):
+                exit_price = exit_data.get('close', exit_data.get('exit_price', 0.0))
+            if exit_price is not None and not isinstance(exit_price, (int, float)):
+                try:
+                    exit_price = float(exit_price)
+                except (TypeError, ValueError):
+                    exit_price = exit_data.get('close', exit_data.get('exit_price', 0.0))
+            # Extract exit_reason from strategy (e.g. Fixed Stop Loss, SuperTrend Stop Loss Exit)
+            exit_reason = (exit_data.get('entry2_exit_reason', '') or '') if hasattr(exit_data, 'get') else ''
             # Determine option_type from symbol
             option_type = 'CE' if symbol.endswith('CE') else 'PE'
             
@@ -129,6 +152,7 @@ class TradeState:
                 'entry_price': entry_price,
                 'exit_price': exit_price,
                 'pnl': pnl,
+                'exit_reason': exit_reason,
                 'realized_pnl': None,  # Will be set by trailing stop if enabled
                 'running_capital': None,  # Will be set by trailing stop if enabled
                 'high_water_mark': None,  # Will be set by trailing stop if enabled
@@ -663,7 +687,37 @@ class ConsolidatedDynamicOTMAnalysis:
             else:
                 month_letter = month_map[month_label][0]
                 return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"
-    
+
+    def _warn_missing_otm_strategy_files(self, all_periods: list, source_dir: Path, expiry_week: str,
+                                         is_monthly: bool, date_str: str, day_label: str):
+        """
+        Check that every strike referenced in OTM slabs has a corresponding strategy file.
+        Log a WARNING with count and list of missing files so the user can see magnitude (e.g. re-run data_fetcher).
+        """
+        if not source_dir or not source_dir.exists():
+            return
+        unique_ce = set()
+        unique_pe = set()
+        for p in all_periods:
+            unique_ce.add(int(p['ce_strike']))
+            unique_pe.add(int(p['pe_strike']))
+        symbol_prefix = self._get_symbol_prefix_from_expiry(expiry_week, is_monthly, date_str)
+        missing = []
+        for strike in unique_ce:
+            path = source_dir / f"{symbol_prefix}{strike}CE_strategy.csv"
+            if not path.exists():
+                missing.append(path.name)
+        for strike in unique_pe:
+            path = source_dir / f"{symbol_prefix}{strike}PE_strategy.csv"
+            if not path.exists():
+                missing.append(path.name)
+        if missing:
+            logger.warning(
+                f"[OTM] Missing strategy files for {expiry_week}/{day_label}: {len(missing)} file(s) referenced in slabs but not found. "
+                "Re-run data_fetcher for this day (using nifty_price) or regenerate strategy from OHLC. Missing: %s",
+                ", ".join(sorted(missing))
+            )
+
     def _get_enabled_entry_types(self):
         """Get list of enabled entry types from config"""
         enabled_types = []
@@ -1922,6 +1976,8 @@ class ConsolidatedDynamicOTMAnalysis:
                 logger.info("No trades found, skipping trade-based blocking")
             if not nifty_file.exists():
                 logger.warning(f"NIFTY data file not found: {nifty_file}, skipping trade-based blocking")
+
+        self._warn_missing_otm_strategy_files(all_periods, source_dir, expiry_week, is_monthly, date_str, day_label)
         
         # STEP 5: Process all trades with fully blocked slabs
         # After applying blocking in STEP 1-4, process all trades in one pass
@@ -2049,8 +2105,20 @@ class ConsolidatedDynamicOTMAnalysis:
                     'data': exit_trade
                 })
         
-        # Sort all signals globally by time
-        all_global_signals.sort(key=lambda x: x['time'])
+        # Sort all signals: same minute = entry before exit (so exit closes the trade we just opened).
+        # Different minutes: chronological. Fixes wrong pairing (e.g. entry 13:44:01 paired with exit 14:15 -> -14%).
+        def _signal_sort_key(x):
+            t = x['time']
+            try:
+                floor_min = t.floor('min') if hasattr(t, 'floor') else t
+            except Exception:
+                floor_min = t.replace(second=0, microsecond=0) if hasattr(t, 'replace') else t
+            if not hasattr(floor_min, 'replace') and hasattr(t, 'replace'):
+                floor_min = t.replace(second=0, microsecond=0)
+            if x['type'] == 'entry':
+                return (floor_min, 0, t, x['symbol'])
+            return (floor_min, 1, t, x['symbol'])
+        all_global_signals.sort(key=_signal_sort_key)
         
         logger.info(f"Processing {len(all_global_signals)} signals globally chronologically")
         
@@ -2281,6 +2349,7 @@ class ConsolidatedDynamicOTMAnalysis:
                         'entry_price': None,
                         'exit_price': None,
                         'pnl': None,
+                        'exit_reason': '',
                         'realized_pnl': None,
                         'running_capital': None,
                         'high_water_mark': None,
@@ -2302,35 +2371,97 @@ class ConsolidatedDynamicOTMAnalysis:
                     # Entry price should be the price at execution time, not signal candle time
                     strategy_file = source_dir / f"{symbol}_strategy.csv"
                     execution_price = None
+                    df_symbol_full = None
                     if strategy_file.exists():
                         try:
                             df_symbol_full = pd.read_csv(strategy_file)
                             df_symbol_full['date'] = pd.to_datetime(df_symbol_full['date'])
                             df_symbol_full = df_symbol_full.sort_values('date')
-                            
-                            # Find the candle at execution time (entry_time)
                             execution_minute = entry_time.replace(second=0, microsecond=0)
-                            matching_rows = df_symbol_full[df_symbol_full['date'] == execution_minute]
+                            exec_ts = pd.Timestamp(execution_minute)
+                            exec_naive = exec_ts.tz_localize(None) if exec_ts.tz is not None else exec_ts
+                            dates = df_symbol_full['date']
+                            dates_naive = dates.dt.tz_localize(None) if hasattr(dates.dtype, 'tz') and dates.dtype.tz is not None else dates
+                            matching_rows = df_symbol_full[dates_naive == exec_naive]
                             if not matching_rows.empty:
                                 execution_row = matching_rows.iloc[0]
                                 execution_price = execution_row.get('open', None)
-                                logger.debug(f"Found execution price for {symbol} at {entry_time}: {execution_price:.2f}")
+                                if execution_price is not None:
+                                    try:
+                                        execution_price = float(execution_price)
+                                    except (TypeError, ValueError):
+                                        execution_price = None
+                                if execution_price is None or (pd.notna(execution_price) is False or execution_price <= 0):
+                                    execution_price = None
                             else:
-                                rows_before = df_symbol_full[df_symbol_full['date'] <= entry_time]
+                                rows_before = df_symbol_full[dates_naive <= exec_naive]
                                 if not rows_before.empty:
                                     execution_row = rows_before.iloc[-1]
                                     execution_price = execution_row.get('open', None)
+                                    if execution_price is not None:
+                                        try:
+                                            execution_price = float(execution_price)
+                                        except (TypeError, ValueError):
+                                            execution_price = None
+                                    if execution_price is None or (pd.notna(execution_price) is False or execution_price <= 0):
+                                        execution_price = None
+                            if execution_price is not None:
+                                logger.debug(f"Found execution price for {symbol} at {entry_time}: {execution_price:.2f}")
                         except Exception as e:
                             logger.warning(f"Error fetching execution price for {symbol} at {entry_time}: {e}")
                     
-                    # Update entry_data with execution price if found
-                    if execution_price is not None:
+                    # Fallback: if execution minute match failed, use first row after signal candle (execution bar)
+                    if (execution_price is None or execution_price <= 0) and df_symbol_full is not None and not df_symbol_full.empty:
+                        try:
+                            signal_candle_time = entry_signal.get('date', None)
+                            if signal_candle_time is not None:
+                                dates = df_symbol_full['date']
+                                dates_naive = dates.dt.tz_localize(None) if hasattr(dates.dtype, 'tz') and dates.dtype.tz is not None else dates
+                                sig_ts = pd.Timestamp(signal_candle_time)
+                                sig_naive = sig_ts.tz_localize(None) if sig_ts.tz is not None else sig_ts
+                                rows_after_signal = df_symbol_full[dates_naive > sig_naive]
+                                if not rows_after_signal.empty:
+                                    next_row = rows_after_signal.iloc[0]
+                                    execution_price = next_row.get('open', None)
+                                    if execution_price is not None:
+                                        execution_price = float(execution_price)
+                                    if execution_price is not None and pd.notna(execution_price) and execution_price > 0:
+                                        logger.info(f"[PRICE FALLBACK] {symbol} using next-bar open after signal as execution price: {execution_price:.2f}")
+                        except Exception as e:
+                            logger.debug(f"Next-bar execution price fallback failed for {symbol}: {e}")
+                    
+                    # Fallback: use signal candle open so entry_price is never NaN in downstream CSV
+                    if (execution_price is None or execution_price <= 0 or (pd.isna(execution_price) if hasattr(pd, 'isna') else execution_price != execution_price)):
+                        signal_open = entry_signal.get('open', None)
+                        if signal_open is not None:
+                            try:
+                                signal_open = float(signal_open)
+                                if pd.notna(signal_open) and signal_open > 0:
+                                    execution_price = signal_open
+                                    logger.info(f"[PRICE FALLBACK] {symbol} using signal candle open as entry price: {execution_price:.2f}")
+                            except (TypeError, ValueError):
+                                pass
+                    
+                    # Always set entry_data so downstream never sees NaN entry_price
+                    if execution_price is not None and pd.notna(execution_price) and execution_price > 0:
                         entry_data['open'] = execution_price
                         entry_data['entry_price'] = execution_price
                         signal_candle_time = entry_signal.get('date', None)
                         signal_price = entry_signal.get('open', None)
-                        if signal_price and abs(execution_price - signal_price) > 0.01:
-                            logger.info(f"[PRICE FIX] {symbol} entry price updated: signal candle ({signal_candle_time.time() if signal_candle_time else 'N/A'}) = {signal_price:.2f}, execution ({entry_time.time()}) = {execution_price:.2f}")
+                        if signal_price is not None and float(signal_price) != execution_price and abs(execution_price - float(signal_price)) > 0.01:
+                            logger.info(f"[PRICE FIX] {symbol} entry price: signal candle ({signal_candle_time.time() if hasattr(signal_candle_time, 'time') else 'N/A'}) = {signal_price:.2f}, execution ({entry_time.time()}) = {execution_price:.2f}")
+                    else:
+                        # Last resort: ensure we have at least signal open so PRICE_ZONES filter doesn't treat as NaN
+                        so = entry_signal.get('open', entry_signal.get('entry_price', None))
+                        if so is not None:
+                            try:
+                                so = float(so)
+                                if pd.notna(so) and so > 0:
+                                    entry_data['open'] = so
+                                    entry_data['entry_price'] = so
+                                    logger.debug(f"[PRICE FALLBACK] {symbol} set entry_data from signal open: {so:.2f}")
+                            except (TypeError, ValueError):
+                                pass
                     
                     if trade_state.enter_trade(symbol, entry_time, entry_data):
                         logger.info(f"Entered trade for {symbol} at {entry_time} in period {entry_period}")
@@ -2462,7 +2593,7 @@ class ConsolidatedDynamicOTMAnalysis:
         # Always create separate CE/PE files, even if empty
         # Define expected columns for empty DataFrame (matching ATM structure)
         expected_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl', 
-                           'realized_pnl', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status']
+                           'exit_reason', 'realized_pnl', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status']
         if all_trades:
             completed_df = pd.DataFrame(all_trades)
             # CRITICAL FIX: Ensure all required columns exist (matching ATM structure)
@@ -2704,11 +2835,11 @@ class ConsolidatedDynamicOTMAnalysis:
             ce_trades = completed_df[completed_df['option_type'] == 'CE'].copy()
             pe_trades = completed_df[completed_df['option_type'] == 'PE'].copy()
             
-            # CRITICAL FIX: Same column order as ATM so mkt_sentiment_trades has sentiment_pnl in same position
-            # ATM order: ... exit_price, running_capital, high_water_mark, drawdown_limit, trade_status, high, swing_low, symbol_html, realized_pnl_pct
+            # CRITICAL FIX: Same column order as ATM so mkt_sentiment_trades has sentiment_pnl and exit_reason in same position
+            # ATM order: ... trade_status, high, swing_low, symbol_html, realized_pnl_pct, exit_reason
             required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
                               'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct']
+                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
             for col in required_columns:
                 if col not in ce_trades.columns:
                     ce_trades[col] = None
@@ -2719,33 +2850,27 @@ class ConsolidatedDynamicOTMAnalysis:
             ce_trades = ce_trades[required_columns]
             pe_trades = pe_trades[required_columns]
         else:
-            # Create empty DataFrames with same column order as ATM (realized_pnl_pct after symbol_html)
+            # Create empty DataFrames with same column order as ATM (realized_pnl_pct, exit_reason after symbol_html)
             required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
                               'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct']
+                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
             ce_trades = pd.DataFrame(columns=required_columns)
             pe_trades = pd.DataFrame(columns=required_columns)
         
         # CRITICAL FIX: Verify all required columns exist before saving (matching ATM structure)
-        # Add realized_pnl_pct column (percentage) for better readability
-        # Calculate as: ((exit_price - entry_price) / entry_price) * 100
-        if not ce_trades.empty and 'entry_price' in ce_trades.columns and 'exit_price' in ce_trades.columns:
+        # Add realized_pnl_pct from execution candle: (exit_price - entry_price) / entry_price * 100.
+        # entry_price is set to execution bar open when OPTIMAL_ENTRY (and lookup succeeds), so this gives execution-based PnL.
+        def set_realized_pnl_pct(df):
+            if df.empty or 'entry_price' not in df.columns or 'exit_price' not in df.columns:
+                return
             def calc_pnl_pct(row):
-                entry_price = row.get('entry_price', 0)
-                exit_price = row.get('exit_price', 0)
-                if pd.notna(entry_price) and pd.notna(exit_price) and entry_price > 0:
-                    return round(((exit_price - entry_price) / entry_price) * 100, 2)
+                ep, xp = row.get('entry_price', 0), row.get('exit_price', 0)
+                if pd.notna(ep) and pd.notna(xp) and ep > 0:
+                    return round(((xp - ep) / ep) * 100, 2)
                 return None
-            ce_trades['realized_pnl_pct'] = ce_trades.apply(calc_pnl_pct, axis=1)
-        
-        if not pe_trades.empty and 'entry_price' in pe_trades.columns and 'exit_price' in pe_trades.columns:
-            def calc_pnl_pct(row):
-                entry_price = row.get('entry_price', 0)
-                exit_price = row.get('exit_price', 0)
-                if pd.notna(entry_price) and pd.notna(exit_price) and entry_price > 0:
-                    return round(((exit_price - entry_price) / entry_price) * 100, 2)
-                return None
-            pe_trades['realized_pnl_pct'] = pe_trades.apply(calc_pnl_pct, axis=1)
+            df['realized_pnl_pct'] = df.apply(calc_pnl_pct, axis=1)
+        set_realized_pnl_pct(ce_trades)
+        set_realized_pnl_pct(pe_trades)
         
         # Convert high and swing_low to percentages, remove pnl and realized_pnl columns
         def convert_to_percentages(df):
@@ -2808,7 +2933,7 @@ class ConsolidatedDynamicOTMAnalysis:
         # Note: pnl and realized_pnl have been removed by convert_to_percentages; column order must match ATM for mkt_sentiment
         required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
                           'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                          'high', 'swing_low', 'symbol_html', 'realized_pnl_pct']
+                          'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
         if len(ce_trades) > 0:
             for col in required_columns:
                 if col not in ce_trades.columns:

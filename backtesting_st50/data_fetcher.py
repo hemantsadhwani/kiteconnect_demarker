@@ -657,8 +657,10 @@ class DataFetcher:
             # Collect dynamic data for both ATM and OTM
             logger.info("Collecting dynamic data for ATM and OTM...")
             
-            # Get unique price levels and their corresponding strikes
-            price_levels = nifty_df['close'].unique()
+            # Get unique price levels for strike derivation - MUST match slab logic
+            # Slabs use nifty_calculated_price = (O+H+L+C)/4 per candle; using close would miss strikes
+            # (e.g. ce_strike 26100 in slabs but no NIFTY25D1626100CE_strategy.csv when close was lower)
+            price_levels = nifty_df['nifty_price'].unique()
             collected_symbols = set()  # Track (symbol, option_type) tuples to avoid duplicates
             
             # CRITICAL: Collect +/- 50 strikes around ATM to preserve historical context (matching production 7-ticker cluster)

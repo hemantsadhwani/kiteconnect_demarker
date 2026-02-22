@@ -388,10 +388,10 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         else:
             logger.info(f"{kind} trade files are empty ({ce_path.name}, {pe_path.name}) - creating empty sentiment-filtered file")
         
-        # Create empty sentiment-filtered file with same columns as ATM/OTM (so sentiment_pnl position matches)
+        # Create empty sentiment-filtered file with same columns as ATM/OTM (so sentiment_pnl and exit_reason match)
         empty_cols = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
                       'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                      'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'trade_status_reason', 'market_sentiment', 'filter_status']
+                      'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'trade_status_reason', 'market_sentiment', 'filter_status', 'sentiment_pnl', 'exit_reason']
         empty_df = pd.DataFrame(columns=empty_cols)
         try:
             empty_df.to_csv(output_file, index=False)
@@ -854,8 +854,10 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     sentiment_filtered_count = len(filtered_df)
     if price_zone_low is not None and price_zone_high is not None and len(filtered_df) > 0:
         entry_prices = pd.to_numeric(filtered_df['entry_price'], errors='coerce')
+        # Only mark OUTSIDE_PRICE_BAND when entry_price is a valid number outside the band.
+        # Missing/NaN entry_price must not be treated as outside band (would wrongly skip e.g. ~100 premium).
         in_zone_mask = (entry_prices >= price_zone_low) & (entry_prices <= price_zone_high)
-        out_zone_mask = ~in_zone_mask
+        out_zone_mask = entry_prices.notna() & ~in_zone_mask
         out_zone_count = out_zone_mask.sum()
         if out_zone_count > 0:
             logger.info(f"PRICE_ZONES [{price_zone_low}, {price_zone_high}]: {out_zone_count} trades outside zone will appear as SKIPPED (OUTSIDE_PRICE_BAND)")
@@ -1008,7 +1010,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
         'high', 'swing_low', 'symbol_html',
         'realized_pnl_pct',  # becomes sentiment_pnl after apply_trailing_stop
-        'trade_status_reason', 'market_sentiment', 'filter_status'
+        'trade_status_reason', 'market_sentiment', 'filter_status', 'sentiment_pnl', 'exit_reason'
     ]
     existing_canonical = [c for c in canonical_columns if c in filtered_df.columns]
     extra_columns = [c for c in filtered_df.columns if c not in canonical_columns]

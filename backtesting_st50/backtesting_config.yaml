@@ -4,7 +4,7 @@ ANALYSIS:
   CALCULATE_PNL: true
   CALCULATE_WIN_RATE: true
   GENERATE_REPORTS: true
-  GENERATE_STRATEGY_PLOTS: trueS
+  GENERATE_STRATEGY_PLOTS: true
   INCLUDE_CHARTS: false
   SAVE_CSV_REPORTS: true
   SAVE_JSON_REPORTS: false
@@ -17,8 +17,8 @@ BACKTESTING_ANALYSIS:
       HIGH_PRICE: 200   # ATM CE/PE often 200-300+; must be high enough so sentiment output is not empty
       LOW_PRICE: 40
     DYNAMIC_OTM:
-      HIGH_PRICE: 400
-      LOW_PRICE: 0
+      HIGH_PRICE: 240
+      LOW_PRICE: 20
     STATIC_ATM:
       HIGH_PRICE: 600
       LOW_PRICE: 20
@@ -30,27 +30,28 @@ BACKTESTING_EXPIRY:
     STATIC_DATA: ENABLE
   # Lean validation: 1 date from 2025 + 1 from 2026 to verify 2025 appears in report. Restore full list when done.
   BACKTESTING_DAYS:
-  - '2025-10-15'
-  - '2025-10-16'
-  - '2025-10-17'
-  - '2025-10-23'
-  - '2025-10-24'
-  - '2025-10-27'
-  - '2025-10-29'
-  - '2025-10-30'
-  - '2025-10-31'
-  - '2025-11-03'
-  - '2025-11-06'
-  - '2025-11-07'
-  - '2025-11-10'
-  - '2025-11-12'
-  - '2025-11-13'
-  - '2025-11-14'
-  - '2025-11-17'
-  - '2025-11-19'
-  - '2025-11-20'
-  - '2025-11-21'
-  - '2025-11-24'
+  # - '2025-10-15'
+  # - '2025-10-16'
+  # - '2025-10-17'
+  # - '2025-10-23'
+  # - '2025-10-24'
+  # - '2025-10-27'
+  # - '2025-10-29'
+  # - '2025-10-30'
+  # - '2025-10-31'
+  # - '2025-11-03'
+  # - '2025-11-06'
+  # - '2025-11-07'
+  # - '2025-11-10'
+  # - '2025-11-12'
+  # - '2025-11-13'
+  # - '2025-11-14'
+  # - '2025-11-17'
+  # - '2025-11-19'
+  # - '2025-11-20'
+  # - '2025-11-21'
+  # - '2025-11-24'
+
   - '2025-11-26'
   - '2025-11-27'
   - '2025-11-28'
@@ -63,6 +64,7 @@ BACKTESTING_EXPIRY:
   - '2025-12-11'
   - '2025-12-12'
   - '2025-12-15'
+
   - '2026-01-07'
   - '2026-01-08'
   - '2026-01-09'
@@ -171,13 +173,15 @@ MARKET_SENTIMENT_FILTER:
   HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
   ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # If false: Only one position (CE or PE) can be active at a time. If true: CE and PE positions can coexist.
-# High-Water Mark trailing stop: stop trading for the day when next trade would breach LOSS_MARK% from day high.
+# High-Water Mark trailing stop: stop trading for the day when capital falls below LOSS_MARK% from the reference.
 # Reduces backtest PnL (skips some winners). See docs/MARK2MARKET_IMPACT.md for per-day impact and dates.
+# USE_START_CAPITAL_FOR_LIMIT: false = limit trails from day high (HWM); true = fixed limit from starting capital.
 MARK2MARKET:
   ENABLE: true
   CAPITAL: 100000
-  LOSS_MARK: 40   #Keep 40 when MODE: MANUAL
+  LOSS_MARK: 30   #Keep 40 when MODE: MANUAL
   PER_DAY: true
+  USE_START_CAPITAL_FOR_LIMIT: false  # true = stop when capital < CAPITAL*(1-LOSS_MARK/100); false = stop when capital < HWM*(1-LOSS_MARK/100)
 STRATEGY:
   CE_ENTRY_CONDITIONS:
     useEntry1: false
@@ -193,7 +197,7 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: false
+    12:00-13:00: true
     13:00-14:00: true
     14:00-15:30: true
 TRADING:
@@ -210,6 +214,10 @@ ENTRY2:
   WPR_CONFIRMATION_WINDOW: 4   # Used when TRIGGER=WPR (legacy 4-bar window for W%R + StochRSI confirmation)
   # Delayed entry: 0 = enter on confirmation bar; 1 = enter next bar if conditions still hold (filters momentary spikes)
   ENTRY_DELAY_BARS: 0
+  # Optimal entry: skip next-candle entry; enter when a subsequent candle opens above confirmation candle high. Invalidate if SL (from would-be next-candle entry) breached.
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
+  # When true: also invalidate when both WPR9 and WPR28 fall below oversold while waiting (can filter winners on pullback; keep false to test).
+  OPTIMAL_ENTRY_WPR_INVALIDATE: false
   # When true: block new Entry2 trigger until current bar > last exit bar (fewer entries, no same-bar trigger after SL).
   # When false: allow new trigger on any bar including same bar as exit (e.g. trigger@10:43, SL@10:43, confirmation@10:47 -> entry 10:48).
   COOLDOWN_ENABLED: false   # true = cooldown (old behavior); false = no cooldown (more entries)
@@ -223,8 +231,8 @@ ENTRY2:
   - 40
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5
-    BETWEEN_THRESHOLD: 7.6
-    BELOW_THRESHOLD: 7.6
+    BETWEEN_THRESHOLD: 8.0
+    BELOW_THRESHOLD: 8.0
   VALIDATE_ENTRY_RISK: true
   REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT:
     ABOVE_THRESHOLD: 13
