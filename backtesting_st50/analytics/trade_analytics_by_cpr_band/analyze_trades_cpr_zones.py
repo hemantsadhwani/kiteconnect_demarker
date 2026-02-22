@@ -615,7 +615,7 @@ def main() -> None:
             if pd.isna(pnl_val):
                 continue
             total_with_nifty_and_pnl += 1
-            # Exclude SKIPPED trades (OUTSIDE_PRICE_BAND, RISK STOP, etc.) from zone stats and output CSVs
+            # Exclude SKIPPED trades (OUTSIDE_CPR_BAND, OUTSIDE_PRICE_BAND, RISK STOP, etc.) from zone stats and output CSVs
             trade_status = str(row.get("trade_status", "") or "").strip()
             if "SKIPPED" in trade_status.upper():
                 continue

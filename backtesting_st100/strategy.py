@@ -903,29 +903,10 @@ class Entry2BacktestStrategyFixed:
                 logger.debug(f"Entry2: SuperTrend not bearish at index {current_index} (dir={supertrend_dir}) - cannot trigger new entry")
                 return False
             
-            # Check if we can enter (cooldown only)
-            # COOLDOWN LOGIC EXPLANATION:
-            # After an exit (e.g. SL at bar E), we allow trigger evaluation on the very next bar (E+1).
-            # This is critical: the candle where SL was hit (E) has WPR values; the next candle (E+1) is
-            # when we see the crossover (prev=E both WPR below, current=E+1 both above). If we required
-            # current_index > last_entry_bar + 1, we would block bar E+1 and miss that crossover.
-            # So: allow first bar after exit (current_index > last_entry_bar).
-            # Note: last_entry_bar is set to the EXIT bar in _exit_position (not the entry bar of the closed trade).
+            # Allow new trigger only after exit bar: current_index > last_entry_bar.
+            # last_entry_bar is set to the EXIT bar in _exit_position (not the entry bar of the closed trade).
             can_enter = (current_index > self.last_entry_bar)
-            
-            # Enhanced logging for missing trades investigation
-            current_row = df.iloc[current_index]
-            if hasattr(current_row, 'date'):
-                time_str = pd.to_datetime(current_row['date']).strftime('%H:%M')
-                if time_str in ['13:17', '13:18', '13:19', '13:20', '13:21']:
-                    logger.info(f"Entry2: [DEBUG] Cooldown check at index {current_index} ({time_str}): can_enter={can_enter}, last_entry_bar={self.last_entry_bar}, need > {self.last_entry_bar}")
-            
             if not can_enter:
-                current_row = df.iloc[current_index]
-                if hasattr(current_row, 'date'):
-                    time_str = pd.to_datetime(current_row['date']).strftime('%H:%M')
-                    if time_str in ['13:17', '13:18', '13:19', '13:20', '13:21']:
-                        logger.warning(f"Entry2: [DEBUG] Cooldown BLOCKING entry at index {current_index} ({time_str}) for {symbol} (last_entry_bar={self.last_entry_bar}, need > {self.last_entry_bar})")
                 return False
         
         # Define signal conditions
@@ -2425,7 +2406,7 @@ class Entry2BacktestStrategyFixed:
         self.is_dynamic_trailing_ma_active = False
         self.current_stop_loss_percent = None
         
-        # CRITICAL FIX: Update last_entry_bar to exit bar for cooldown period tracking
+        # Update last_entry_bar to exit bar for tracking
         # This ensures the next bar (current_index + 1) can be evaluated for a new trigger.
         # We use exit bar so that the candle where SL was hit (E) and the next candle (E+1) can
         # correctly see the WPR crossover (prev=E, current=E+1) and allow entry at E+2.

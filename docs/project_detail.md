@@ -204,7 +204,7 @@ The `config.yaml` file controls all aspects of the trading system. It is organiz
 -   **`VALIDATE_SWING_LOW_SL`**: If `true`, validates that the swing low stop-loss is not more than 12% from the entry price (current value: `true`).
 
 ### Technical Indicator Settings
--   **`WAIT_BARS_RSI`**: The number of bars to wait for a StochRSI confirmation in Entry 1 (current value: `2`).
+-   **`ENTRY2_CONFIRMATION_WINDOW`**: Number of candles for WPR28 and StochRSI confirmations; also used for Entry1 StochRSI confirmation window (default: `4`).
 -   **`FAST_WPR_PERIOD`**: The lookback period for the Fast Williams %R indicator (current value: `9`).
 -   **`SLOW_WPR_PERIOD`**: The lookback period for the Slow Williams %R indicator (current value: `28`).
 -   **`RSI_PERIOD`**: The lookback period for the RSI calculation (current value: `14`).

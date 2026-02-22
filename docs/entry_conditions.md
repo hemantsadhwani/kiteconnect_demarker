@@ -61,7 +61,7 @@ All of the following must be true on the closing of a single candle for an entry
 *   There is no active position.
 *   A trade was not closed on the current bar.
 *   The `close` price is greater than the 5-period `swingLow`.
-*   `WAIT_BARS_RSI` is set to `2` in `config.yaml`.
+*   StochRSI confirmation occurs within `ENTRY2_CONFIRMATION_WINDOW` bars (default 4) in `config`.
 *   The **Entry Risk Validation** passes (if enabled).
 
 ---
@@ -95,7 +95,7 @@ All of the following must be true on the closing of a single candle for an entry
 *   There is no active position.
 *   A trade was not closed on the current bar.
 *   The `close` price is greater than the 5-period `swingLow`.
-*   `WAIT_BARS_RSI` is set to `2` in `config.yaml`.
+*   Confirmation window is `ENTRY2_CONFIRMATION_WINDOW` (default 4) in `config`.
 *   The **Entry Risk Validation** passes (if enabled).
 
 ---

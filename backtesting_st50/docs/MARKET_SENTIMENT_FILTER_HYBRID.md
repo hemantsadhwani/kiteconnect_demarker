@@ -16,7 +16,9 @@ Entry logic (e.g. `CPR_TRADING_RANGE`) is **unchanged**; HYBRID only changes how
 
 ## CPR_TRADING_RANGE (applies to AUTO, HYBRID, and MANUAL)
 
-Before any sentiment filtering, **entry is allowed only when Nifty at entry is inside the CPR band**. This is controlled by:
+Before any sentiment filtering, **entry is allowed only when Nifty at entry is inside the configured CPR range**. The range is defined by **two column names** in `cpr_dates.csv`; you can choose a **tighter band** (fib bands) or a **wider pivot-only** range.
+
+**Example — tighter band (run within R2/S2 bands):**
 
 ```yaml
 CPR_TRADING_RANGE:
@@ -25,9 +27,19 @@ CPR_TRADING_RANGE:
   CPR_LOWER: "band_S2_lower"   # column name in cpr_dates.csv
 ```
 
-- **band_S2_lower** and **band_R2_upper** come from `cpr_dates.csv` (or your configured CPR source).
-- Entry is **blocked** when Nifty at entry &gt; band_R2_upper or Nifty at entry &lt; band_S2_lower. (Outside the band, no trade is taken — sentiment is not set to DISABLE; those trades simply never exist.)
-- So the **same set of trades** (those inside the band) is produced by the backtest for **AUTO, HYBRID, and MANUAL**; only CE/PE filtering after that differs.
+**Example — wider scope (run within R2/S3 pivot levels):**
+
+```yaml
+CPR_TRADING_RANGE:
+  ENABLED: true
+  CPR_UPPER: "R2"   # column name in cpr_dates.csv
+  CPR_LOWER: "S3"   # column name in cpr_dates.csv
+```
+
+- **CPR_UPPER** and **CPR_LOWER** are **configurable**; they must be column names present in `analytics/cpr_dates.csv` (or the CPR source used by the backtest/filter).
+- **No-trading zones:** With `CPR_UPPER: "R2"` and `CPR_LOWER: "S3"`, there is **no trading above R2** and **no trading below S3**. The backtest skips entry when Nifty at entry is outside [S3, R2]; the sentiment filter marks such trades as `SKIPPED (OUTSIDE_CPR_BAND)`. This is enforced by **CPR_TRADING_RANGE** (entry/price boundary), not by sentiment DISABLE — one source of truth in `backtesting_config.yaml`.
+- Entry is **blocked** when Nifty at entry &gt; CPR_UPPER value or Nifty at entry &lt; CPR_LOWER value. (Outside the range, no trade is taken; those trades simply never exist in the backtest.)
+- So the **same set of trades** (those inside the configured range) is produced by the backtest for **AUTO, HYBRID, and MANUAL**; only CE/PE filtering after that differs.
 
 ---
 
@@ -55,6 +67,16 @@ MARKET_SENTIMENT_FILTER:
 - **Outside strict zone** (Nifty &lt; S1 or Nifty &gt; R1), or if zone cannot be computed:
   - Effective sentiment = **NEUTRAL** → **both CE and PE** allowed.
   - Included trades get `filter_status`: `INCLUDED (HYBRID_NEUTRAL_ZONE)` when the actual sentiment was not NEUTRAL but we forced NEUTRAL because of the zone.
+
+### How “outside R1–S1” maps to price zones
+
+- **Above R1 up to R2 (or CPR_UPPER)**  
+  Nifty at entry &gt; R1 → **outside** strict zone → effective sentiment **NEUTRAL** → both CE and PE allowed. Sentiment filtering is **not applied** here (direction discipline only inside R1–S1).
+
+- **Below S1 down to S3 (or CPR_LOWER)**  
+  Nifty at entry &lt; S1 → **outside** strict zone → effective sentiment **NEUTRAL** → both CE and PE allowed. Same as above: no CE/PE restriction.
+
+- **Important:** Outside R1–S1 we do **not** use “MARKET SENTIMENT = DISABLE”. DISABLE would exclude the trade. Outside zone we **allow** the trade and treat effective sentiment as NEUTRAL (both CE and PE allowed).
 
 ---
 
@@ -86,7 +108,7 @@ When **in R1–S1** and sentiment is available, **v5 rules** apply (same as AUTO
 - **NEUTRAL** → both CE and PE **INCLUDED**.
 - **DISABLE** → trade **EXCLUDED** (`EXCLUDED (DISABLE_SENTIMENT)`).
 
-When **in strict zone** but **no sentiment** found for entry time → trade **EXCLUDED** with `filter_status`: `EXCLUDED (NO_SENTIMENT_IN_STRICT_ZONE)`.
+When **in strict zone** but **no sentiment** found for entry time → trade **EXCLUDED** with `filter_status`: `EXCLUDED (NO_SENTIMENT_IN_STRICT_ZONE)`. (In production this case does not arise: sentiment is always from state and is one of BULLISH/BEARISH/NEUTRAL/DISABLE.)
 
 ---
 
@@ -123,4 +145,22 @@ When **in strict zone** but **no sentiment** found for entry time → trade **EX
 | **Outside R1–S1** (or unknown) | NEUTRAL        | Allow | Allow |
 | In R1–S1, no sentiment | —                 | Exclude (NO_SENTIMENT_IN_STRICT_ZONE) | Exclude |
 
-Inside R1–S1, NEUTRAL and DISABLE behave as in AUTO: NEUTRAL → both; DISABLE → none.
+- **Outside R1–S1** includes: above R1 (e.g. R1–R2, R2–R3) and below S1 (e.g. S2–S1, S3–S2). In all those zones, sentiment filtering is effectively **off** (NEUTRAL → both CE and PE allowed). This is **not** DISABLE (which would exclude the trade).
+- Inside R1–S1, NEUTRAL and DISABLE behave as in AUTO: NEUTRAL → both; DISABLE → none.
+
+---
+
+## Production implementation (aligned with this doc)
+
+Production implements the same HYBRID rules; only data sources differ:
+
+| Aspect | Backtesting | Production |
+|--------|-------------|------------|
+| **R1, S1** | From `analytics/cpr_dates.csv` per trade date | From CPR computed at startup (previous trading day Nifty OHLC via Kite); stored in `cpr_today` (R1, S1 and all bands) |
+| **Nifty at entry** | From 1-min CSV for that day | Real-time Nifty LTP (or last candle close) via `_get_current_nifty_price()` |
+| **CPR_TRADING_RANGE** | Config `CPR_UPPER`/`CPR_LOWER` (e.g. R2, S3 or band names); bounds from cpr_dates.csv | Same config; bounds from `cpr_today` (workflow computes CPR and bands; supports both pivot keys R2/S3 and band keys) |
+| **Strict zone** | `S1 <= nifty_at_entry <= R1` via `_is_in_r1_s1_zone()` | Same logic in `compute_effective_sentiment_hybrid()`; R1/S1 from `cpr_today` |
+| **In zone, no sentiment** | Trade EXCLUDED (`NO_SENTIMENT_IN_STRICT_ZONE`) | Not applicable: production sentiment is always from state (BULLISH/BEARISH/NEUTRAL/DISABLE). Backtest-only when sentiment file has no row for that time. |
+| **Outside zone** | Effective NEUTRAL; both CE and PE allowed | Same: effective sentiment forced to NEUTRAL |
+
+Production code: `entry_conditions.py` (effective sentiment, CE/PE filtering, CPR range validation), `async_main_workflow.py` (CPR compute, `cpr_today`, config load). Config: `MARKET_SENTIMENT.MODE: HYBRID`, `HYBRID_STRICT_ZONE: R1_S1`; `CPR_TRADING_RANGE` with `CPR_UPPER`/`CPR_LOWER` as in backtesting.

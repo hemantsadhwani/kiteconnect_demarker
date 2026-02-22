@@ -342,14 +342,14 @@ class AsyncEventHandlers:
                             if not should_recheck and hasattr(self.entry_condition_manager, 'crossover_state'):
                                 crossover_state = self.entry_condition_manager.crossover_state.get(symbol, {})
                                 if crossover_state.get('fastCrossoverDetected', False):
-                                    # Check if we're still within the WAIT_BARS_RSI window
+                                    # Check if we're still within the confirmation window (ENTRY2_CONFIRMATION_WINDOW)
                                     fast_bar_index = crossover_state.get('fastCrossoverBarIndex')
                                     if fast_bar_index is not None:
-                                        wait_bars_rsi = self.entry_condition_manager.config.get('TRADE_SETTINGS', {}).get('WAIT_BARS_RSI', 2)
+                                        confirmation_window = self.entry_condition_manager.config.get('TRADE_SETTINGS', {}).get('ENTRY2_CONFIRMATION_WINDOW', 4)
                                         current_bar_index = self.entry_condition_manager.current_bar_index
-                                        if current_bar_index <= fast_bar_index + wait_bars_rsi:
+                                        if current_bar_index <= fast_bar_index + confirmation_window:
                                             should_recheck = True
-                                            reason = f"Entry1 waiting for StochRSI confirmation for {symbol} (within {wait_bars_rsi} bars)"
+                                            reason = f"Entry1 waiting for StochRSI confirmation for {symbol} (within {confirmation_window} bars)"
                                 else:
                                     # Entry1 might also miss triggers if W%R values are stale
                                     # Re-check Entry1 trigger detection

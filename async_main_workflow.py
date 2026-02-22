@@ -864,10 +864,11 @@ class AsyncTradingBot:
             lv, uv = _fib(lo, hi)
             bands["band_R4_lower"], bands["band_R4_upper"] = lv, uv
 
-            cpr_upper = bands.get(upper_col)
-            cpr_lower = bands.get(lower_col)
+            # Support both band keys (band_R2_upper, band_S2_lower) and raw pivot keys (R2, S3) per config
+            cpr_upper = bands.get(upper_col) or cpr.get(upper_col)
+            cpr_lower = bands.get(lower_col) or cpr.get(lower_col)
             if cpr_upper is None or cpr_lower is None:
-                logger.warning(f"CPR_TRADING_RANGE: missing {upper_col} or {lower_col} in computed bands")
+                logger.warning(f"CPR_TRADING_RANGE: missing {upper_col} or {lower_col} in computed levels/bands")
                 return
 
             # Print all CPR levels and all CPR-derived Type 2 bands for verification at startup (see docs/HYBRID_AND_AUTOV5_PRODUCTION_PLAN.md §5.4)

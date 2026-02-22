@@ -198,12 +198,14 @@ class EntryConditionManager:
         else:
             self.logger.info("Time distribution filter DISABLED - all time zones allowed")
 
-        # --- CPR Trading Range (NIFTY must be within band_S2_lower and band_R2_upper) ---
+        # --- CPR Trading Range (NIFTY must be within CPR_LOWER and CPR_UPPER; keys from config, e.g. R2/S3 or band_R2_upper/band_S2_lower) ---
         cpr_range_config = config.get('CPR_TRADING_RANGE', {})
         self.cpr_trading_range_enabled = cpr_range_config.get('ENABLED', False)
-        self.cpr_today = None  # Set by workflow after CPR computation (band_S2_lower, band_R2_upper)
+        self.cpr_upper_col = (cpr_range_config.get('CPR_UPPER') or 'band_R2_upper').strip()
+        self.cpr_lower_col = (cpr_range_config.get('CPR_LOWER') or 'band_S2_lower').strip()
+        self.cpr_today = None  # Set by workflow after CPR computation (includes R1, S1 for HYBRID and CPR bounds)
         if self.cpr_trading_range_enabled:
-            self.logger.info("CPR_TRADING_RANGE ENABLED - Entry only when NIFTY is within [band_S2_lower, band_R2_upper]")
+            self.logger.info("CPR_TRADING_RANGE ENABLED - Entry only when NIFTY is within [%s, %s]", self.cpr_lower_col, self.cpr_upper_col)
         else:
             self.logger.info("CPR_TRADING_RANGE DISABLED - No NIFTY band filter")
 
@@ -1233,8 +1235,8 @@ class EntryConditionManager:
 
     def _validate_cpr_trading_range(self, symbol):
         """
-        Validate that current NIFTY is within CPR trading range [band_S2_lower, band_R2_upper].
-        Used to block entries when NIFTY is outside the band (e.g. much below S2 or above R2).
+        Validate that current NIFTY is within CPR trading range [CPR_LOWER, CPR_UPPER].
+        Uses config keys (e.g. R2/S3 or band_R2_upper/band_S2_lower) so production matches backtesting.
         Returns (is_valid, nifty_price). If CPR range is disabled or cpr_today not set, returns (True, nifty_price).
         """
         if not self.cpr_trading_range_enabled:
@@ -1243,10 +1245,14 @@ class EntryConditionManager:
         if not cpr:
             self.logger.debug("CPR_TRADING_RANGE: cpr_today not set - skipping NIFTY band check")
             return True, None
-        cpr_lower = cpr.get('band_S2_lower')
-        cpr_upper = cpr.get('band_R2_upper')
+        cpr_lower = cpr.get(getattr(self, 'cpr_lower_col', 'band_S2_lower'))
+        cpr_upper = cpr.get(getattr(self, 'cpr_upper_col', 'band_R2_upper'))
         if cpr_lower is None or cpr_upper is None:
-            self.logger.warning("CPR_TRADING_RANGE: band_S2_lower or band_R2_upper missing in cpr_today - skipping check")
+            self.logger.warning(
+                "CPR_TRADING_RANGE: %s or %s missing in cpr_today - skipping check",
+                getattr(self, 'cpr_lower_col', 'band_S2_lower'),
+                getattr(self, 'cpr_upper_col', 'band_R2_upper'),
+            )
             return True, None
         nifty = self._get_current_nifty_price()
         if nifty is None:
@@ -1255,11 +1261,11 @@ class EntryConditionManager:
         is_valid = cpr_lower <= nifty <= cpr_upper
         if not is_valid:
             self.logger.info(
-                f"[CPR TRADING RANGE] Trade NOT taken for {symbol}: NIFTY {nifty:.2f} is outside allowed range "
-                f"[band_S2_lower={cpr_lower:.2f}, band_R2_upper={cpr_upper:.2f}] - entry signal ignored"
+                "[CPR TRADING RANGE] Trade NOT taken for %s: NIFTY %.2f is outside allowed range [%s=%.2f, %s=%.2f] - entry signal ignored",
+                symbol, nifty, getattr(self, 'cpr_lower_col', 'CPR_LOWER'), cpr_lower, getattr(self, 'cpr_upper_col', 'CPR_UPPER'), cpr_upper,
             )
         else:
-            self.logger.debug(f"CPR trading range: NIFTY {nifty:.2f} within [{cpr_lower:.2f}, {cpr_upper:.2f}] - trade allowed")
+            self.logger.debug("CPR trading range: NIFTY %.2f within [%.2f, %.2f] - trade allowed", nifty, cpr_lower, cpr_upper)
         return is_valid, nifty
 
     def _execute_neutral_trade(self, symbol, option_type, entry_type, ticker_handler):
@@ -1359,7 +1365,9 @@ class EntryConditionManager:
             effective_sentiment = compute_effective_sentiment_hybrid(current_mode, sentiment, nifty, r1, s1)
             if current_mode == 'HYBRID' and effective_sentiment == 'NEUTRAL' and sentiment != 'NEUTRAL':
                 self.logger.debug(f"HYBRID: Nifty {nifty} outside R1-S1 ({r1}/{s1}), using NEUTRAL")
-            
+            # Note: NO_SENTIMENT_IN_STRICT_ZONE (exclude when in R1-S1 but no sentiment) is a backtest-only case:
+            # production sentiment always comes from state_manager.get_sentiment() which returns only BULLISH/BEARISH/NEUTRAL/DISABLE (or NEUTRAL for invalid).
+
             # --- Handle Immediate Action Commands (from the API queue) ---
             # Manual commands (BUY_CE, BUY_PE) are ALWAYS allowed regardless of sentiment mode
             # They bypass all sentiment filtering including DISABLE mode
@@ -2128,34 +2136,34 @@ class EntryConditionManager:
             if os.getenv('VERBOSE_DEBUG', 'false').lower() == 'true':
                 self.logger.debug(f"New candle detected, bar index: {self.current_bar_index}")
 
-        # Reset crossover indices if they have expired without confirmation
-        wait_bars_rsi = self.config['TRADE_SETTINGS'].get('WAIT_BARS_RSI', 2)
+        # Reset crossover indices if they have expired without confirmation (use ENTRY2_CONFIRMATION_WINDOW)
+        confirmation_window = self.config['TRADE_SETTINGS'].get('ENTRY2_CONFIRMATION_WINDOW', 4)
 
         if (state['fastCrossoverDetected'] and state['fastCrossoverBarIndex'] is not None and
-            self.current_bar_index > state['fastCrossoverBarIndex'] + wait_bars_rsi):
-            self.logger.debug(f"Resetting fast crossover state for {symbol} at bar {self.current_bar_index} (expired after {wait_bars_rsi} bars)")
+            self.current_bar_index > state['fastCrossoverBarIndex'] + confirmation_window):
+            self.logger.debug(f"Resetting fast crossover state for {symbol} at bar {self.current_bar_index} (expired after {confirmation_window} bars)")
             state['fastCrossoverDetected'] = False
             state['fastCrossoverBarIndex'] = None
 
         if (state['slowCrossoverBarIndex'] is not None and
-            self.current_bar_index > state['slowCrossoverBarIndex'] + wait_bars_rsi):
-            self.logger.debug(f"Resetting slowCrossoverBarIndex for {symbol} at bar {self.current_bar_index} (expired after {wait_bars_rsi} bars)")
+            self.current_bar_index > state['slowCrossoverBarIndex'] + confirmation_window):
+            self.logger.debug(f"Resetting slowCrossoverBarIndex for {symbol} at bar {self.current_bar_index} (expired after {confirmation_window} bars)")
             state['slowCrossoverBarIndex'] = None
 
         if (state['stochCrossoverBarIndex'] is not None and
-            self.current_bar_index > state['stochCrossoverBarIndex'] + wait_bars_rsi):
-            self.logger.debug(f"Resetting stochCrossoverBarIndex for {symbol} at bar {self.current_bar_index} (expired after {wait_bars_rsi} bars)")
+            self.current_bar_index > state['stochCrossoverBarIndex'] + confirmation_window):
+            self.logger.debug(f"Resetting stochCrossoverBarIndex for {symbol} at bar {self.current_bar_index} (expired after {confirmation_window} bars)")
             state['stochCrossoverBarIndex'] = None
-            
+
         # Reset StochRSI K/D crossover indices if they have expired
         if (state['stochKDCrossoverBarIndex'] is not None and
-            self.current_bar_index > state['stochKDCrossoverBarIndex'] + wait_bars_rsi):
-            self.logger.debug(f"Resetting stochKDCrossoverBarIndex for {symbol} at bar {self.current_bar_index} (expired after {wait_bars_rsi} bars)")
+            self.current_bar_index > state['stochKDCrossoverBarIndex'] + confirmation_window):
+            self.logger.debug(f"Resetting stochKDCrossoverBarIndex for {symbol} at bar {self.current_bar_index} (expired after {confirmation_window} bars)")
             state['stochKDCrossoverBarIndex'] = None
-            
+
         if (state['stochKDCrossunderBarIndex'] is not None and
-            self.current_bar_index > state['stochKDCrossunderBarIndex'] + wait_bars_rsi):
-            self.logger.debug(f"Resetting stochKDCrossunderBarIndex for {symbol} at bar {self.current_bar_index} (expired after {wait_bars_rsi} bars)")
+            self.current_bar_index > state['stochKDCrossunderBarIndex'] + confirmation_window):
+            self.logger.debug(f"Resetting stochKDCrossunderBarIndex for {symbol} at bar {self.current_bar_index} (expired after {confirmation_window} bars)")
             state['stochKDCrossunderBarIndex'] = None
 
         # Detect crossovers
@@ -3123,12 +3131,13 @@ class EntryConditionManager:
 
         # Entry 1: Fast Reversal with StochRSI confirmation
         if entry_conditions.get('useEntry1', False):
+            confirmation_window = trade_settings.get('ENTRY2_CONFIRMATION_WINDOW', 4)
             stoch_fast_reversal = (
                 state['fastCrossoverDetected'] and
                 state['fastCrossoverBarIndex'] is not None and
                 state['stochCrossoverBarIndex'] is not None and
                 state['stochCrossoverBarIndex'] >= state['fastCrossoverBarIndex'] and
-                state['stochCrossoverBarIndex'] <= state['fastCrossoverBarIndex'] + trade_settings.get('WAIT_BARS_RSI', 2)
+                state['stochCrossoverBarIndex'] <= state['fastCrossoverBarIndex'] + confirmation_window
             )
 
             # Debug logging for Entry 1 conditions

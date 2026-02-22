@@ -46,7 +46,7 @@ So both: once the day is stopped, no further trades.
 | **Scope** | Post-hoc on CSV: marks EXECUTED vs SKIPPED (RISK STOP); does not prevent entries. | Live: blocks new entries via `is_trading_allowed()` and can force-exit via watchdog. |
 | **Live (unrealized) PnL** | Not applicable (only closed trades). | `get_live_equity_state()` / `check_realtime_drawdown()` include unrealized PnL from open positions; breach can trigger **before** a trade is closed (stricter safety). |
 | **PER_DAY** | Explicit in config; each day’s CSV processed with fresh capital. | Implicit: ledger is per trading day, so only today’s completed trades are used. |
-| **Phase-3 skips** | Trades already skipped (e.g. OUTSIDE_PRICE_BAND) do not affect capital; status preserved. | N/A (production does not have sentiment-CSV phases). |
+| **Phase-3 skips** | Trades already skipped (e.g. OUTSIDE_CPR_BAND, OUTSIDE_PRICE_BAND) do not affect capital; status preserved. | N/A (production does not have sentiment-CSV phases). |
 
 ## File reference
 

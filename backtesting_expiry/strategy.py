@@ -472,8 +472,7 @@ class Entry2BacktestStrategyFixed:
         # Use trigger-specific confirmation window: WPR needs 4 bars (W%R28 + StochRSI), DeMarker uses 3
         self.entry2_confirmation_window = _wpr_window if self.entry2_trigger == 'WPR' else _demarker_window
         self.entry2_delay_bars = max(0, int(entry2_config.get('ENTRY_DELAY_BARS', 0)))
-        self.entry2_cooldown_enabled = entry2_config.get('COOLDOWN_ENABLED', False)
-        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, delay bars: {self.entry2_delay_bars}, cooldown enabled: {self.entry2_cooldown_enabled}")
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, delay bars: {self.entry2_delay_bars}")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -962,13 +961,6 @@ class Entry2BacktestStrategyFixed:
         demarker_crosses_above = (dem_prev <= self.demarker_oversold) and (dem_curr > self.demarker_oversold)
         if not demarker_crosses_above:
             return False
-        if getattr(self, 'entry2_cooldown_enabled', False):
-            if self.position is not None:
-                logger.debug(f"Entry2 (DeMarker): Cooldown blocking trigger at index {current_index} (in position)")
-                return False
-            if current_index <= self.last_entry_bar:
-                logger.debug(f"Entry2 (DeMarker): Cooldown blocking trigger at index {current_index} (last_entry_bar={self.last_entry_bar})")
-                return False
 
         logger.info(f"Entry2 (DeMarker): Trigger at index {current_index} for {symbol} - DeMarker {dem_prev:.4f} -> {dem_curr:.4f} (above {self.demarker_oversold}), bearish")
         sm['state'] = 'AWAITING_CONFIRMATION'
@@ -1080,18 +1072,6 @@ class Entry2BacktestStrategyFixed:
             if not is_bearish:
                 logger.debug(f"Entry2: SuperTrend not bearish at index {current_index} (dir={supertrend_dir}) - cannot trigger new entry")
                 return False
-            
-            # Cooldown (configurable): when enabled, block new trigger until after exit (no trigger while in position).
-            # Without this, we'd allow trigger at bar 88 (same bar as SL exit) because last_entry_bar was from a previous exit.
-            # When disabled, allow new trigger on any bar (e.g. same bar as SL exit -> confirmation later -> entry 10:48).
-            if getattr(self, 'entry2_cooldown_enabled', False):
-                if self.position is not None:
-                    logger.debug(f"Entry2: Cooldown blocking new trigger at index {current_index} (in position; no trigger until after exit)")
-                    return False
-                can_enter = (current_index > self.last_entry_bar)
-                if not can_enter:
-                    logger.debug(f"Entry2: Cooldown blocking new trigger at index {current_index} (last_entry_bar={self.last_entry_bar}, need current_index > last_entry_bar)")
-                    return False
         
         # Define signal conditions
         wpr_9_crosses_above = (wpr_fast_prev <= self.wpr_9_oversold) and (wpr_fast_current > self.wpr_9_oversold)
@@ -2398,8 +2378,7 @@ class Entry2BacktestStrategyFixed:
         self.current_stop_loss_percent = self._determine_stop_loss_percent(entry_price)
         self.sl_to_entry_armed = False
         
-        # CRITICAL FIX: Update last_entry_bar for cooldown period tracking
-        # This ensures cooldown period is properly enforced between trades
+        # Update last_entry_bar for tracking (used for entry/signal placement)
         self.last_entry_bar = self.entry_bar_index
         logger.info(
             f"{signal_type}: Entry price {entry_price:.2f} -> Stop loss {self.current_stop_loss_percent:.2f}% "
@@ -2610,7 +2589,7 @@ class Entry2BacktestStrategyFixed:
         self.entry_band_weak_signal = None
         self.weak_signal_7pct_checked = False
         
-        # CRITICAL FIX: Update last_entry_bar to exit bar for cooldown period tracking
+        # Update last_entry_bar to exit bar for tracking
         # This ensures the next bar (current_index + 1) can be evaluated for a new trigger.
         # We use exit bar so that the candle where SL was hit (E) and the next candle (E+1) can
         # correctly see the WPR crossover (prev=E, current=E+1) and allow entry at E+2.

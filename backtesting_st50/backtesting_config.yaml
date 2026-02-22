@@ -52,26 +52,26 @@ BACKTESTING_EXPIRY:
   # - '2025-11-21'
   # - '2025-11-24'
 
-  - '2025-11-26'
-  - '2025-11-27'
-  - '2025-11-28'
-  - '2025-12-01'
-  - '2025-12-03'
-  - '2025-12-04'
-  - '2025-12-05'
-  - '2025-12-08'
-  - '2025-12-10'
-  - '2025-12-11'
-  - '2025-12-12'
-  - '2025-12-15'
+  # - '2025-11-26'
+  # - '2025-11-27'
+  # - '2025-11-28'
+  # - '2025-12-01'
+  # - '2025-12-03'
+  # - '2025-12-04'
+  # - '2025-12-05'
+  # - '2025-12-08'
+  # - '2025-12-10'
+  # - '2025-12-11'
+  # - '2025-12-12'
+  # - '2025-12-15'
 
   - '2026-01-07'
-  - '2026-01-08'
-  - '2026-01-09'
-  - '2026-01-12'
+  # - '2026-01-08'
+  # - '2026-01-09'
+  # - '2026-01-12'
   - '2026-01-14'
-  - '2026-01-16'
-  - '2026-01-19'
+  # - '2026-01-16'
+  # - '2026-01-19'
   - '2026-01-21'
   - '2026-01-22'
   - '2026-01-23'
@@ -87,10 +87,10 @@ BACKTESTING_EXPIRY:
   - '2026-02-06'
   - '2026-02-09'
 
-  - '2026-02-11'
-  - '2026-02-12'
-  - '2026-02-13'
-  - '2026-02-16'
+  # - '2026-02-11'
+  # - '2026-02-12'
+  # - '2026-02-13'
+  # - '2026-02-16'
 
   - '2026-02-18'
   - '2026-02-19'
@@ -218,9 +218,7 @@ ENTRY2:
   OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
   # When true: also invalidate when both WPR9 and WPR28 fall below oversold while waiting (can filter winners on pullback; keep false to test).
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
-  # When true: block new Entry2 trigger until current bar > last exit bar (fewer entries, no same-bar trigger after SL).
-  # When false: allow new trigger on any bar including same bar as exit (e.g. trigger@10:43, SL@10:43, confirmation@10:47 -> entry 10:48).
-  COOLDOWN_ENABLED: false   # true = cooldown (old behavior); false = no cooldown (more entries)
+  # "Fixed Percentage" = SL at entry_price * (1 - percent/100); "Swing Low" = SL at trailing swing low at entry
   SL_MODE: "Fixed Percentage"  # "Fixed Percentage" | "Swing Low"
   # Legacy WPR-based trigger (set TRIGGER to "WPR" to use old logic)
   TRIGGER: "WPR"       # "DEMARKER" | "WPR"

@@ -181,7 +181,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
     logger.info(f"Trades that would bring capital below {loss_mark}% from {'start' if use_start_capital_for_limit else 'day high'} are SKIPPED (not executed); then no further trades for the day")
     
     # Initialize new columns (trade_status_reason explains why SKIPPED/EXECUTED for user clarity)
-    # Preserve incoming trade_status from Phase 3 (e.g. SKIPPED (OUTSIDE_PRICE_BAND)) so we don't
+    # Preserve incoming trade_status from Phase 3 (e.g. SKIPPED (OUTSIDE_CPR_BAND), SKIPPED (OUTSIDE_PRICE_BAND)) so we don't
     # apply their PnL to capital; only overwrite where we set EXECUTED / SKIPPED (RISK STOP).
     df['realized_pnl'] = 0.0
     df['running_capital'] = 0.0
@@ -203,7 +203,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         if original_status.lower() == 'nan':
             original_status = ''
         if original_status and 'SKIPPED' in original_status and 'RISK STOP' not in original_status:
-            # Trade was skipped for reasons other than mark-to-market (e.g. OUTSIDE_PRICE_BAND).
+            # Trade was skipped for reasons other than mark-to-market (e.g. OUTSIDE_CPR_BAND, OUTSIDE_PRICE_BAND).
             # Do NOT apply its PnL to capital; preserve status and reason.
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
@@ -213,7 +213,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             existing_reason = row.get('trade_status_reason', '') or ''
             if not str(existing_reason).strip() or existing_reason == 'nan':
                 df.at[idx, 'trade_status_reason'] = 'Not MARK2MARKET: ' + (original_status or 'skipped earlier in pipeline')
-            # Keep trade_status and trade_status_reason as-is (e.g. SKIPPED (OUTSIDE_PRICE_BAND), "Entry price outside PRICE_ZONES")
+            # Keep trade_status and trade_status_reason as-is (e.g. SKIPPED (OUTSIDE_CPR_BAND), SKIPPED (OUTSIDE_PRICE_BAND))
             continue
         
         # Check if trade has NaN exit_time - these are trades that were never executed (skipped in Phase 2)

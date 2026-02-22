@@ -159,9 +159,6 @@ ENTRY2:
   WPR_CONFIRMATION_WINDOW: 4   # Used when TRIGGER=WPR (legacy 4-bar window for W%R + StochRSI confirmation)
   # Delayed entry: 0 = enter on confirmation bar; 1 = enter next bar if conditions still hold (filters momentary spikes)
   ENTRY_DELAY_BARS: 0
-  # When true: block new Entry2 trigger until current bar > last exit bar (fewer entries, no same-bar trigger after SL).
-  # When false: allow new trigger on any bar including same bar as exit (e.g. trigger@10:43, SL@10:43, confirmation@10:47 -> entry 10:48).
-  COOLDOWN_ENABLED: false   # true = cooldown (old behavior); false = no cooldown (more entries)
   SL_MODE: "Swing Low"  # "Fixed Percentage" | "Swing Low"
   # Legacy WPR-based trigger (set TRIGGER to "WPR" to use old logic)
   TRIGGER: "WPR"       # "DEMARKER" | "WPR"

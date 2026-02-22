@@ -869,7 +869,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
             if in_zone_mask.sum() == 0:
                 logger.warning(f"All {len(filtered_df)} sentiment-filtered trades are outside price zone (included in output with SKIPPED (OUTSIDE_PRICE_BAND))")
     
-    # Apply CPR_TRADING_RANGE: mark trades where Nifty at entry is outside band_S2_lower--band_R2_upper as SKIPPED so Filtered Trades excludes them
+    # Apply CPR_TRADING_RANGE: mark trades where Nifty at entry is outside CPR band as SKIPPED (OUTSIDE_CPR_BAND) so Filtered Trades excludes them
     if config.get('cpr_trading_range_enabled') and len(filtered_df) > 0:
         cpr_low, cpr_high = _load_cpr_bounds_for_date(trade_date, config['cpr_lower_col'], config['cpr_upper_col'])
         if cpr_low is None or cpr_high is None:
@@ -905,11 +905,11 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                 out_cpr_mask = (nifty_at_entry_series < cpr_low) | (nifty_at_entry_series > cpr_high) | nifty_at_entry_series.isna()
                 out_cpr_count = out_cpr_mask.sum()
                 if out_cpr_count > 0:
-                    logger.info(f"CPR_TRADING_RANGE [{cpr_low}, {cpr_high}]: {out_cpr_count} trades outside band will appear as SKIPPED (OUTSIDE_PRICE_BAND)")
-                    filtered_df.loc[out_cpr_mask, 'trade_status'] = 'SKIPPED (OUTSIDE_PRICE_BAND)'
+                    logger.info(f"CPR_TRADING_RANGE [{cpr_low}, {cpr_high}]: {out_cpr_count} trades outside band will appear as SKIPPED (OUTSIDE_CPR_BAND)")
+                    filtered_df.loc[out_cpr_mask, 'trade_status'] = 'SKIPPED (OUTSIDE_CPR_BAND)'
                     filtered_df.loc[out_cpr_mask, 'trade_status_reason'] = f'Nifty at entry outside CPR band ({cpr_low}-{cpr_high})'
                     if 'filter_status' in filtered_df.columns:
-                        filtered_df.loc[out_cpr_mask, 'filter_status'] = filtered_df.loc[out_cpr_mask, 'filter_status'].astype(str) + '; SKIPPED (OUTSIDE_PRICE_BAND)'
+                        filtered_df.loc[out_cpr_mask, 'filter_status'] = filtered_df.loc[out_cpr_mask, 'filter_status'].astype(str) + '; SKIPPED (OUTSIDE_CPR_BAND)'
                 else:
                     logger.info(f"CPR_TRADING_RANGE [{cpr_low}, {cpr_high}]: all {len(filtered_df)} trades inside band")
     
