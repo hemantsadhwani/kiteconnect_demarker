@@ -69,11 +69,13 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
     capital = float(mark2market.get('CAPITAL', 100000))
     loss_mark = float(mark2market.get('LOSS_MARK', 20))
     per_day = mark2market.get('PER_DAY', True)  # Default to True for per-day behavior
+    use_start_capital_for_limit = mark2market.get('USE_START_CAPITAL_FOR_LIMIT', False)
     
+    limit_ref_label = "starting capital" if use_start_capital_for_limit else "day high (HWM)"
     logger.info(f"Loading CSV: {csv_path}")
     logger.info(f"MARK2MARKET Mode: {'PER-DAY' if per_day else 'CUMULATIVE'}")
     logger.info(f"Starting Capital: {capital:,.2f} (resets each day: {per_day})")
-    logger.info(f"Loss Mark: {loss_mark}% (from day's High Water Mark)")
+    logger.info(f"Loss Mark: {loss_mark}% (limit from {limit_ref_label})")
     
     # Load CSV
     try:
@@ -169,15 +171,23 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
     high_water_mark = capital  # Day's High Water Mark starts at starting capital
     trading_active = True
     
-    logger.info(f"Day starts with: Capital=₹{capital:,.2f}, HWM=₹{high_water_mark:,.2f}")
-    logger.info(f"Stop will trigger if capital drops {loss_mark}% from day's high (HWM * {1 - loss_mark/100:.2f})")
+    def _drawdown_limit(hwm):
+        """Limit = ref * (1 - LOSS_MARK%). Ref = starting capital if USE_START_CAPITAL_FOR_LIMIT else day high (HWM). Same as backtesting_st50."""
+        ref = capital if use_start_capital_for_limit else hwm
+        return ref * (1 - loss_mark / 100.0)
     
-    # Initialize new columns
+    logger.info(f"Day starts with: Capital=₹{capital:,.2f}, HWM=₹{high_water_mark:,.2f}")
+    logger.info(f"Trades that would bring capital below {loss_mark}% from {'start' if use_start_capital_for_limit else 'day high'} are SKIPPED (not executed); then no further trades for the day")
+    
+    # Initialize new columns (trade_status_reason explains why SKIPPED/EXECUTED for user clarity)
     df['realized_pnl'] = 0.0
     df['running_capital'] = 0.0
     df['high_water_mark'] = 0.0
     df['drawdown_limit'] = 0.0
-    df['trade_status'] = ''
+    if 'trade_status' not in df.columns:
+        df['trade_status'] = ''
+    if 'trade_status_reason' not in df.columns:
+        df['trade_status_reason'] = ''
     
     logger.info(f"Processing {len(df)} trades...")
     
@@ -187,14 +197,16 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         # These trades should NOT affect capital calculation at all
         original_status = str(row.get('trade_status', '')).strip()
         if original_status and 'SKIPPED' in original_status and 'RISK STOP' not in original_status:
-            # Trade was skipped for reasons other than mark-to-market risk stop
-            # Preserve original status and skip capital calculation
+            # Trade was skipped for reasons other than mark-to-market (e.g. OUTSIDE_CPR_BAND, OUTSIDE_PRICE_BAND).
+            # Do NOT apply its PnL to capital; preserve status and reason.
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
-            # Keep original status (e.g., SKIPPED (ACTIVE_TRADE_EXISTS), SKIPPED (TRAILING_STOP))
+            existing_reason = row.get('trade_status_reason', '') or ''
+            if not str(existing_reason).strip() or existing_reason == 'nan':
+                df.at[idx, 'trade_status_reason'] = 'Not MARK2MARKET: ' + (original_status or 'skipped earlier in pipeline')
             continue
         
         # Check if trade has NaN exit_time - these are trades that were never executed (skipped in Phase 2)
@@ -206,20 +218,19 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             # otherwise preserve original status (might be SKIPPED (TRAILING_STOP) or SKIPPED (ACTIVE_TRADE_EXISTS))
             if not trading_active:
                 df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
+                df.at[idx, 'trade_status_reason'] = 'MARK2MARKET: Not executed; trading already stopped for the day (earlier trade hit drawdown limit from day high)'
             else:
                 # Trading is still active, but this trade was skipped in Phase 2
-                # Preserve original status or set to SKIPPED if not set
                 if not original_status or original_status.strip() == '':
                     df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
-                # Keep original status (e.g., SKIPPED (TRAILING_STOP), SKIPPED (ACTIVE_TRADE_EXISTS))
+                if not str(row.get('trade_status_reason', '')).strip():
+                    df.at[idx, 'trade_status_reason'] = 'Not executed (skipped in Phase 2)'
             
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
-            # NOTE: These trades don't have exit_time, which is correct for trades that were never executed
-            # But to match OTM, we might need to ensure all trades get exit times from EOD exit
             continue
         
         if not trading_active:
@@ -227,9 +238,12 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
+            df.at[idx, 'trade_status_reason'] = 'MARK2MARKET: Trading stopped for the day; this trade would have been after the drawdown limit (LOSS_MARK% from day high) was hit by an earlier trade'
             df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
+            if 'sentiment_pnl' in df.columns:
+                df.at[idx, 'sentiment_pnl'] = 0
             continue
         
         # Get PnL percentage
@@ -244,7 +258,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             continue
         
@@ -259,12 +273,12 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             continue
         
         # Calculate drawdown limit BEFORE executing trade (based on current high water mark)
-        drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+        drawdown_limit = _drawdown_limit(high_water_mark)
         
         # Calculate what capital would be AFTER this trade
         realized_pnl = current_capital * (pnl_percent / 100.0)
@@ -278,6 +292,12 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'high_water_mark'] = high_water_mark
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
+            df.at[idx, 'trade_status_reason'] = (
+                f'MARK2MARKET: Not executed; this trade would have brought capital below {loss_mark}% from '
+                f'{"starting capital" if use_start_capital_for_limit else "day high"} (projected {projected_capital:,.2f} < limit {drawdown_limit:,.2f})'
+            )
+            if 'sentiment_pnl' in df.columns:
+                df.at[idx, 'sentiment_pnl'] = 0
             trading_active = False
             logger.warning(
                 f"Trade {idx+1}: Skipped! Projected capital {projected_capital:,.2f} would be < "
@@ -293,7 +313,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             high_water_mark = current_capital
         
         # Recalculate drawdown limit with updated high water mark (for next trade)
-        drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+        drawdown_limit = _drawdown_limit(high_water_mark)
         
         # Trade executed normally
         df.at[idx, 'realized_pnl'] = round(realized_pnl, 2)
@@ -301,6 +321,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         df.at[idx, 'high_water_mark'] = round(high_water_mark, 2)
         df.at[idx, 'drawdown_limit'] = round(drawdown_limit, 2)
         df.at[idx, 'trade_status'] = 'EXECUTED'
+        df.at[idx, 'trade_status_reason'] = ''
     
     # Sort by entry_time descending (newest first) for output
     if 'entry_time' in df.columns:

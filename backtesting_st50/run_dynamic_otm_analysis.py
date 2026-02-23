@@ -1794,6 +1794,8 @@ class ConsolidatedDynamicOTMAnalysis:
                 'ce_strike': ce_strike
             })
         logger.info(f"Loaded {len(all_periods)} OTM periods from metadata")
+        # Keep base (Nifty-only) periods for symbol matching so output trades use slab symbol from nifty_dynamic_otm_slabs.csv (same as ATM run_dynamic_atm_analysis.py)
+        base_periods = [{'start': p['start'], 'end': p['end'], 'pe_strike': p['pe_strike'], 'ce_strike': p['ce_strike']} for p in all_periods]
         
         # Determine if we should use monthly or weekly format
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -1961,16 +1963,13 @@ class ConsolidatedDynamicOTMAnalysis:
                     'ce_strike': ce_strike
                 })
             
-            # CRITICAL FIX: Overwrite the main slabs file with blocked slabs
-            # This ensures period matching uses the correct blocked slabs
-            slabs_file = dest_dir / "nifty_dynamic_otm_slabs.csv"
-            blocked_slabs_df.to_csv(slabs_file, index=False)
-            logger.info(f"Saved fully blocked slabs to: {slabs_file} (overwritten original)")
-            
-            # Also save a backup of blocked slabs for debugging
+            # Do NOT overwrite the main slabs file with blocked slabs. The main file (nifty_dynamic_otm_slabs.csv)
+            # is Nifty-derived only and should stay stable across runs (e.g. OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN
+            # true vs false). Blocked slabs depend on collected trades (entry times), so they would differ.
+            # Use blocked slabs only in memory (all_periods) for this run; save to _blocked.csv for debugging.
             blocked_slabs_file = dest_dir / "nifty_dynamic_otm_slabs_blocked.csv"
             blocked_slabs_df.to_csv(blocked_slabs_file, index=False)
-            logger.info(f"Saved blocked slabs backup to: {blocked_slabs_file}")
+            logger.info(f"Saved blocked slabs to: {blocked_slabs_file} (main slabs file unchanged for research consistency)")
         else:
             if not all_trades_data:
                 logger.info("No trades found, skipping trade-based blocking")
@@ -2287,9 +2286,10 @@ class ConsolidatedDynamicOTMAnalysis:
                 nifty_price_level = option_strike
                 logger.debug(f"  Using strike as-is (full strike): {nifty_price_level}")
                 
-                # Match period by SIGNAL CANDLE time (when the signal fired); slab at that time has the correct OTM strike (same as ATM).
+                # Match period by SIGNAL CANDLE time using BASE slabs (nifty_dynamic_otm_slabs.csv) so output symbol matches slab.
+                # Using blocked all_periods would allow a different strike (e.g. 25700) at 14:52 and show wrong symbol in CSV.
                 logger.debug(f"  Looking for matching period at signal_time={time_for_period_match} (execution={entry_time_obj}) with strike {nifty_price_level}")
-                for period in all_periods:
+                for period in base_periods:
                     start_time = datetime.strptime(period['start'], '%H:%M:%S').time()
                     end_time = datetime.strptime(period['end'], '%H:%M:%S').time()
                     

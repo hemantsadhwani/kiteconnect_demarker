@@ -168,6 +168,7 @@ class TradeState:
             # Note: trailing_stop_manager is accessed via the parent ConsolidatedDynamicATMAnalysis instance
             # We'll update it after adding the trade, but we need to capture state before update
             # For now, we'll add placeholder values that will be updated after trade exit
+            exit_reason = (exit_data.get(f'{entry_type_lower}_exit_reason', '') or '') if hasattr(exit_data, 'get') else ''
             self.completed_trades.append({
                 'symbol': symbol,
                 'option_type': option_type,
@@ -176,6 +177,7 @@ class TradeState:
                 'entry_price': entry_price,
                 'exit_price': exit_price,
                 'pnl': pnl,
+                'exit_reason': exit_reason,
                 # Trailing stop columns (will be updated after trade exit)
                 'realized_pnl': None,  # Will be calculated
                 'running_capital': None,  # Will be set from trailing_stop_manager
@@ -1803,7 +1805,8 @@ class ConsolidatedDynamicATMAnalysis:
                                     'close': eod_exit_price,
                                     f'{entry_type_lower}_exit_type': 'Exit',
                                     f'{entry_type_lower}_pnl': eod_pnl,
-                                    f'{entry_type_lower}_exit_price': eod_exit_price
+                                    f'{entry_type_lower}_exit_price': eod_exit_price,
+                                    f'{entry_type_lower}_exit_reason': 'EOD Exit'
                                 })
                                 
                                 # Exit the trade with EOD exit
@@ -1846,7 +1849,8 @@ class ConsolidatedDynamicATMAnalysis:
                                     'close': eod_exit_price,
                                     f'{entry_type_lower}_exit_type': 'Exit',
                                     f'{entry_type_lower}_pnl': eod_pnl,
-                                    f'{entry_type_lower}_exit_price': eod_exit_price
+                                    f'{entry_type_lower}_exit_price': eod_exit_price,
+                                    f'{entry_type_lower}_exit_reason': 'EOD Exit'
                                 })
                                 
                                 if trade_state.exit_trade(symbol, last_bar['date'], exit_data):
@@ -2535,7 +2539,8 @@ class ConsolidatedDynamicATMAnalysis:
                     'close': eod_exit_price,
                     f'{entry_type_lower}_exit_type': 'Exit',
                     f'{entry_type_lower}_pnl': eod_pnl,
-                    f'{entry_type_lower}_exit_price': eod_exit_price
+                    f'{entry_type_lower}_exit_price': eod_exit_price,
+                    f'{entry_type_lower}_exit_reason': 'EOD Exit'
                 })
                 
                 # Exit the trade with EOD exit
@@ -2879,9 +2884,8 @@ class ConsolidatedDynamicATMAnalysis:
                     else:
                         logger.info(f"VALIDATION PASSED: No overlapping CE/PE trades found ({len(executed_ce)} CE, {len(executed_pe)} PE)")
         else:
-            # Create empty DataFrames with proper columns including trade_status
-            # Note: Use realized_pnl_pct instead of pnl (pnl and realized_pnl are removed by convert_to_percentages)
-            base_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'realized_pnl_pct', 'high', 'swing_low', 'trade_status']
+            # Create empty DataFrames with proper columns (same order as st50 for consolidation/mkt_sentiment)
+            base_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status', 'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
             ce_trades = pd.DataFrame(columns=base_columns)
             pe_trades = pd.DataFrame(columns=base_columns)
         
@@ -2970,6 +2974,11 @@ class ConsolidatedDynamicATMAnalysis:
         # Apply conversion to both DataFrames
         ce_trades = convert_to_percentages(ce_trades)
         pe_trades = convert_to_percentages(pe_trades)
+        
+        # Enforce column order to match st50 (symbol, ..., high %, swing_low %, symbol_html, realized_pnl_pct, exit_reason)
+        atm_column_order = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status', 'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
+        ce_trades = ce_trades.reindex(columns=[c for c in atm_column_order if c in ce_trades.columns])
+        pe_trades = pe_trades.reindex(columns=[c for c in atm_column_order if c in pe_trades.columns])
         
         # Save files with entry_type prefix
         ce_output_path = dest_dir / f"{entry_type_lower}_dynamic_atm_ce_trades.csv"

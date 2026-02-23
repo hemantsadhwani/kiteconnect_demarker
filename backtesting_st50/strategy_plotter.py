@@ -270,6 +270,26 @@ def process_strategy_csv_data(csv_file_path):
         }
     
     for index, row in df.iterrows():
+        # Entry2 signal bar (when OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: confirmation bar, before execution bar)
+        if 'entry2_signal_bar' in df.columns and pd.notna(row.get('entry2_signal_bar')) and row.get('entry2_signal_bar') != '' and row.get('entry2_signal_bar') != 0:
+            processed_trades.append({
+                'Trade #': trade_number,
+                'Type': 'Entry2 Signal',
+                'Entry Type': 'Entry2',
+                'Signal': 'Signal',
+                'Date/Time': int(row['time']),
+                'Price INR': float(row['open']),
+                'Quantity': 0,
+                'P&L INR': 0,
+                'P&L %': 0,
+                'Run-up INR': 0,
+                'Run-up %': 0,
+                'Drawdown INR': 0,
+                'Drawdown %': 0,
+                'Cumulative P&L INR': 0,
+                'Cumulative P&L %': 0
+            })
+
         # Check for entry - support Entry1, Entry2, Entry3
         entry_type = None
         entry_type_col = None
@@ -525,6 +545,13 @@ def generate_html(csv_file_path):
         
         .trade-exit {{
             border-left-color: #EF5350;
+        }}
+        
+        .trade-entry2-signal {{
+            border-left-color: #2196F3;
+        }}
+        .trade-entry2-signal .trade-type {{
+            color: #2196F3;
         }}
         
         .trade-header {{
@@ -1236,7 +1263,7 @@ def generate_html(csv_file_path):
                 const tradeItem = document.createElement('div');
                 tradeItem.classList.add('trade-item');
                 
-                const tradeTypeClass = trade.Type.toLowerCase().includes('entry') ? 'trade-entry' : 'trade-exit';
+                const tradeTypeClass = trade.Type === 'Entry2 Signal' ? 'trade-entry2-signal' : (trade.Type.toLowerCase().includes('entry') ? 'trade-entry' : 'trade-exit');
                 tradeItem.classList.add(tradeTypeClass);
 
                 const pnlValue = parseFloat(trade['P&L %']);
@@ -1270,7 +1297,12 @@ def generate_html(csv_file_path):
                     let markerPosition;
                     let markerText;
 
-                    if (trade.Type.toLowerCase().includes('entry')) {{
+                    if (trade.Type === 'Entry2 Signal' || trade.Signal === 'Signal') {{
+                        markerShape = 'circle';
+                        markerColor = '#2196F3'; // Blue for signal bar (optimal entry)
+                        markerPosition = 'belowBar';
+                        markerText = 'Entry2 Signal';
+                    }} else if (trade.Type.toLowerCase().includes('entry')) {{
                         markerShape = 'arrowUp';
                         markerColor = '#26A69A'; // Green for entry
                         markerPosition = 'belowBar';

@@ -69,11 +69,13 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
     capital = float(mark2market.get('CAPITAL', 100000))
     loss_mark = float(mark2market.get('LOSS_MARK', 20))
     per_day = mark2market.get('PER_DAY', True)  # Default to True for per-day behavior
+    use_start_capital_for_limit = mark2market.get('USE_START_CAPITAL_FOR_LIMIT', False)
     
+    limit_ref_label = "starting capital" if use_start_capital_for_limit else "day high (HWM)"
     logger.info(f"Loading CSV: {csv_path}")
     logger.info(f"MARK2MARKET Mode: {'PER-DAY' if per_day else 'CUMULATIVE'}")
     logger.info(f"Starting Capital: {capital:,.2f} (resets each day: {per_day})")
-    logger.info(f"Loss Mark: {loss_mark}% (from day's High Water Mark)")
+    logger.info(f"Loss Mark: {loss_mark}% (limit from {limit_ref_label})")
     
     # Load CSV
     try:
@@ -170,8 +172,13 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
     high_water_mark = capital  # Day's High Water Mark starts at starting capital
     trading_active = True
     
+    def _drawdown_limit(hwm):
+        """Limit = ref * (1 - LOSS_MARK%). Ref = starting capital if USE_START_CAPITAL_FOR_LIMIT else day high (HWM). Same as backtesting_st50."""
+        ref = capital if use_start_capital_for_limit else hwm
+        return ref * (1 - loss_mark / 100.0)
+    
     logger.info(f"Day starts with: Capital=₹{capital:,.2f}, HWM=₹{high_water_mark:,.2f}")
-    logger.info(f"Stop triggers when a trade would bring capital below {loss_mark}% from day's high; that trade is skipped and no further trades for the day")
+    logger.info(f"Trades that would bring capital below {loss_mark}% from {'start' if use_start_capital_for_limit else 'day high'} are SKIPPED (not executed); then no further trades for the day")
     
     # Initialize new columns (trade_status_reason explains why SKIPPED/EXECUTED for user clarity)
     # Preserve incoming trade_status from Phase 3 (e.g. SKIPPED (OUTSIDE_PRICE_BAND)) so we don't
@@ -201,7 +208,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             existing_reason = row.get('trade_status_reason', '') or ''
             if not str(existing_reason).strip() or existing_reason == 'nan':
@@ -235,7 +242,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             continue
         
@@ -245,7 +252,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
             df.at[idx, 'trade_status_reason'] = 'MARK2MARKET: Trading stopped for the day; this trade would have been after the drawdown limit (LOSS_MARK% from day high) was hit by an earlier trade'
@@ -266,7 +273,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             continue
         
@@ -282,12 +289,12 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
-            drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+            drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             continue
         
         # Drawdown limit from current high water mark
-        drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+        drawdown_limit = _drawdown_limit(high_water_mark)
         realized_pnl = current_capital * (pnl_percent / 100.0)
         projected_capital = current_capital + realized_pnl
         
@@ -316,7 +323,7 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         current_capital = projected_capital
         if current_capital > high_water_mark:
             high_water_mark = current_capital
-        drawdown_limit = high_water_mark * (1 - loss_mark / 100.0)
+        drawdown_limit = _drawdown_limit(high_water_mark)
         
         df.at[idx, 'realized_pnl'] = round(realized_pnl, 2)
         df.at[idx, 'running_capital'] = round(current_capital, 2)

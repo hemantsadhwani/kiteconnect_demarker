@@ -33,6 +33,8 @@ class BacktestingTrailingStopManager:
         self.enabled = mark2market.get('ENABLE', False)
         self.capital = float(mark2market.get('CAPITAL', 100000))
         self.loss_mark = float(mark2market.get('LOSS_MARK', 20))
+        # false = limit from day high (HWM); true = fixed limit from starting capital (same as backtesting_st50)
+        self.use_start_capital_for_limit = mark2market.get('USE_START_CAPITAL_FOR_LIMIT', False)
         
         # Initialize state
         self.current_capital = self.capital
@@ -147,8 +149,9 @@ class BacktestingTrailingStopManager:
                 self.high_water_mark = self.current_capital
     
     def _calculate_drawdown_limit(self) -> float:
-        """Calculate the drawdown limit based on high water mark."""
-        return self.high_water_mark * (1 - (self.loss_mark / 100.0))
+        """Calculate the drawdown limit. Ref = starting capital if USE_START_CAPITAL_FOR_LIMIT else high water mark (same as backtesting_st50)."""
+        ref = self.capital if self.use_start_capital_for_limit else self.high_water_mark
+        return ref * (1 - (self.loss_mark / 100.0))
     
     def get_state(self) -> dict:
         """

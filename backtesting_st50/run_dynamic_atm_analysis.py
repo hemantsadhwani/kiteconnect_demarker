@@ -1608,9 +1608,9 @@ class ConsolidatedDynamicATMAnalysis:
                 ", ".join(sorted(missing))
             )
 
-    def _process_trades_for_entry_type(self, expiry_week: str, day_label: str, entry_type: str, 
-                                       source_dir: Path, dest_dir: Path, all_periods: list, 
-                                       base_expiry_week: str, is_monthly: bool, date_str: str,
+    def _process_trades_for_entry_type(self, expiry_week: str, day_label: str, entry_type: str,
+                                       source_dir: Path, dest_dir: Path, all_periods: list,
+                                       base_periods: list, base_expiry_week: str, is_monthly: bool, date_str: str,
                                        collect_trades_only: bool = False):
         """
         Process trades for a specific entry type (Entry1, Entry2, or Entry3)
@@ -2136,9 +2136,9 @@ class ConsolidatedDynamicATMAnalysis:
                     f"signal_time={time_for_period_match}, execution_time={entry_time_obj}"
                 )
                 
-                # CRITICAL FIX: Find the period that matches BOTH time AND strike
-                # In ATM, only ONE period should be active at any given time
-                # Only signals from the strike that matches the period's ATM strike should be processed
+                # CRITICAL FIX: Find the period that matches BOTH time AND strike using BASE slabs (nifty_dynamic_atm_slabs.csv).
+                # Using base_periods (not blocked all_periods) ensures output symbol matches the slabs file (same as OTM).
+                # In ATM, only ONE period should be active at any given time.
                 def _parse_period_time(s):
                     """Parse period time string to time object; accepts HH:MM:SS or HH:MM."""
                     if not s:
@@ -2153,7 +2153,7 @@ class ConsolidatedDynamicATMAnalysis:
                     return None
 
                 matching_period = None
-                for period in all_periods:
+                for period in base_periods:
                     from datetime import datetime as dt
                     start_time = _parse_period_time(period.get('start'))
                     end_time = _parse_period_time(period.get('end'))
@@ -3205,6 +3205,8 @@ class ConsolidatedDynamicATMAnalysis:
                 'ce_strike': ce_strike
             })
         logger.info(f"Loaded {len(all_periods)} ATM periods from metadata")
+        # Keep base (Nifty-only) periods for symbol matching so output trades use slab symbol from nifty_dynamic_atm_slabs.csv (same as OTM)
+        base_periods = [{'start': p['start'], 'end': p['end'], 'pe_strike': p['pe_strike'], 'ce_strike': p['ce_strike']} for p in all_periods]
         
         # Determine if we should use monthly or weekly format
         target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
@@ -3294,8 +3296,8 @@ class ConsolidatedDynamicATMAnalysis:
         for entry_type in enabled_entry_types:
             logger.info(f"STEP 3: Processing {entry_type} trades...")
             trades_data = self._process_trades_for_entry_type(
-                expiry_week, day_label, entry_type, source_dir, dest_dir, 
-                all_periods, base_expiry_week, is_monthly, date_str,
+                expiry_week, day_label, entry_type, source_dir, dest_dir,
+                all_periods, base_periods, base_expiry_week, is_monthly, date_str,
                 collect_trades_only=True
             )
             if trades_data:
@@ -3344,16 +3346,13 @@ class ConsolidatedDynamicATMAnalysis:
                     'ce_strike': ce_strike
                 })
             
-            # CRITICAL FIX: Overwrite the main slabs file with blocked slabs
-            # This ensures period matching uses the correct blocked slabs
-            slabs_file = dest_dir / "nifty_dynamic_atm_slabs.csv"
-            blocked_slabs_df.to_csv(slabs_file, index=False)
-            logger.info(f"Saved fully blocked slabs to: {slabs_file} (overwritten original)")
-            
-            # Also save a backup of blocked slabs for debugging
+            # Do NOT overwrite the main slabs file with blocked slabs. The main file (nifty_dynamic_atm_slabs.csv)
+            # is Nifty-derived only and should stay stable across runs (e.g. OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN
+            # true vs false). Blocked slabs depend on collected trades (entry times), so they would differ.
+            # Use blocked slabs only in memory (all_periods) for this run; save to _blocked.csv for debugging.
             blocked_slabs_file = dest_dir / "nifty_dynamic_atm_slabs_blocked.csv"
             blocked_slabs_df.to_csv(blocked_slabs_file, index=False)
-            logger.info(f"Saved blocked slabs backup to: {blocked_slabs_file}")
+            logger.info(f"Saved blocked slabs to: {blocked_slabs_file} (main slabs file unchanged for research consistency)")
         else:
             if not all_trades_data:
                 logger.info("No trades found, skipping trade-based blocking")
@@ -3377,8 +3376,8 @@ class ConsolidatedDynamicATMAnalysis:
             logger.info(f"STEP 5: Processing {entry_type} trades with fully blocked slabs...")
             # Process trades - _process_trades_for_entry_type now tracks all trades (executed + skipped) with status
             has_trades = self._process_trades_for_entry_type(
-                expiry_week, day_label, entry_type, source_dir, dest_dir, 
-                all_periods, base_expiry_week, is_monthly, date_str,
+                expiry_week, day_label, entry_type, source_dir, dest_dir,
+                all_periods, base_periods, base_expiry_week, is_monthly, date_str,
                 collect_trades_only=False
             )
             entry_results[entry_type] = has_trades

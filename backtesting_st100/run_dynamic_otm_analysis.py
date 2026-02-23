@@ -251,6 +251,7 @@ class TradeState:
                 if pnl is None:
                     pnl = 0.0
             
+            exit_reason = (exit_data.get('entry2_exit_reason', '') or '') if hasattr(exit_data, 'get') else ''
             self.completed_trades.append({
                 'symbol': symbol,
                 'option_type': option_type,
@@ -259,6 +260,7 @@ class TradeState:
                 'entry_price': entry_price,
                 'exit_price': exit_price,
                 'pnl': pnl,
+                'exit_reason': exit_reason,
                 'realized_pnl': None,  # Will be set by trailing stop if enabled
                 'running_capital': None,  # Will be set by trailing stop if enabled
                 'high_water_mark': None,  # Will be set by trailing stop if enabled
@@ -2739,24 +2741,21 @@ class ConsolidatedDynamicOTMAnalysis:
             ce_trades = completed_df[completed_df['option_type'] == 'CE'].copy()
             pe_trades = completed_df[completed_df['option_type'] == 'PE'].copy()
             
-            # CRITICAL FIX: Ensure all required columns exist in both DataFrames (matching ATM structure)
-            required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl',
-                              'realized_pnl', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                              'high', 'swing_low', 'symbol_html']
+            # CRITICAL FIX: Same column order as ATM so mkt_sentiment_trades has sentiment_pnl and exit_reason in same position
+            required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
+                              'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
             for col in required_columns:
                 if col not in ce_trades.columns:
                     ce_trades[col] = None
                 if col not in pe_trades.columns:
                     pe_trades[col] = None
-            
-            # Ensure column order matches ATM structure
             ce_trades = ce_trades[required_columns]
             pe_trades = pe_trades[required_columns]
         else:
-            # Create empty DataFrames with proper column structure (matching ATM structure)
-            required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl',
-                              'realized_pnl', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                              'high', 'swing_low', 'symbol_html']
+            required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
+                              'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                              'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
             ce_trades = pd.DataFrame(columns=required_columns)
             pe_trades = pd.DataFrame(columns=required_columns)
         
@@ -2839,10 +2838,10 @@ class ConsolidatedDynamicOTMAnalysis:
         ce_trades = convert_to_percentages(ce_trades)
         pe_trades = convert_to_percentages(pe_trades)
         
-        # Note: pnl and realized_pnl have been removed by convert_to_percentages, only realized_pnl_pct remains
+        # Note: pnl and realized_pnl have been removed by convert_to_percentages; column order must match ATM for mkt_sentiment
         required_columns = ['symbol', 'option_type', 'entry_time', 'exit_time', 'entry_price', 'exit_price',
-                          'realized_pnl_pct', 'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
-                          'high', 'swing_low', 'symbol_html']
+                          'running_capital', 'high_water_mark', 'drawdown_limit', 'trade_status',
+                          'high', 'swing_low', 'symbol_html', 'realized_pnl_pct', 'exit_reason']
         if len(ce_trades) > 0:
             for col in required_columns:
                 if col not in ce_trades.columns:

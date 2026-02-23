@@ -487,6 +487,19 @@ class Entry2BacktestStrategyFixed:
         self.end_hour = trading_hours.get('END_HOUR', 15)
         self.end_minute = trading_hours.get('END_MINUTE', 15)
         
+        # EOD exit: close all positions at configured time (e.g. 15:14) so no trade runs past market close
+        trading_config = self.config.get('TRADING', {})
+        self.eod_exit_enabled = trading_config.get('EOD_EXIT', False)
+        eod_exit_time_str = trading_config.get('EOD_EXIT_TIME', '15:14')
+        self.eod_exit_time = None
+        if self.eod_exit_enabled:
+            try:
+                self.eod_exit_time = datetime.strptime(eod_exit_time_str, '%H:%M').time()
+                logger.info(f"EOD exit enabled: positions will be closed at {eod_exit_time_str}")
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid EOD_EXIT_TIME '{eod_exit_time_str}'; EOD exit disabled.")
+                self.eod_exit_enabled = False
+        
         # Time distribution filter
         time_filter_config = self.config.get('TIME_DISTRIBUTION_FILTER', {})
         self.time_filter_enabled = time_filter_config.get('ENABLED', False)
@@ -2773,6 +2786,9 @@ class Entry2BacktestStrategyFixed:
                     df['entry2_exit_price'] = 0.0
                 if 'entry2_exit_reason' not in df.columns:
                     df['entry2_exit_reason'] = ''
+                # When OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: mark confirmation bar for visualization (signal bar vs execution bar)
+                if 'entry2_signal_bar' not in df.columns:
+                    df['entry2_signal_bar'] = ''
             
             # Entry3 columns (only if Entry3 is enabled)
             if use_entry3:
@@ -2810,6 +2826,28 @@ class Entry2BacktestStrategyFixed:
                 # CRITICAL: Skip exit checks on the execution candle itself (entry_bar_index)
                 # Entry happens at entry_bar_index, so we should only check exits from entry_bar_index + 1 onwards
                 if self.position and i > self.entry_bar_index:
+                    # EOD exit: force close at configured time (e.g. 15:14) so no trade exits at 15:15
+                    if self.eod_exit_enabled and self.eod_exit_time is not None:
+                        current_ts = current_row.get('date', None)
+                        if current_ts is not None:
+                            bar_time = current_ts.time() if hasattr(current_ts, 'time') else (pd.to_datetime(current_ts).time() if pd.notna(current_ts) else None)
+                            if bar_time is not None and bar_time >= self.eod_exit_time:
+                                eod_close = float(current_row.get('close', self.entry_price))
+                                if self.stop_loss_percent_config and isinstance(self.stop_loss_percent_config, dict):
+                                    max_sl = max(
+                                        self.stop_loss_percent_config.get('ABOVE_THRESHOLD', 7.5),
+                                        self.stop_loss_percent_config.get('BETWEEN_THRESHOLD', 7.5),
+                                        self.stop_loss_percent_config.get('BELOW_THRESHOLD', 7.5),
+                                    )
+                                else:
+                                    max_sl = 7.5
+                                pnl_eod = ((eod_close - self.entry_price) / self.entry_price) * 100
+                                if pnl_eod < -max_sl:
+                                    eod_close = round(self.entry_price * (1 - max_sl / 100.0), 2)
+                                time_str_display = bar_time.strftime('%H:%M') if hasattr(bar_time, 'strftime') else str(bar_time)
+                                logger.info(f"EOD exit: closing at {time_str_display} (configured EOD time), price={eod_close:.2f}")
+                                self._exit_position(df, i, "EOD Exit", eod_close)
+                                continue
                     # PRIORITY 1: Check Stop Loss exits (Fixed SL and SuperTrend trailing SL)
                     # These should exit IMMEDIATELY when price hits SL, even mid-candle
                     # In backtesting, we check if low <= sl_price and exit at SL price (not close price)
@@ -3123,6 +3161,9 @@ class Entry2BacktestStrategyFixed:
                                         if not hasattr(self, 'pending_optimal_entry'):
                                             self.pending_optimal_entry = {}
                                         self.pending_optimal_entry[symbol] = {'confirm_bar': signal_bar_index, 'confirm_high': confirm_high, 'sl_price': sl_price}
+                                        # Mark confirmation bar for HTML visualization (signal bar vs execution bar)
+                                        if 'entry2_signal_bar' in df.columns:
+                                            df.at[signal_bar_index, 'entry2_signal_bar'] = 1
                                         self._reset_entry2_state_machine(symbol)
                                         logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f})")
                                     else:
@@ -3184,9 +3225,19 @@ class Entry2BacktestStrategyFixed:
                     logger.debug(f"Already in position at index {i}, skipping entry signals")
             
             # EOD exit: every entry must have an exit (SL, TP, supertrend, or EOD). If still in position
-            # after the last bar, close at last bar's close (EOD) and write Exit to the strategy CSV.
+            # after the loop, close at EOD bar (configured time, e.g. 15:14) or last bar if no bar at EOD time.
             if self.position and len(df) > 0:
                 last_idx = len(df) - 1
+                if self.eod_exit_enabled and self.eod_exit_time is not None:
+                    # Use the bar at or before EOD exit time (e.g. 15:14), not the final 15:15 bar
+                    for idx in range(len(df) - 1, -1, -1):
+                        row = df.iloc[idx]
+                        ts = row.get('date', None)
+                        if ts is not None:
+                            t = ts.time() if hasattr(ts, 'time') else pd.to_datetime(ts).time()
+                            if t <= self.eod_exit_time:
+                                last_idx = idx
+                                break
                 last_row = df.iloc[last_idx]
                 eod_close = float(last_row.get('close', self.entry_price))
                 # Cap EOD loss at configured stop loss (we would have hit SL before worse)
