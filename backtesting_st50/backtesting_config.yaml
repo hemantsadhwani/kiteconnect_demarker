@@ -168,7 +168,7 @@ MARKET_SENTIMENT_FILTER:
   # MANUAL: Use fixed MANUAL_SENTIMENT for all trades.
   # HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (take all trades).
   # All modes use same backtest entry logic: CPR_TRADING_RANGE blocks entries above band_R2_upper and below band_S2_lower.
-  MODE: HYBRID
+  MODE: MANUAL
   SENTIMENT_VERSION: v5  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
   HYBRID_STRICT_ZONE: R1_S1  # Zone where AUTO rules apply; outside = NEUTRAL. Only R1_S1 supported.
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL (NEUTRAL, BULLISH, BEARISH)
@@ -177,7 +177,7 @@ MARKET_SENTIMENT_FILTER:
 # Reduces backtest PnL (skips some winners). See docs/MARK2MARKET_IMPACT.md for per-day impact and dates.
 # USE_START_CAPITAL_FOR_LIMIT: false = limit trails from day high (HWM); true = fixed limit from starting capital.
 MARK2MARKET:
-  ENABLE: true
+  ENABLE: false
   CAPITAL: 100000
   LOSS_MARK: 30   #Keep 40 when MODE: MANUAL
   PER_DAY: true
@@ -197,7 +197,7 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: true
+    12:00-13:00: false
     13:00-14:00: true
     14:00-15:30: true
 TRADING:
@@ -212,10 +212,8 @@ ENTRY2:
   # DeMarker/StochRSI thresholds come from indicators_config.yaml (THRESHOLDS.DEMARKER_OVERSOLD, STOCH_RSI_OVERSOLD)
   DEMARKER_CONFIRMATION_WINDOW: 3   # Used when TRIGGER=DEMARKER (current bar + next 2 bars)
   WPR_CONFIRMATION_WINDOW: 4   # Used when TRIGGER=WPR (legacy 4-bar window for W%R + StochRSI confirmation)
-  # Delayed entry: 0 = enter on confirmation bar; 1 = enter next bar if conditions still hold (filters momentary spikes)
-  ENTRY_DELAY_BARS: 0
   # Optimal entry: skip next-candle entry; enter when a subsequent candle opens above confirmation candle high. Invalidate if SL (from would-be next-candle entry) breached.
-  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: false
   # When true: also invalidate when both WPR9 and WPR28 fall below oversold while waiting (can filter winners on pullback; keep false to test).
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
   # "Fixed Percentage" = SL at entry_price * (1 - percent/100); "Swing Low" = SL at trailing swing low at entry

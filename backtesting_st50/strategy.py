@@ -471,10 +471,9 @@ class Entry2BacktestStrategyFixed:
             self.entry2_trigger = 'WPR'
         # Use trigger-specific confirmation window: WPR needs 4 bars (W%R28 + StochRSI), DeMarker uses 3
         self.entry2_confirmation_window = _wpr_window if self.entry2_trigger == 'WPR' else _demarker_window
-        self.entry2_delay_bars = max(0, int(entry2_config.get('ENTRY_DELAY_BARS', 0)))
         self.entry2_optimal_entry_above_confirm_open = entry2_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
         self.entry2_optimal_entry_wpr_invalidate = entry2_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
-        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, delay bars: {self.entry2_delay_bars}, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}")
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -1141,28 +1140,6 @@ class Entry2BacktestStrategyFixed:
             # Strict mode: Requires SuperTrend1 to be bearish
             stoch_rsi_condition = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
         
-        # --- DELAYED ENTRY: fire on delay bar if conditions still hold ---
-        if getattr(self, 'entry2_delay_bars', 0) > 0:
-            if not hasattr(self, 'entry2_delayed_signal'):
-                self.entry2_delayed_signal = {}
-            if symbol in self.entry2_delayed_signal:
-                d = self.entry2_delayed_signal[symbol]
-                if current_index >= d['delay_until_bar']:
-                    # Re-check conditions on current bar; enter only if still valid
-                    if (wpr_slow_current > self.wpr_28_oversold) and stoch_rsi_condition:
-                        self.entry2_last_signal_index[symbol] = current_index
-                        logger.info(f"Entry2: *** DELAYED BUY SIGNAL *** at index {current_index} for {symbol} (delay bar, conditions still hold)")
-                        del self.entry2_delayed_signal[symbol]
-                        self._reset_entry2_state_machine(symbol)
-                        return True
-                    else:
-                        logger.debug(f"Entry2: Delayed signal cancelled at index {current_index} for {symbol} (conditions no longer hold: wpr28={wpr_slow_current:.2f}, stoch_ok={stoch_rsi_condition})")
-                        del self.entry2_delayed_signal[symbol]
-                        self._reset_entry2_state_machine(symbol)
-                elif current_index > d['delay_until_bar']:
-                    del self.entry2_delayed_signal[symbol]
-                    self._reset_entry2_state_machine(symbol)
-        
         # --- CHECK FOR NEW TRIGGER (can overwrite existing trigger) ---
         # Allow new trigger to replace existing one if conditions are met
         # IMPROVED LOGIC: Trigger if EITHER W%R(9) OR W%R(28) crosses above threshold
@@ -1289,13 +1266,6 @@ class Entry2BacktestStrategyFixed:
                 # If in position, defer entry until after exit (trigger missed while in trade)
                 if self._maybe_defer_entry2_signal(current_index, symbol, state_machine.get('trigger_bar_index')):
                     return False
-                if getattr(self, 'entry2_delay_bars', 0) > 0:
-                    if not hasattr(self, 'entry2_delayed_signal'):
-                        self.entry2_delayed_signal = {}
-                    self.entry2_delayed_signal[symbol] = {'delay_until_bar': current_index + self.entry2_delay_bars, 'signal_bar_index': current_index}
-                    logger.info(f"Entry2: Deferring entry to bar {current_index + self.entry2_delay_bars} for {symbol} (same candle as trigger)")
-                    self._reset_entry2_state_machine(symbol)
-                    return False
                 signal_bar_index = current_index
                 self.entry2_last_signal_index[symbol] = signal_bar_index
                 logger.info(f"Entry2: *** BUY SIGNAL GENERATED *** at index {current_index} for {symbol} "
@@ -1375,13 +1345,6 @@ class Entry2BacktestStrategyFixed:
                 
                 
                 if self._maybe_defer_entry2_signal(current_index, symbol, trigger_bar_index):
-                    return False
-                if getattr(self, 'entry2_delay_bars', 0) > 0:
-                    if not hasattr(self, 'entry2_delayed_signal'):
-                        self.entry2_delayed_signal = {}
-                    self.entry2_delayed_signal[symbol] = {'delay_until_bar': current_index + self.entry2_delay_bars, 'signal_bar_index': current_index}
-                    logger.info(f"Entry2: Deferring entry to bar {current_index + self.entry2_delay_bars} for {symbol} (confirmations met in window)")
-                    self._reset_entry2_state_machine(symbol)
                     return False
                 signal_bar_index = current_index
                 self.entry2_last_signal_index[symbol] = signal_bar_index

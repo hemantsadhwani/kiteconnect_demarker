@@ -472,7 +472,7 @@ def main() -> None:
         print(f"       {delay:2d}        {n:3d}    {wins:3d}    {losses:3d}    {wr:5.1f}%   {total_pnl:+8.2f}%   {avg_pnl:+8.2f}%")
     print()
     print("  Best win rate: %d bars delay (%.1f%%); Best total PnL: %d bars delay (%.2f%%)." % (best_wr_delay, best_wr, best_pnl_delay, best_pnl))
-    print("  Use these as candidates for ENTRY2 ENTRY_DELAY_BARS in backtesting_config.yaml.")
+    print("  Note: ENTRY_DELAY_BARS has been removed from config; this output is for reference only.")
     print("=" * 70)
 
 

@@ -45,7 +45,7 @@ python analytics/trade_analytics_by_cpr_band/optimal_entry_r1_s1_research.py --m
 
 - Table: for each delay (0..max_delay), **Trades, Wins, Losses, Win rate %, Total PnL %, Avg PnL/trade %**.
 - **Best win rate** delay and **best total PnL** delay.
-- You can set `ENTRY2.ENTRY_DELAY_BARS` in `backtesting_config.yaml` to the suggested delay and re-run backtests to validate.
+- Note: `ENTRY_DELAY_BARS` has been removed from config; this note is for historical reference only.
 
 ## Notes
 
