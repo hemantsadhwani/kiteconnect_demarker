@@ -473,7 +473,8 @@ class Entry2BacktestStrategyFixed:
         self.entry2_confirmation_window = _wpr_window if self.entry2_trigger == 'WPR' else _demarker_window
         self.entry2_optimal_entry_above_confirm_open = entry2_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
         self.entry2_optimal_entry_wpr_invalidate = entry2_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
-        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}")
+        self.entry2_trigger_require_supertrend_bearish = entry2_config.get('TRIGGER_REQUIRE_SUPERTREND_BEARISH', True)
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}, trigger require SuperTrend bearish: {self.entry2_trigger_require_supertrend_bearish}")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -972,6 +973,7 @@ class Entry2BacktestStrategyFixed:
         stoch_k = current_row.get('k', None)
         supertrend_dir = current_row.get('supertrend1_dir', None)
         is_bearish = supertrend_dir == -1
+        trigger_supertrend_ok = (not getattr(self, 'entry2_trigger_require_supertrend_bearish', True)) or is_bearish
 
         if pd.isna(dem_prev) or pd.isna(dem_curr) or pd.isna(stoch_k):
             return False
@@ -1020,14 +1022,14 @@ class Entry2BacktestStrategyFixed:
                 return True
             return False
 
-        # New trigger: SuperTrend bearish, DeMarker crosses above oversold
-        if not is_bearish:
+        # New trigger: SuperTrend bearish (when required), DeMarker crosses above oversold
+        if not trigger_supertrend_ok:
             return False
         demarker_crosses_above = (dem_prev <= self.demarker_oversold) and (dem_curr > self.demarker_oversold)
         if not demarker_crosses_above:
             return False
 
-        logger.info(f"Entry2 (DeMarker): Trigger at index {current_index} for {symbol} - DeMarker {dem_prev:.4f} -> {dem_curr:.4f} (above {self.demarker_oversold}), bearish")
+        logger.info(f"Entry2 (DeMarker): Trigger at index {current_index} for {symbol} - DeMarker {dem_prev:.4f} -> {dem_curr:.4f} (above {self.demarker_oversold}), supertrend_ok={trigger_supertrend_ok}")
         sm['state'] = 'AWAITING_CONFIRMATION'
         sm['trigger_bar_index'] = current_index
         sm['stoch_rsi_confirmed_in_window'] = False
@@ -1097,6 +1099,8 @@ class Entry2BacktestStrategyFixed:
         # Get supertrend direction (needed for various checks)
         supertrend_dir = current_row.get('supertrend1_dir', None)
         is_bearish = supertrend_dir == -1
+        # Trigger only: require bearish only when TRIGGER_REQUIRE_SUPERTREND_BEARISH is true
+        trigger_supertrend_ok = (not getattr(self, 'entry2_trigger_require_supertrend_bearish', True)) or is_bearish
         
         # Initialize state machine for this symbol if not exists
         if not hasattr(self, 'entry2_state_machine'):
@@ -1131,9 +1135,9 @@ class Entry2BacktestStrategyFixed:
                     return False
             # Flexible mode: Skip the bearish check - we're processing confirmations from a previous trigger
         else:
-            # For new triggers, must be in bearish Supertrend direction (both modes)
-            if not is_bearish:
-                logger.debug(f"Entry2: SuperTrend not bearish at index {current_index} (dir={supertrend_dir}) - cannot trigger new entry")
+            # For new triggers: require SuperTrend bearish only when TRIGGER_REQUIRE_SUPERTREND_BEARISH is true
+            if not trigger_supertrend_ok:
+                logger.debug(f"Entry2: SuperTrend trigger condition not met at index {current_index} (dir={supertrend_dir}, require_bearish={getattr(self, 'entry2_trigger_require_supertrend_bearish', True)}) - cannot trigger new entry")
                 return False
         
         # Define signal conditions
@@ -1157,14 +1161,15 @@ class Entry2BacktestStrategyFixed:
         # Allow new trigger to replace existing one if conditions are met
         # IMPROVED LOGIC: Trigger if EITHER W%R(9) OR W%R(28) crosses above threshold
         # (whichever occurs first), ensuring the other was below threshold
+        # SuperTrend: required bearish only when TRIGGER_REQUIRE_SUPERTREND_BEARISH is true
         # SPECIAL CASE: If both cross on same candle, trigger is detected and W%R(28) confirmation is immediately met
         wpr_28_was_below_threshold = wpr_slow_prev <= self.wpr_28_oversold
         wpr_9_was_below_threshold = wpr_fast_prev <= self.wpr_9_oversold
         # Check if both cross on same candle
-        both_cross_same_candle = wpr_9_crosses_above and wpr_28_crosses_above_basic and is_bearish
+        both_cross_same_candle = wpr_9_crosses_above and wpr_28_crosses_above_basic and trigger_supertrend_ok
         # Trigger if: (W%R(9) crosses AND W%R(28) was below) OR (W%R(28) crosses AND W%R(9) was below) OR (both cross same candle)
-        trigger_from_wpr9 = wpr_9_crosses_above and wpr_28_was_below_threshold and is_bearish and not both_cross_same_candle
-        trigger_from_wpr28 = wpr_28_crosses_above_basic and wpr_9_was_below_threshold and is_bearish and not both_cross_same_candle
+        trigger_from_wpr9 = wpr_9_crosses_above and wpr_28_was_below_threshold and trigger_supertrend_ok and not both_cross_same_candle
+        trigger_from_wpr28 = wpr_28_crosses_above_basic and wpr_9_was_below_threshold and trigger_supertrend_ok and not both_cross_same_candle
         new_trigger_detected = trigger_from_wpr9 or trigger_from_wpr28 or both_cross_same_candle
         
         # Detailed logging for trigger detection
@@ -1229,7 +1234,7 @@ class Entry2BacktestStrategyFixed:
                 trigger_type = "W%R(9)"
             else:
                 trigger_type = "W%R(28)"
-            logger.info(f"Entry2: Trigger detected at index {current_index} - {trigger_type} crossed above threshold in bearish trend (W%R(9): {wpr_fast_prev:.2f}->{wpr_fast_current:.2f}, W%R(28): {wpr_slow_prev:.2f}->{wpr_slow_current:.2f})")
+            logger.info(f"Entry2: Trigger detected at index {current_index} - {trigger_type} crossed above threshold (W%R(9): {wpr_fast_prev:.2f}->{wpr_fast_current:.2f}, W%R(28): {wpr_slow_prev:.2f}->{wpr_slow_current:.2f}, supertrend_ok={trigger_supertrend_ok})")
             state_machine['state'] = 'AWAITING_CONFIRMATION'
             state_machine['confirmation_countdown'] = self.entry2_confirmation_window  # Start N-candle window
             state_machine['trigger_bar_index'] = current_index  # Store trigger bar index

@@ -1,0 +1,241 @@
+//@version=5
+// ╔══════════════════════════════════════════════════════════════════════════════╗
+// ║ NIFTY Options: Entry 1 (Continuation) + Entry 2 (Reversal) + SMA Trailing    ║
+// ╚══════════════════════════════════════════════════════════════════════════════╝
+
+strategy(
+  "Nifty Options: Dual Entry Strategy (Corrected)",
+  overlay=true,
+  initial_capital=18000, 
+  pyramiding=1,
+  default_qty_type=strategy.fixed, // Changed back to fixed to send raw Lot counts
+  default_qty_value=1,
+  currency = currency.INR,
+  commission_type=strategy.commission.percent,
+  commission_value=0.04,
+  calc_on_every_tick=false,
+  process_orders_on_close=false,
+  close_entries_rule="ANY",
+  max_bars_back=50,
+  max_labels_count=50
+  )
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Inputs
+// ═══════════════════════════════════════════════════════════════════════════════
+var strike_price = 22600
+var option_expiry = "2025-04-09"
+var option_type = "PE"
+
+// --- CAPITAL MANAGEMENT ---
+// We want to use full 100k capital to match the Trade % sum
+FIXED_CAPITAL = input.float(18000.0, "Capital per Trade", group="Risk Management")
+NIFTY_LOT_SIZE = input.int(65, "Lot Size", group="Risk Management") 
+
+// Strategy Toggles
+enableEntry1 = input.bool(false, "Enable Entry 1 (Continuation)", group="Strategy Toggles")
+enableEntry2 = input.bool(true, "Enable Entry 2 (Reversal)", group="Strategy Toggles")
+
+// Strategy Params
+trailingTriggerPercent = input.float(7.0, "Trailing Start %", minval=1.0, step=0.5)
+slMode = input.string("Fixed Percentage", "Entry 2 SL Mode", options=["Fixed Percentage", "Swing Low"])
+stopLossPercent = input.float(7.5, "Entry 2 SL % (Fixed Mode)")
+validateSwingLowSL = input.bool(true, "Entry 2: Validate Swing Low SL (<12%)?") 
+confirmationWindow = input.int(4, "Entry 2: Confirmation Window")
+stochMode = input.string("Flexible", "Entry 2: Stoch Mode", options=["Flexible", "Strict"])
+contConfirmationWindow = input.int(2, "Entry 1: Confirmation Window")
+
+// Time Params
+startDateTime = timestamp("2026-02-23T00:09:15+0530")
+endDateTime = timestamp("2026-02-23T15:25+0530")
+isWithinDateRange = time >= startDateTime and time <= endDateTime
+isWithinTradingHours = na(time_close) ? false : (hour == 9 ? minute >= 15 : hour == 15 ? minute <= 14 : hour > 9 and hour < 15)
+isForceCloseTime = hour == 15 and minute >= 14
+inTradeWindow = isWithinTradingHours and isWithinDateRange and not isForceCloseTime
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Indicators
+// ═══════════════════════════════════════════════════════════════════════════════
+[supertrend, direction] = ta.supertrend(2.5, 10)
+isBullish = direction < 0
+isBearish = direction > 0
+
+rsiValue = ta.rsi(close, 14)
+stochK = ta.sma(ta.stoch(rsiValue, rsiValue, rsiValue, 14), 3)
+stochD = ta.sma(stochK, 3)
+
+williamsRSlow = ta.wpr(28)
+williamsRFast = ta.wpr(9)
+isFastCrossoverAbove80 = ta.crossover(williamsRFast, -79)
+isFastCrossunderBelow80 = ta.crossunder(williamsRFast, -79)
+isSlowCrossoverAbove80 = ta.crossover(williamsRSlow, -77)
+
+sma11 = ta.sma(close, 11)
+sma13 = ta.sma(close, 13)
+swingLow = ta.lowest(low, 5)
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════════
+generate_alert_message(action, qty, option_type, strike_price, expiry_date) =>
+    '{"secret":"IVpyR","alertType":"multi_leg_order","order_legs":[{"transactionType":"' +
+     action + '","orderType":"MKT","quantity":"' + str.tostring(qty) +
+     '","exchange":"NSE","symbol":"NIFTY","instrument":"OPT","productType":"I","sort_order":"1","price":"0","option_type":"' +
+     option_type + '","strike_price":"' + str.tostring(strike_price) +
+     '","expiry_date":"' + expiry_date + '"}]}'
+
+// Dynamic Quantity Calculator (Returns LOTS)
+calc_lots() =>
+    float price = close
+    if price == 0 
+        price := 1.0
+    // Cost of 1 Lot = Price * 65
+    float costPerLot = price * NIFTY_LOT_SIZE
+    // How many lots can we buy with 100k?
+    int lots = math.floor(FIXED_CAPITAL / costPerLot)
+    lots 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LOGIC
+// ═══════════════════════════════════════════════════════════════════════════════
+var bool tradeClosedThisBar = false
+if barstate.isnew
+    tradeClosedThisBar := false
+if strategy.closedtrades > strategy.closedtrades[1]
+    tradeClosedThisBar := true
+
+// Entry 1
+var int entry1TriggerBar = na
+if isFastCrossoverAbove80
+    entry1TriggerBar := bar_index
+bool withinEntry1Window = not na(entry1TriggerBar) and (bar_index - entry1TriggerBar <= contConfirmationWindow)
+bool stochConfirmed1 = ta.crossover(stochK, 20)
+bool entryCondition1 = enableEntry1 and withinEntry1Window and isBullish and stochConfirmed1 and inTradeWindow and strategy.position_size == 0 and not tradeClosedThisBar
+if not na(entry1TriggerBar) and (bar_index - entry1TriggerBar > contConfirmationWindow)
+    entry1TriggerBar := na
+
+// Entry 2
+bool isSwingSLValid = true
+if validateSwingLowSL and slMode == "Swing Low"
+    float swingSLPercent = (close - swingLow) / close * 100
+    isSwingSLValid := swingSLPercent <= 12.0
+bool baseEntryChecks = inTradeWindow and strategy.position_size == 0 and not tradeClosedThisBar and isSwingSLValid
+
+var int triggerBarIndex = na
+var bool slowConfirmed = false
+var bool stochConfirmed = false
+
+if isFastCrossoverAbove80 and isBearish
+    triggerBarIndex := bar_index
+    slowConfirmed := isSlowCrossoverAbove80
+    stochConfirmed := (stochK > stochD and stochK > 20)
+else if not na(triggerBarIndex)
+    if bar_index > triggerBarIndex + confirmationWindow or (isFastCrossunderBelow80 and bar_index > triggerBarIndex)
+        triggerBarIndex := na
+        slowConfirmed := false
+        stochConfirmed := false
+    if not na(triggerBarIndex)
+        if isSlowCrossoverAbove80 and isBearish
+            slowConfirmed := true
+        bool basicStochCheck = (stochK > stochD and stochK > 20)
+        if stochMode == "Flexible"
+            if basicStochCheck
+                stochConfirmed := true
+        else
+            if basicStochCheck and isBearish
+                stochConfirmed := true
+
+bool triggerEntry2 = false
+if not na(triggerBarIndex) and slowConfirmed and stochConfirmed
+    triggerEntry2 := true
+    triggerBarIndex := na 
+
+entryCondition2 = enableEntry2 and baseEntryChecks and triggerEntry2
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Execution
+// ═══════════════════════════════════════════════════════════════════════════════
+var float stopLossPrice = na
+var bool needsReset = false
+var float tradeEntryPrice = na
+var bool hasSwitchedToST = false 
+var bool isTrailingActive = false 
+var string activeEntryType = "None"
+var int currentTradeLots = 0
+
+if strategy.position_size == 0 and not needsReset
+    int lots = calc_lots()
+    
+    if lots > 0
+        if entryCondition1
+            strategy.entry("Long1", strategy.long, qty=lots, comment="Long1 (Cont)")
+            activeEntryType := "Entry1"
+            currentTradeLots := lots
+            alert(generate_alert_message("BUY", lots, option_type, strike_price, option_expiry), alert.freq_once_per_bar_close)
+            entry1TriggerBar := na 
+            
+        else if entryCondition2
+            strategy.entry("Long2", strategy.long, qty=lots, comment="Long2 (Rev)")
+            activeEntryType := "Entry2"
+            currentTradeLots := lots
+            alert(generate_alert_message("BUY", lots, option_type, strike_price, option_expiry), alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0
+    string currentEntryId = strategy.opentrades.entry_id(strategy.opentrades - 1)
+
+    if strategy.opentrades.entry_bar_index(strategy.opentrades - 1) == bar_index
+        tradeEntryPrice := strategy.position_avg_price
+        isTrailingActive := false 
+        if activeEntryType == "Entry1"
+            stopLossPrice := supertrend
+            hasSwitchedToST := true
+        else
+            if slMode == "Fixed Percentage"
+                stopLossPrice := tradeEntryPrice * (1 - stopLossPercent / 100)
+            else
+                stopLossPrice := swingLow[1]
+            hasSwitchedToST := false
+        strategy.exit("SL_Exit", from_entry=currentEntryId, stop=stopLossPrice)
+
+    float currentStopLoss = stopLossPrice
+    if activeEntryType == "Entry2"
+        if isBullish
+            hasSwitchedToST := true
+    if hasSwitchedToST
+        currentStopLoss := supertrend
+    if currentStopLoss != stopLossPrice
+        stopLossPrice := currentStopLoss
+        strategy.exit("SL_Exit", stop=stopLossPrice)
+
+    float trailingTriggerPrice = tradeEntryPrice * (1 + trailingTriggerPercent / 100)
+    if high >= trailingTriggerPrice
+        isTrailingActive := true
+    
+    if isTrailingActive and ta.crossunder(sma11, sma13)
+        strategy.close(currentEntryId, comment="SMA Trail Exit")
+        alert(generate_alert_message("SELL", currentTradeLots, option_type, strike_price, option_expiry), alert.freq_once_per_bar)
+        needsReset := true
+
+if needsReset or (strategy.closedtrades != strategy.closedtrades[1])
+    stopLossPrice := na, needsReset := false
+    tradeEntryPrice := na, hasSwitchedToST := false, isTrailingActive := false
+    triggerBarIndex := na, entry1TriggerBar := na
+    activeEntryType := "None"
+    currentTradeLots := 0
+
+if strategy.position_size > 0 and isForceCloseTime
+    alert(generate_alert_message("SELL", currentTradeLots, option_type, strike_price, option_expiry), alert.freq_once_per_bar)
+    strategy.close_all(comment="EOD Square Off", immediately=true)
+    needsReset := true
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Plotting & Debugging
+// ═══════════════════════════════════════════════════════════════════════════════
+plot(strategy.position_size > 0 ? stopLossPrice : na, title="Stop Loss", color=color.red, style=plot.style_linebr)
+plot(supertrend, title="Supertrend", color = direction < 0 ? color.green : color.red)
+plot(sma11, "SMA 11", color=color.blue)
+plot(sma13, "SMA 13", color=color.orange)
+
+plotshape(entryCondition1, title="Entry 1", style=shape.labelup, location=location.belowbar, color=color.lime, text="E1", textcolor=color.white, size=size.tiny)
+plotshape(entryCondition2, title="Entry 2", style=shape.triangleup, location=location.belowbar, color=color.orange, text="E2", textcolor=color.white, size=size.tiny)
+

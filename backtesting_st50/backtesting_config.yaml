@@ -221,6 +221,8 @@ ENTRY2:
   SL_MODE: "Fixed Percentage"  # "Fixed Percentage" | "Swing Low"
   # Legacy WPR-based trigger (set TRIGGER to "WPR" to use old logic)
   TRIGGER: "WPR"       # "DEMARKER" | "WPR"
+  # When true: trigger only when SuperTrend1 is bearish (dir=-1). When false: trigger regardless of SuperTrend (bullish or bearish).
+  TRIGGER_REQUIRE_SUPERTREND_BEARISH: true
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
   TAKE_PROFIT_PERCENT: 8.0
   STOP_LOSS_PRICE_THRESHOLD:
