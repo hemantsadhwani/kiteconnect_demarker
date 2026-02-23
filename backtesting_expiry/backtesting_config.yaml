@@ -17,8 +17,8 @@ BACKTESTING_ANALYSIS:
       HIGH_PRICE: 200   # ATM CE/PE often 200-300+; must be high enough so sentiment output is not empty
       LOW_PRICE: 20
     DYNAMIC_OTM:
-      HIGH_PRICE: 400
-      LOW_PRICE: 0
+      HIGH_PRICE: 250
+      LOW_PRICE: 10
     STATIC_ATM:
       HIGH_PRICE: 600
       LOW_PRICE: 20

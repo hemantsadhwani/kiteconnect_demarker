@@ -657,9 +657,16 @@ class DataFetcher:
             # Collect dynamic data for both ATM and OTM
             logger.info("Collecting dynamic data for ATM and OTM...")
             
-            # Get unique price levels and their corresponding strikes
-            price_levels = nifty_df['close'].unique()
+            # Get unique price levels for strike derivation - MUST match slab logic
+            # Slabs use nifty_calculated_price = (O+H+L+C)/4 per candle; using close would miss strikes
+            # (e.g. ce_strike 26100 in slabs but no NIFTY25D1626100CE_strategy.csv when close was lower)
+            price_levels = nifty_df['nifty_price'].unique()
             collected_symbols = set()  # Track (symbol, option_type) tuples to avoid duplicates
+            
+            # CRITICAL: Collect +/- 50 strikes around ATM to preserve historical context (matching production 7-ticker cluster)
+            # Production uses: CE_above (+50), CE_atm, CE_below (-50), PE_below (-50), PE_atm, PE_above (+50)
+            # This ensures when slab changes happen, we have historical data for the new ATM strike
+            strike_diff = self.config['DATA_COLLECTION']['STRIKE_DIFFERENCE']
             
             # First, collect all unique strike-side combinations to avoid duplicate fetches
             # This prevents fetching the same symbol multiple times for different price levels
@@ -670,16 +677,39 @@ class DataFetcher:
                 
                 # OTM strikes using the same logic as run_dynamic_otm_analysis.py
                 # OTM logic: PE=floor, CE=ceil (opposite of ATM)
-                strike_diff = self.config['DATA_COLLECTION']['STRIKE_DIFFERENCE']
                 otm_pe_strike = int(math.floor(price / strike_diff) * strike_diff)  # Floor
                 otm_ce_strike = int(math.ceil(price / strike_diff) * strike_diff)  # Ceil
                 
+                # CRITICAL FIX: Add +/- 50 strikes around ATM to preserve historical context (matching production)
+                # This ensures when slab changes happen, we have historical data for the new ATM strike
+                # Production 7-ticker cluster: CE_above (+50), CE_atm, CE_below (-50), PE_below (-50), PE_atm, PE_above (+50)
+                atm_ce_above = atm_ce_strike + strike_diff
+                atm_ce_below = atm_ce_strike - strike_diff
+                atm_pe_above = atm_pe_strike + strike_diff
+                atm_pe_below = atm_pe_strike - strike_diff
+                
                 # Add all unique strike-side combinations
-                for option_type, strikes in [("ATM", [atm_ce_strike, atm_pe_strike]), 
-                                           ("OTM", [otm_ce_strike, otm_pe_strike])]:
-                    for strike in strikes:
-                        for option_side in ['CE', 'PE']:
-                            unique_strike_combinations.add((strike, option_side, option_type))
+                # CRITICAL: Include +/- 50 strikes around ATM to preserve historical context (matching production 7-ticker cluster)
+                # Production uses: CE_above (+50), CE_atm, CE_below (-50), PE_below (-50), PE_atm, PE_above (+50)
+                # This ensures when slab changes happen, we have historical data for the new ATM strike
+                
+                # ATM strikes: include +/- 50 for historical context
+                unique_strike_combinations.add((atm_ce_strike, 'CE', 'ATM'))
+                unique_strike_combinations.add((atm_ce_above, 'CE', 'ATM'))  # +50
+                unique_strike_combinations.add((atm_ce_below, 'CE', 'ATM'))  # -50
+                unique_strike_combinations.add((atm_pe_strike, 'PE', 'ATM'))
+                unique_strike_combinations.add((atm_pe_above, 'PE', 'ATM'))  # +50
+                unique_strike_combinations.add((atm_pe_below, 'PE', 'ATM'))  # -50
+                
+                # OTM strikes: include +/- 50 around OTM (same as ATM) so slab changes have historical data
+                # Previously only exact floor/ceil was collected, so OTM had fewer files than ATM.
+                # Now OTM collects 6 combinations per price level (CE/PE each with +0/+50/-50) like ATM.
+                unique_strike_combinations.add((otm_ce_strike, 'CE', 'OTM'))
+                unique_strike_combinations.add((otm_ce_strike + strike_diff, 'CE', 'OTM'))  # +50
+                unique_strike_combinations.add((otm_ce_strike - strike_diff, 'CE', 'OTM'))  # -50
+                unique_strike_combinations.add((otm_pe_strike, 'PE', 'OTM'))
+                unique_strike_combinations.add((otm_pe_strike + strike_diff, 'PE', 'OTM'))  # +50
+                unique_strike_combinations.add((otm_pe_strike - strike_diff, 'PE', 'OTM'))  # -50
             
             logger.info(f"Found {len(unique_strike_combinations)} unique strike-side combinations to collect")
             

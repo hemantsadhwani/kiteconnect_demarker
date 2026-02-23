@@ -2061,10 +2061,26 @@ class ConsolidatedDynamicOTMAnalysis:
                 entry_time = signal['time']
                 exits_after = signal['exits_after']
                 
+                # Use SIGNAL CANDLE time for period matching (same as backtesting_st50 / ATM).
+                # Slabs define active strike per minute; the signal fires at candle close (e.g. 10:37:00),
+                # so we match the period that contains the signal minute. Entry execution time (10:38:01)
+                # must not be used for period match or we can match the next slab and wrong strike (e.g. 25700
+                # PE at 10:37 vs 25800 PE at 10:38), causing valid trades to be skipped.
+                signal_candle_time = entry_signal.get('date') if isinstance(entry_signal, dict) else getattr(entry_signal, 'date', None)
+                if signal_candle_time is None:
+                    signal_candle_time = entry_time
+                if hasattr(signal_candle_time, 'time'):
+                    time_for_period_match = signal_candle_time.time()
+                else:
+                    time_for_period_match = pd.to_datetime(signal_candle_time).time()
+                if hasattr(time_for_period_match, 'tzinfo') and time_for_period_match.tzinfo is not None:
+                    time_for_period_match = time_for_period_match.replace(tzinfo=None)
+                entry_time_obj = entry_time.time()
+                if hasattr(entry_time_obj, 'tzinfo') and entry_time_obj.tzinfo is not None:
+                    entry_time_obj = entry_time_obj.replace(tzinfo=None)
+                
                 # CRITICAL FIX: Check period matching FIRST (before trade state check)
                 # Only signals that match active periods should be processed
-                # This ensures only the symbol that is actually active at that time gets logged as skipped
-                entry_time_obj = entry_time.time()
                 entry_period = None
                 
                 # Extract strike from symbol - handle multiple formats
@@ -2196,29 +2212,21 @@ class ConsolidatedDynamicOTMAnalysis:
                 nifty_price_level = option_strike
                 logger.debug(f"  Using strike as-is (full strike): {nifty_price_level}")
                 
-                logger.debug(f"  Looking for matching period at {entry_time_obj} with strike level {nifty_price_level}")
+                logger.debug(f"  Looking for matching period at signal_time={time_for_period_match} (execution={entry_time_obj}) with strike level {nifty_price_level}")
                 for period in all_periods:
                     start_time = datetime.strptime(period['start'], '%H:%M:%S').time()
                     end_time = datetime.strptime(period['end'], '%H:%M:%S').time()
                     
-                    # CRITICAL FIX: Period matching logic
-                    # Periods are defined at minute-level precision (e.g., 13:28:00 to 13:31:00)
-                    # Entry execution time includes seconds (e.g., 13:31:01 from signal at 13:30:00 + 1 min + 1 sec)
-                    # If entry time is in the same minute as period end, include it (e.g., 13:31:01 matches period ending at 13:31:00)
-                    # Otherwise, use exclusive end check (e.g., 13:30:45 matches period 13:28:00 to 13:31:00)
-                    entry_minute = entry_time_obj.minute
-                    entry_hour = entry_time_obj.hour
+                    # Period matching: use signal candle time so we match the slab active at signal minute (like st50/ATM).
+                    match_minute = time_for_period_match.minute
+                    match_hour = time_for_period_match.hour
                     end_minute = end_time.minute
                     end_hour = end_time.hour
-                    start_hour = start_time.hour
                     period_matches = False
-                    if entry_minute == end_minute and entry_hour == end_hour:
-                        # Entry is in same minute AND hour as period end - include it
-                        # Check that entry is after period start (allow seconds to be slightly after end_time since periods are minute-level)
-                        period_matches = start_time <= entry_time_obj
+                    if match_minute == end_minute and match_hour == end_hour:
+                        period_matches = start_time <= time_for_period_match
                     else:
-                        # Entry is in different minute - use exclusive end check
-                        period_matches = start_time <= entry_time_obj < end_time
+                        period_matches = start_time <= time_for_period_match < end_time
                     
                     if period_matches:
                         logger.debug(f"  Checking period {period['start']}-{period['end']}: PE={period['pe_strike']}, CE={period['ce_strike']}")
@@ -2236,7 +2244,7 @@ class ConsolidatedDynamicOTMAnalysis:
                 # CRITICAL FIX: Only process signals that match a period
                 # If no period matches, this symbol is not active at this time - skip it silently
                 if not entry_period:
-                    logger.debug(f"No matching period found for {symbol} at {entry_time} - symbol is not active at this time, skipping")
+                    logger.debug(f"No matching period found for {symbol} at signal_time {time_for_period_match} - symbol is not active at this time, skipping")
                     continue
                 
                 # CRITICAL FIX: Check TradeState AFTER period matching
