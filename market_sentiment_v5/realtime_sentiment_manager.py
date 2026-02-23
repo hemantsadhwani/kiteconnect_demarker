@@ -20,15 +20,19 @@ MARKET_START_TIME = dt_time(9, 15)
 NIFTY_TOKEN = 256265
 
 
-def _prev_day_ohlc_from_cpr_today(cpr_today: Dict[str, Any]) -> Dict[str, float]:
-    """Build synthetic previous-day OHLC from workflow cpr_today (P, R1, S1) so CPR levels match."""
-    p = float(cpr_today["P"])
-    r1 = float(cpr_today["R1"])
-    s1 = float(cpr_today["S1"])
-    # R1 = 2*P - L => L = 2*P - R1; S1 = 2*P - H => H = 2*P - S1
-    high = 2 * p - s1
-    low = 2 * p - r1
-    return {"high": high, "low": low, "close": p}
+def _cpr_levels_from_cpr_today(cpr_today: Dict[str, Any]) -> Dict[str, float]:
+    """Build cpr_levels dict from workflow cpr_today so analyzer bands match workflow Type 1/Type 2 bands exactly."""
+    return {
+        "Pivot": float(cpr_today["P"]),
+        "R1": float(cpr_today["R1"]),
+        "R2": float(cpr_today["R2"]),
+        "R3": float(cpr_today["R3"]),
+        "R4": float(cpr_today["R4"]),
+        "S1": float(cpr_today["S1"]),
+        "S2": float(cpr_today["S2"]),
+        "S3": float(cpr_today["S3"]),
+        "S4": float(cpr_today["S4"]),
+    }
 
 
 class RealTimeMarketSentimentManager:
@@ -55,14 +59,14 @@ class RealTimeMarketSentimentManager:
             return yaml.safe_load(f)
 
     def _init_from_cpr_today(self) -> bool:
-        """Initialize analyzer from workflow cpr_today (no Kite fetch)."""
+        """Initialize analyzer from workflow cpr_today so bands match workflow Type 1/Type 2 exactly (no synthetic OHLC)."""
         try:
-            prev_day_ohlc = _prev_day_ohlc_from_cpr_today(self.cpr_today)
-            self.analyzer = NiftySentimentAnalyzer(prev_day_ohlc)
+            cpr_levels = _cpr_levels_from_cpr_today(self.cpr_today)
+            self.analyzer = NiftySentimentAnalyzer(cpr_levels=cpr_levels)
             self.current_date = datetime.now().date()
             self.is_initialized = True
             self._candle_history = []
-            logger.info("v5 analyzer initialized from workflow cpr_today (no duplicate CPR computation)")
+            logger.info("v5 analyzer initialized from workflow cpr_today (bands match CPR log)")
             return True
         except Exception as e:
             logger.error("Failed to init v5 from cpr_today: %s", e, exc_info=True)
@@ -123,6 +127,9 @@ class RealTimeMarketSentimentManager:
             return
         from_dt = datetime.combine(candle_date, MARKET_START_TIME)
         to_dt = first_live_timestamp - timedelta(minutes=1)
+        # Normalize to naive so we can compare with from_dt (Kite and from_dt use naive datetimes)
+        if to_dt.tzinfo is not None:
+            to_dt = to_dt.replace(tzinfo=None)
         if to_dt < from_dt:
             return
         if self.config.get("backfill_from_market_open") is False:
@@ -185,8 +192,12 @@ class RealTimeMarketSentimentManager:
             to_dt.strftime("%H:%M"),
         )
 
-    def process_candle(self, ohlc: Dict, timestamp: datetime) -> Optional[str]:
-        """Process a completed 1-minute NIFTY candle; return current sentiment."""
+    def process_candle(
+        self, ohlc: Dict, timestamp: datetime, ncp_override: Optional[float] = None
+    ) -> Optional[str]:
+        """Process a completed 1-minute NIFTY candle; return current sentiment.
+        NCP for sentiment: Bullish (C>=O) -> (H+C)/2, Bearish (C<O) -> (L+C)/2 (same as backtest v5).
+        Production does not pass ncp_override; slab/strikes use a different formula ((O+H)/2+(L+C)/2)/2."""
         candle_date = timestamp.date()
         if not self._ensure_initialized(candle_date, ohlc):
             logger.warning(
@@ -212,6 +223,8 @@ class RealTimeMarketSentimentManager:
             "close": float(ohlc["close"]),
             "date": timestamp,
         }
+        if ncp_override is not None:
+            row["ncp"] = float(ncp_override)
         self._candle_history.append(row)
         df = pd.DataFrame(self._candle_history)
         out = self.analyzer.apply_sentiment_logic(df)
@@ -221,14 +234,14 @@ class RealTimeMarketSentimentManager:
         in_any = self.analyzer.is_in_band(ncp, self.analyzer.bands)
         band_containing = self.analyzer.band_containing(ncp, self.analyzer.bands)
         pivot = self.analyzer.pivot
+        # NCP formula: Bullish (C>=O) -> (H+C)/2, Bearish (C<O) -> (L+C)/2 (same as backtest v5)
+        ncp_formula = "bullish (H+C)/2" if row["close"] >= row["open"] else "bearish (L+C)/2"
         logger.info(
-            "[%s] Market Sentiment (v5): %s | OHLC: O=%.2f H=%.2f L=%.2f C=%.2f",
+            "[%s] Market Sentiment (v5): %s | OHLC: O=%.2f H=%.2f L=%.2f C=%.2f | NCP=%.2f (%s)",
             timestamp.strftime("%H:%M:%S"),
             self._last_sentiment,
-            row["open"],
-            row["high"],
-            row["low"],
-            row["close"],
+            row["open"], row["high"], row["low"], row["close"],
+            ncp, ncp_formula,
         )
         if self._last_sentiment == "NEUTRAL":
             if in_any and band_containing is not None:

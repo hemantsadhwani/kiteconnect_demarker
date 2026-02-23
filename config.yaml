@@ -30,9 +30,9 @@ TRADE_SETTINGS:
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (8.0%)
   STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
-    ABOVE_THRESHOLD: 6.5  # Stop loss % when entry price > 120
-    BETWEEN_THRESHOLD: 7.5  # Stop loss % when entry price is between 70 and 120
-    BELOW_THRESHOLD: 7.5  # Stop loss % when entry price < 70
+    ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (aligned with backtesting_st50)
+    BETWEEN_THRESHOLD: 8.0 # Stop loss % when entry price between 40 and 140
+    BELOW_THRESHOLD: 8.0   # Stop loss % when entry price < 40
   # Legacy single value (for backward compatibility, will be overridden by above if both exist)
   # STOP_LOSS_PERCENT: 6.0 # Fixed percentage stop loss (Stage 1) - DEPRECATED: Use STOP_LOSS_PERCENT.ABOVE_THRESHOLD/BELOW_THRESHOLD
   TAKE_PROFIT_PERCENT: 8.0 # Fixed percentage take profit (Stage 1; aligned with backtesting_st50)
@@ -56,7 +56,7 @@ TRADE_SETTINGS:
     useEntry1: false # Disabled - Entry 1 (Fast Reversal) for PE
     useEntry2: true # Enabled - Entry 2 (Multi-signal confirmation, configurable window) for PE
     useEntry3: false # Disabled - Entry 3 (StochRSI K/D crossover with SuperTrend) for PE
-    
+
   ENTRY2_CONFIRMATION_WINDOW: 4 # Number of candles for WPR28 and StochRSI confirmations (also used for Entry1 StochRSI window)
   # Entry2 logic mode: true = Flexible (StochRSI can confirm even if SuperTrend turns bullish)
   #                    false = Strict (All confirmations must occur when SuperTrend is bearish)
@@ -65,51 +65,52 @@ TRADE_SETTINGS:
   # This allows more frequent trades to test trigger + confirmation logic in real-time
   # When disabled, uses production Entry2 with full SuperTrend and sentiment requirements
   DEBUG_ENTRY2: false
-  # WPR_INVALIDATION: When true, invalidate Entry2 trigger if both W%R(9) and W%R(28) go below oversold during confirmation window (or before execution). Reset state and look for new trigger. Set false to disable (e.g. per market).
-  WPR_INVALIDATION: true
-
+  
   # SKIP_FIRST Feature Configuration
   # Skips the first Entry2 signal after SuperTrend switches from bullish to bearish
   # ONLY when both Nifty 9:30 sentiment and CPR Pivot sentiment are BEARISH
-  # Note: Kite API is ALWAYS required for CPR Pivot calculation (no alternative source exists)
   SKIP_FIRST: false
 
-# High-Water Mark Trailing Stop Risk Management
+  # TRIGGER, DEMARKER_CONFIRMATION_WINDOW, ENTRY_DELAY_BARS, OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: in backtesting only; add to production after testing
+  WPR_INVALIDATION: true
+
+# High-Water Mark Trailing Stop Risk Management (aligned with backtesting_st50/backtesting_config.yaml)
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
-  ENABLE: true  # Enable/disable trailing stop logic
-  CAPITAL: 12000  # Starting daily capital
-  LOSS_MARK: 40  # Percentage drop from High-Water Mark to trigger stop
-  PER_DAY: true  # Each day starts fresh with CAPITAL, tracks day's high, stops if drops LOSS_MARK% from day's high 
+  ENABLE: true
+  CAPITAL: 12000  # Starting daily capital (backtest uses 100000)
+  LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
+  PER_DAY: true
+  USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
 
 # Bot Operational Settings
 TRADING_HOURS:
   START_HOUR: 9
   START_MINUTE: 15
   END_HOUR: 15
-  END_MINUTE: 29
+  END_MINUTE: 14
 
 MARKET_CLOSE:
   HOUR: 15
-  MINUTE: 29
+  MINUTE: 14
 
 # CPR-derived trading range: entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
+# Aligned with backtesting_st50/backtesting_config.yaml.
 # CPR and Fib bands are computed on bot init from previous trading day Nifty OHLC (Kite API).
-# CPR_UPPER and CPR_LOWER are printed at startup for verification.
+# Use pivot columns (R2, S3) for wider scope; use band columns (band_R2_upper, band_S2_lower) for tighter band.
 CPR_TRADING_RANGE:
   ENABLED: true
-  CPR_UPPER: "band_R2_upper"   # band column name
-  CPR_LOWER: "band_S2_lower"   # band column name
+  CPR_UPPER: "R2"   # column name: "R2" (pivot) or "band_R2_upper" (band)
+  CPR_LOWER: "S3"   # column name: "S3" (pivot) or "band_S2_lower" (band)
 
 CPR_WIDTH_FILTER:
   ENABLED: false
-  THRESHOLD: 62  # Disable autonomous trading for the day if CPR width exceeds this value
+  THRESHOLD: 62  # Disable autonomous trading for the day if CPR width exceeds this value (backtest: CPR_WIDTH_SIZE: 62)
 
 # Time Distribution Filter (No Trade Zones)
-# When enabled, only trades within enabled time zones will be executed
-# Zones set to false will block trades during those times
+# Aligned with backtesting_st50/backtesting_config.yaml. Set to false to block trades in that slot.
 TIME_DISTRIBUTION_FILTER:
-  ENABLED: true  # Set to true to enable time-based trade filtering
+  ENABLED: true
   TIME_ZONES:
     09:15-10:00: true
     10:00-11:00: true
@@ -179,44 +180,37 @@ STRIKE_DIFFERENCE: 50  # Options: 50 or 100
 # Example: NIFTY=25123.45, STRIKE_DIFFERENCE=50
 #   ATM: CE=25100 (floor), PE=25150 (ceil)
 #   OTM: PE=25100 (floor), CE=25150 (ceil)
-STRIKE_TYPE: ATM  # Options: ATM or OTM
+STRIKE_TYPE: OTM  # Options: ATM or OTM
 
-# Price Zone Filter Configuration
-# Filters trades based on entry price - only takes trades if entry price is within specified range
-# Based on backtesting win rate analysis
+# Price Zone Filter (aligned with backtesting_st50 BACKTESTING_ANALYSIS.PRICE_ZONES)
+# Only takes trades if entry price is within range. DYNAMIC_OTM optional for OTM strike type.
 PRICE_ZONES:
   DYNAMIC_ATM:
-    LOW_PRICE: 40   # Minimum entry price to take trade
-    HIGH_PRICE: 200 # Maximum entry price to take trade
+    LOW_PRICE: 40
+    HIGH_PRICE: 200
+  DYNAMIC_OTM:
+    LOW_PRICE: 20
+    HIGH_PRICE: 240
   STATIC_ATM:
-    LOW_PRICE: 20    # Minimum entry price (0 = no lower limit)
-    HIGH_PRICE: 250 # Maximum entry price (500 = no upper limit for now)
+    LOW_PRICE: 20
+    HIGH_PRICE: 250
 
-# Market Sentiment Configuration
-# Simplified architecture: MODE determines how sentiment is determined
-# AUTO: Use sentiment algorithm (v2, v5) - sentiment calculated automatically
-# MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE) - sentiment set via control panel
-# DISABLE: Stop all autonomous trades (manual BUY_CE/BUY_PE commands still allowed)
-# HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (allow both CE and PE)
+# Market Sentiment Configuration (aligned with backtesting_st50/backtesting_config.yaml MARKET_SENTIMENT_FILTER)
+# AUTO: Use sentiment file (BULLISH→CE only, BEARISH→PE only). MANUAL: Fixed MANUAL_SENTIMENT. DISABLE: Stop autonomous trades.
+# HYBRID: Strict sentiment only when Nifty at entry is between R1 and S1; outside R1-S1 treat as NEUTRAL (both CE and PE allowed).
 MARKET_SENTIMENT:
-  MODE: MANUAL  # Options: AUTO | MANUAL | DISABLE | HYBRID
-                # AUTO: Use sentiment algorithm (v2, v5)
-                # MANUAL: Use fixed sentiment (BULLISH, BEARISH, NEUTRAL, DISABLE)
-                # DISABLE: Stop all autonomous trades
-                # HYBRID: Strict sentiment in [S1,R1] only; outside = NEUTRAL
-  HYBRID_STRICT_ZONE: R1_S1  # Only used when MODE=HYBRID (zone where AUTO rules apply)
-  
-  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
-  SENTIMENT_VERSION: "v5"  # Options: "v1" | "v2" | "v5"
-  CONFIG_PATH: "market_sentiment_v5/config.yaml"
-  
-  # Used when MODE=MANUAL
-  MANUAL_SENTIMENT: NEUTRAL  # Options: BULLISH | BEARISH | NEUTRAL | DISABLE
-                             # Only valid when MODE=MANUAL
-                             # When MODE=DISABLE, this is ignored
+  MODE: HYBRID  # Options: AUTO | MANUAL | DISABLE | HYBRID (backtest: HYBRID)
+  HYBRID_STRICT_ZONE: R1_S1  # Only R1_S1 supported; strict zone = [S1, R1]
 
-  # Position rule (applies for all MODE: AUTO | MANUAL | DISABLE)
-  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # false = only one position (CE or PE) at a time; aligned with backtesting_st50
+  # Used when MODE=AUTO or MODE=HYBRID (strict zone)
+  SENTIMENT_VERSION: "v5"
+  CONFIG_PATH: "market_sentiment_v5/config.yaml"
+
+  # Used when MODE=MANUAL
+  MANUAL_SENTIMENT: NEUTRAL  # BULLISH | BEARISH | NEUTRAL | DISABLE
+
+  # Position rule (all modes)
+  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true
 
 # Real-Time Position Management Configuration
 # Replaces GTT-based SL/TP with real-time tick monitoring and immediate market order execution

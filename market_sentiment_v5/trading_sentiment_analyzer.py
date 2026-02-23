@@ -25,13 +25,29 @@ class NiftySentimentAnalyzer:
     using CPR levels, Fib-derived bands, and NCP-based state machine.
     """
 
-    def __init__(self, prev_day_ohlc: Dict[str, float]):
+    def __init__(
+        self,
+        prev_day_ohlc: Optional[Dict[str, float]] = None,
+        cpr_levels: Optional[Dict[str, float]] = None,
+    ):
         """
         Args:
-            prev_day_ohlc: dict with keys 'high', 'low', 'close' (PDH, PDL, PDC).
+            prev_day_ohlc: dict with keys 'high', 'low', 'close' (PDH, PDL, PDC). Use when bands must be derived from OHLC.
+            cpr_levels: dict with keys 'Pivot' (or 'P'), 'R1'-'R4', 'S1'-'S4'. Use when reusing workflow CPR (e.g. cpr_today) so bands match exactly.
         """
+        if prev_day_ohlc is not None and cpr_levels is not None:
+            raise ValueError("Provide either prev_day_ohlc or cpr_levels, not both")
+        if prev_day_ohlc is None and cpr_levels is None:
+            raise ValueError("Provide either prev_day_ohlc or cpr_levels")
         self.prev_day_ohlc = prev_day_ohlc
-        self.cpr_levels = self.calculate_cpr(prev_day_ohlc)
+        if cpr_levels is not None:
+            # Normalize keys: workflow uses "P", analyzer uses "Pivot"
+            levels = dict(cpr_levels)
+            if "P" in levels and "Pivot" not in levels:
+                levels["Pivot"] = float(levels["P"])
+            self.cpr_levels = levels
+        else:
+            self.cpr_levels = self.calculate_cpr(prev_day_ohlc)
         self.bands: List[Tuple[float, float]] = self.generate_bands(self.cpr_levels)
         self.bands_type1 = self.bands[:8]
         self.bands_type2 = self.bands[8:17]
@@ -118,7 +134,11 @@ class NiftySentimentAnalyzer:
         last_neutral_band: Optional[Tuple[float, float]] = None
         for i in range(len(df)):
             row = df.iloc[i]
-            ncp = self.calculate_ncp(row)
+            # Use precomputed NCP when provided (e.g. production uses ((O+H)/2+(L+C)/2)/2 for sentiment)
+            if "ncp" in df.columns and pd.notna(row.get("ncp")):
+                ncp = float(row["ncp"])
+            else:
+                ncp = self.calculate_ncp(row)
             ncp_arr[i] = ncp
             in_any = self.is_in_band(ncp, self.bands)
             if i == 0:

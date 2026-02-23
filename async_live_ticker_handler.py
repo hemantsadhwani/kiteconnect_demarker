@@ -714,11 +714,12 @@ class AsyncLiveTickerHandler:
                 logger.warning(f"Incomplete OHLC data in NIFTY candle: {ohlc}")
                 return
             
-            # Process candle and get sentiment (runs in thread to avoid blocking)
+            # Process candle and get sentiment (runs in thread to avoid blocking).
+            # NCP uses same formula as backtest grid_search cpr_market_sentiment_v5: Bullish (C>=O) -> (H+C)/2, Bearish -> (L+C)/2.
             sentiment = await asyncio.to_thread(
                 self.trading_bot.market_sentiment_manager.process_candle,
                 ohlc,
-                candle_timestamp
+                candle_timestamp,
             )
             logger.info(
                 "Sentiment result for candle %s: %s",
@@ -1039,13 +1040,21 @@ class AsyncLiveTickerHandler:
                     self._last_nifty_completed_candle_ts = candle_key
 
                     nifty_close = completed_candle.get('close', nifty_price)
-                    # Calculate NIFTY price for slab change decisions using weighted average of OHLC
                     nifty_open = completed_candle.get('open', nifty_price)
                     nifty_high = completed_candle.get('high', nifty_price)
                     nifty_low = completed_candle.get('low', nifty_price)
+                    # Slab/strike formula: ((O+H)/2 + (L+C)/2)/2 — used for slab change and strike derivation only.
                     nifty_calculated_price = ((nifty_open + nifty_high) / 2 + (nifty_low + nifty_close) / 2) / 2
+                    # NCP for sentiment (v5): Bullish (C>=O) -> (H+C)/2, Bearish (C<O) -> (L+C)/2. Not used for slab.
+                    ncp_sentiment = (nifty_high + nifty_close) / 2 if nifty_close >= nifty_open else (nifty_low + nifty_close) / 2
                     candle_ts_str = completed_candle_timestamp.strftime('%H:%M:%S') if completed_candle_timestamp and hasattr(completed_candle_timestamp, 'strftime') else 'N/A'
-                    logger.info(f"NIFTY candle completed for slab check: candle={candle_ts_str}, O={nifty_open:.2f}, H={nifty_high:.2f}, L={nifty_low:.2f}, C={nifty_close:.2f}, calculated={nifty_calculated_price:.2f}")
+                    logger.info(
+                        "NIFTY candle completed for slab check: candle=%s, O=%.2f, H=%.2f, L=%.2f, C=%.2f | "
+                        "slab_calculated=%.2f (slab/strikes); NCP_sentiment=%.2f (v5: %s)",
+                        candle_ts_str, nifty_open, nifty_high, nifty_low, nifty_close,
+                        nifty_calculated_price, ncp_sentiment,
+                        "bullish (H+C)/2" if nifty_close >= nifty_open else "bearish (L+C)/2",
+                    )
                     
                     # CRITICAL: If strikes are not derived yet, derive them from first NIFTY candle
                     # Use calculated price for initial strike derivation as well

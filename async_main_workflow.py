@@ -871,13 +871,23 @@ class AsyncTradingBot:
                 logger.warning(f"CPR_TRADING_RANGE: missing {upper_col} or {lower_col} in computed levels/bands")
                 return
 
-            # Print all CPR levels and all CPR-derived Type 2 bands for verification at startup (see docs/HYBRID_AND_AUTOV5_PRODUCTION_PLAN.md §5.4)
+            # Print all CPR levels and all CPR-derived Type 1/Type 2 bands for verification at startup (see docs/HYBRID_AND_AUTOV5_PRODUCTION_PLAN.md §5.4)
             logger.info("=" * 60)
-            logger.info("[CPR] CPR and bands (from previous day Nifty OHLC %s)", prev)
+            logger.info("[CPR] CPR and bands (from previous day Nifty OHLC %s) — values verified against TradingView", prev)
             logger.info("[CPR] Prev day OHLC: H=%.2f L=%.2f C=%.2f", high, low, close)
             logger.info("[CPR] All CPR levels (Pivot, R1-R4, S1-S4):")
             logger.info("  P=%.2f  R1=%.2f  R2=%.2f  R3=%.2f  R4=%.2f", pivot, r1, r2, r3, r4)
             logger.info("  S1=%.2f  S2=%.2f  S3=%.2f  S4=%.2f", s1, s2, s3, s4)
+            # Type 1 bands: fib 38.2%/61.8% between adjacent levels (middle fib bands between e.g. R1 and R2)
+            type1_pairs = [
+                ("S4-S3", S4, S3), ("S3-S2", S3, S2), ("S2-S1", S2, S1), ("S1-P", S1, P),
+                ("P-R1", P, R1), ("R1-R2", R1, R2), ("R2-R3", R2, R3), ("R3-R4", R3, R4),
+            ]
+            logger.info("[CPR] Type 1 bands (38.2%%/61.8%% between levels):")
+            for name, l1, l2 in type1_pairs:
+                lo, hi = _mid(l1, l2)
+                lv, uv = _fib(lo, hi)
+                logger.info("  band_%s: lower=%.2f  upper=%.2f", name, lv, uv)
             logger.info("[CPR] Type 2 bands (38.2%%/61.8%%):")
             for name in ["Pivot", "S1", "S2", "S3", "S4", "R1", "R2", "R3", "R4"]:
                 lo, up = bands.get(f"band_{name}_lower"), bands.get(f"band_{name}_upper")

@@ -261,10 +261,11 @@ class SentimentTester:
                     'close': float(candle_data['close'])
                 }
 
+                # NCP = same as backtest (grid_search cpr_market_sentiment_v5): Bullish (C>=O) -> (H+C)/2, Bearish -> (L+C)/2
                 sentiment = await asyncio.to_thread(
                     self.sentiment_manager.process_candle,
                     ohlc,
-                    candle_time
+                    candle_time,
                 )
 
                 if sentiment:
