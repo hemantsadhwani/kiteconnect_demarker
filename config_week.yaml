@@ -71,7 +71,9 @@ TRADE_SETTINGS:
   # ONLY when both Nifty 9:30 sentiment and CPR Pivot sentiment are BEARISH
   SKIP_FIRST: false
 
-  # TRIGGER, DEMARKER_CONFIRMATION_WINDOW, ENTRY_DELAY_BARS, OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: in backtesting only; add to production after testing
+  # Optimal entry: defer Entry2 execution; enter when a subsequent candle opens above confirmation high; invalidate if SL breached (aligned with backtesting_st50).
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: false
+  OPTIMAL_ENTRY_WPR_INVALIDATE: false
   WPR_INVALIDATION: true
 
 # High-Water Mark Trailing Stop Risk Management (aligned with backtesting_st50/backtesting_config.yaml)

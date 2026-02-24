@@ -1,4 +1,4 @@
-# Trade Configuration
+# Trade Configuration — EXPIRY (aligned with backtesting_expiry/backtesting_config.yaml)
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
@@ -7,107 +7,84 @@ TRADE_SETTINGS:
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
   VALIDATE_ENTRY_RISK: true # Enable entry risk validation before trade
-  # Price-based REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT Configuration
-  # Three-tier system (uses same thresholds as STOP_LOSS_PRICE_THRESHOLD):
-  # - If option price > highest threshold (120), use ABOVE_THRESHOLD percentage (13%)
-  # - If option price is between thresholds (70-120), use BETWEEN_THRESHOLD percentage (12%)
-  # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (15%)
+  # Price-based REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT (aligned with backtesting_expiry ENTRY2)
   REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT:
-    ABOVE_THRESHOLD: 20  # Max swing low distance % when entry price > 120
-    BETWEEN_THRESHOLD: 25  # Max swing low distance % when entry price is between 70 and 120
-    BELOW_THRESHOLD: 25  # Max swing low distance % when entry price < 70
+    ABOVE_THRESHOLD: 20  # Max swing low distance % when entry price > threshold (backtest: 20)
+    BETWEEN_THRESHOLD: 25 # Max swing low distance % when entry price between thresholds (backtest: 20)
+    BELOW_THRESHOLD: 25  # Max swing low distance % when entry price < threshold (backtest: 20)
   CONTINUATION_MAX_SUPERTREND_DISTANCE_PERCENT: 6 # Max SuperTrend distance for CONTINUATION entries (useEntry3)
   
-  # Stop Loss Mode for Entry2: "Fixed Percentage" = SL at entry_price * (1 - percent/100);
-  # "Swing Low" = SL at trailing swing low at entry (min of low over last 11 bars). Matches backtesting ENTRY2.SL_MODE.
+  # Stop Loss Mode for Entry2 (backtesting_expiry: "Swing Low")
   SL_MODE: "Swing Low"  # "Fixed Percentage" | "Swing Low"
   
-  # Trade Settings
-  # Price-based Stop Loss Configuration
-  # Three-tier system:
-  # - If option price > highest threshold (120), use ABOVE_THRESHOLD percentage (6.0%)
-  # - If option price is between thresholds (70-120), use BETWEEN_THRESHOLD percentage (7.0%)
-  # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (8.0%)
+  # Price-based Stop Loss Configuration (aligned with backtesting_expiry ENTRY2)
   STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
-    ABOVE_THRESHOLD: 6.5  # Stop loss % when entry price > 120
-    BETWEEN_THRESHOLD: 7.5  # Stop loss % when entry price is between 70 and 120
-    BELOW_THRESHOLD: 7.5  # Stop loss % when entry price < 70
-  # Legacy single value (for backward compatibility, will be overridden by above if both exist)
-  # STOP_LOSS_PERCENT: 6.0 # Fixed percentage stop loss (Stage 1) - DEPRECATED: Use STOP_LOSS_PERCENT.ABOVE_THRESHOLD/BELOW_THRESHOLD
-  TAKE_PROFIT_PERCENT: 7.0 # Fixed percentage take profit (Stage 1, redundant if DYNAMIC_TRAILING_MA is active)
+    ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (backtest: 6.5)
+    BETWEEN_THRESHOLD: 8.0 # Stop loss % when entry price between 40 and 140 (backtest: 8.0)
+    BELOW_THRESHOLD: 8.0   # Stop loss % when entry price < 40 (backtest: 8.0)
+  TAKE_PROFIT_PERCENT: 8.0 # Fixed percentage take profit (backtest: 8.0; redundant if DYNAMIC_TRAILING_MA is active)
   # Dynamic Trailing MA Configuration (Stage 3)
-  DYNAMIC_TRAILING_MA: true # Enable MA-based dynamic trailing for Entry2 trades
-  DYNAMIC_TRAILING_MA_THRESH: 7 # Percentage above entry to activate MA trailing (e.g., 7%)
+  DYNAMIC_TRAILING_MA: true
+  DYNAMIC_TRAILING_MA_THRESH: 7
   # EXIT_WEAK_SIGNAL (R1-R2 zone only): when high >= 7%, if DeMarker < R_BAND exit at 7% else start trailing
-  EXIT_WEAK_SIGNAL: true
+  EXIT_WEAK_SIGNAL: false
   EXIT_WEAK_SIGNAL_PROFIT_PCT: 7.0
   EXIT_WEAK_SIGNAL_DEMARKER_R_BAND: 0.60
-  # Entry Conditions - Separate for CE and PE
-  # Entry1: Fast reversal (WPR9)
-  # Entry2: Multi-signal confirmation (configurable window via ENTRY2_CONFIRMATION_WINDOW)
-  # Entry3: Continuation (StochRSI + SuperTrend)
+  # Entry Conditions (backtesting_expiry: Entry2 only for CE and PE)
   CE_ENTRY_CONDITIONS:
-    useEntry1: false # Disabled - Entry 1 (Fast Reversal) for CE
-    useEntry2: true # Enabled - Entry 2 (Multi-signal confirmation, configurable window) for CE
-    useEntry3: false # Disabled - Entry 3 (StochRSI K/D crossover with SuperTrend) for CE
-  
+    useEntry1: false
+    useEntry2: true
+    useEntry3: false
   PE_ENTRY_CONDITIONS:
-    useEntry1: false # Disabled - Entry 1 (Fast Reversal) for PE
-    useEntry2: true # Enabled - Entry 2 (Multi-signal confirmation, configurable window) for PE
-    useEntry3: false # Disabled - Entry 3 (StochRSI K/D crossover with SuperTrend) for PE
-    
-  ENTRY2_CONFIRMATION_WINDOW: 4 # Number of candles for WPR28 and StochRSI confirmations (also used for Entry1 StochRSI window)
-  # Entry2 logic mode: true = Flexible (StochRSI can confirm even if SuperTrend turns bullish)
-  #                    false = Strict (All confirmations must occur when SuperTrend is bearish)
+    useEntry1: false
+    useEntry2: true
+    useEntry3: false
+
+  ENTRY2_CONFIRMATION_WINDOW: 4 # WPR window (backtest: WPR_CONFIRMATION_WINDOW: 4)
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
-  # DEBUG_ENTRY2: When enabled, Entry2 will skip SuperTrend and sentiment checks for testing
-  # This allows more frequent trades to test trigger + confirmation logic in real-time
-  # When disabled, uses production Entry2 with full SuperTrend and sentiment requirements
   DEBUG_ENTRY2: false
-  
-  # SKIP_FIRST Feature Configuration
-  # Skips the first Entry2 signal after SuperTrend switches from bullish to bearish
-  # ONLY when both Nifty 9:30 sentiment and CPR Pivot sentiment are BEARISH
-  # Note: Kite API is ALWAYS required for CPR Pivot calculation (no alternative source exists)
   SKIP_FIRST: false
 
-# High-Water Mark Trailing Stop Risk Management
-# Implements trailing max drawdown to cap daily losses from highest PnL/capital
-MARK2MARKET:
-  ENABLE: true  # Enable/disable trailing stop logic
-  CAPITAL: 12000  # Starting daily capital
-  LOSS_MARK: 40  # Percentage drop from High-Water Mark to trigger stop
-  PER_DAY: true  # Each day starts fresh with CAPITAL, tracks day's high, stops if drops LOSS_MARK% from day's high 
+  # Optimal entry: defer Entry2; enter when a later candle opens above confirmation high; invalidate if SL breached (backtesting_expiry: true)
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
+  OPTIMAL_ENTRY_WPR_INVALIDATE: false
+  WPR_INVALIDATION: false
 
-# Bot Operational Settings
+# High-Water Mark Trailing Stop (aligned with backtesting_expiry MARK2MARKET)
+# LOSS_MARK: 30 when MODE HYBRID; USE_START_CAPITAL_FOR_LIMIT: false = limit from day high (HWM)
+MARK2MARKET:
+  ENABLE: true
+  CAPITAL: 12000
+  LOSS_MARK: 30   # Backtest: 30 when MODE HYBRID
+  PER_DAY: true
+  USE_START_CAPITAL_FOR_LIMIT: false  # false = stop when capital < HWM*(1-LOSS_MARK/100)
+
+# Bot Operational Settings (backtest EOD_EXIT_TIME: '15:14')
 TRADING_HOURS:
   START_HOUR: 9
   START_MINUTE: 15
   END_HOUR: 15
-  END_MINUTE: 29
+  END_MINUTE: 14
 
 MARKET_CLOSE:
   HOUR: 15
   MINUTE: 14
 
-# CPR-derived trading range: entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
-# CPR and Fib bands are computed on bot init from previous trading day Nifty OHLC (Kite API).
-# CPR_UPPER and CPR_LOWER are printed at startup for verification.
+# CPR-derived trading range (aligned with backtesting_expiry: pivot columns R2 / S3)
+# Entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 CPR_TRADING_RANGE:
   ENABLED: true
-  CPR_UPPER: "band_R2_upper"   # band column name
-  CPR_LOWER: "band_S2_lower"   # band column name
+  CPR_UPPER: "R2"   # Pivot column (backtest: R2)
+  CPR_LOWER: "S3"   # Pivot column (backtest: S3)
 
 CPR_WIDTH_FILTER:
   ENABLED: false
-  THRESHOLD: 62  # Disable autonomous trading for the day if CPR width exceeds this value
+  THRESHOLD: 62  # Backtest: CPR_WIDTH_SIZE: 62
 
-# Time Distribution Filter (No Trade Zones)
-# When enabled, only trades within enabled time zones will be executed
-# Zones set to false will block trades during those times
+# Time Distribution Filter (aligned with backtesting_expiry: all zones true 09:15-15:30)
 TIME_DISTRIBUTION_FILTER:
-  ENABLED: true  # Set to true to enable time-based trade filtering
+  ENABLED: true
   TIME_ZONES:
     09:15-10:00: true
     10:00-11:00: true
@@ -190,22 +167,18 @@ PRICE_ZONES:
     LOW_PRICE: 20    # Minimum entry price (0 = no lower limit)
     HIGH_PRICE: 250 # Maximum entry price (500 = no upper limit for now)
 
-# Market Sentiment Configuration
-# MODE: AUTO | MANUAL | DISABLE | HYBRID (HYBRID = strict sentiment in [S1,R1] only; outside = NEUTRAL)
+# Market Sentiment Configuration (aligned with backtesting_expiry MARKET_SENTIMENT_FILTER)
+# HYBRID: strict sentiment only when Nifty at entry is in R1_S1; outside = NEUTRAL (both CE and PE allowed).
 MARKET_SENTIMENT:
-  MODE: MANUAL
-  HYBRID_STRICT_ZONE: R1_S1  # Only when MODE=HYBRID
-  
-  SENTIMENT_VERSION: "v5"  # "v1" | "v2" | "v5"
-  CONFIG_PATH: "market_sentiment_v5/config.yaml"
-  
-  # Used when MODE=MANUAL
-  MANUAL_SENTIMENT: NEUTRAL  # Options: BULLISH | BEARISH | NEUTRAL | DISABLE
-                             # Only valid when MODE=MANUAL
-                             # When MODE=DISABLE, this is ignored
+  MODE: HYBRID  # Backtest: HYBRID
+  HYBRID_STRICT_ZONE: R1_S1
 
-  # Position rule (applies for all MODE: AUTO | MANUAL | DISABLE)
-  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # true = CE and PE can coexist; false = only one position (CE or PE) at a time
+  SENTIMENT_VERSION: "v5"
+  CONFIG_PATH: "market_sentiment_v5/config.yaml"
+
+  MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL
+
+  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true  # Backtest: true (CE and PE can coexist)
 
 # Real-Time Position Management Configuration
 # Replaces GTT-based SL/TP with real-time tick monitoring and immediate market order execution

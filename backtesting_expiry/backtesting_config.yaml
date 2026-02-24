@@ -144,7 +144,7 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: true
+    12:00-13:00: false
     13:00-14:00: true
     14:00-15:30: true
 TRADING:
@@ -184,14 +184,14 @@ ENTRY2:
   SKIP_FIRST: false
   # EXIT_WEAK_SIGNAL: only for entries between R1 and R2 (R1 < Nifty < R2). When high >= EXIT_WEAK_SIGNAL_PROFIT_PCT%,
   # check DeMarker: if < R_BAND exit as weak signal (7% TP); else start DYNAMIC_TRAILING_MA. S1-S2 zone not used.
-  EXIT_WEAK_SIGNAL: true
+  EXIT_WEAK_SIGNAL: false
   EXIT_WEAK_SIGNAL_PROFIT_PCT: 7.0      # profit % (from entry) at which to check weak signal
   EXIT_WEAK_SIGNAL_DEMARKER_R_BAND: 0.60 # R1–R2 zone only: exit if demarker < this
   DYNAMIC_TRAILING_WPR9: false
   DYNAMIC_TRAILING_MA: true
   DYNAMIC_TRAILING_MA_THRESH: 7
   # WPR_INVALIDATION: If true, during confirmation window invalidate trigger when both W%R(9) <= oversold and W%R(28) <= oversold on current candle (matches production).
-  WPR_INVALIDATION: true
+  WPR_INVALIDATION: false
   ST_STOP_LOSS_PERCENT: true
   ST_SL_WHEN_TRAILING_TP: true
   SL_TO_PRICE: false

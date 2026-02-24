@@ -3,74 +3,54 @@
 # Optional: generate_cpr_dates.py "new day only" mode.
 # Set to a single date (YYYY-MM-DD) to fetch only that date: appended at end of cpr_dates.csv
 # if new; same row updated if run twice for the same date. Comment out for full run.
-NEW_DAY: "2025-02-23"
+# NEW_DAY: "2025-02-23"
 
 # Date mappings: day_label -> expiry_week
 # Format: day_label (lowercase, e.g., nov21) -> expiry_week (uppercase, e.g., NOV25)
 # Used for finding input files in respective dynamic/static folders
+# Generated from backtesting_expiry/data (all {EXPIRY}_DYNAMIC and _STATIC day folders).
+# When a day appears under multiple expiry folders, mapped to expiry_week that matches the day.
 DATE_MAPPINGS:
-  # oct15: OCT20
-  # oct16: OCT20
-  # oct17: OCT20
-  # oct23: OCT28
-  # oct24: OCT28
-  # oct27: OCT28
-  # oct29: NOV04
-  # oct30: NOV04
-  # oct31: NOV04
-  # nov03: NOV04
-  # nov06: NOV11
-  # nov07: NOV11
-  # nov10: NOV11
-  # nov12: NOV18
-  # nov13: NOV18
-  # nov14: NOV18
-  # nov17: NOV18
-  # nov19: NOV25
-  # nov20: NOV25
-  # nov21: NOV25
-  # nov24: NOV25
-  # nov26: DEC02
-  # nov27: DEC02
-  # nov28: DEC02
-  # dec01: DEC02
-  # dec03: DEC09
-  # dec04: DEC09
-  # dec05: DEC09
-  # dec08: DEC09
-  # dec10: DEC16
-  # dec11: DEC16
-  # dec12: DEC16
-  # dec15: DEC16
-  # jan07: JAN13
-  # jan08: JAN13
-  # jan09: JAN13
-  # jan12: JAN13
-  # jan14: JAN20
-  # jan16: JAN20
-  # jan19: JAN20
-  # jan21: JAN27
-  # jan22: JAN27
-  # jan23: JAN27
+  # OCT20 (data: OCT20_DYNAMIC/OCT20)
+  oct20: OCT20
 
-  jan28: FEB03
-  jan29: FEB03
-  jan30: FEB03
-  feb01: FEB03
-  feb02: FEB03
+  # OCT28 (data: OCT28_DYNAMIC/OCT28)
+  oct28: OCT28
 
-  feb04: FEB10
-  feb05: FEB10
-  feb06: FEB10
-  feb09: FEB10
-  feb11: FEB17
-  feb12: FEB17
-  feb13: FEB17
-  feb16: FEB17
-  feb18: FEB24
-  feb19: FEB24
-  feb20: FEB24
-  feb23: FEB24
+  # NOV04 (data: NOV04_DYNAMIC/NOV04; also under JAN13)
+  nov04: NOV04
+
+  # NOV11 (data: NOV11_DYNAMIC/NOV11; also under JAN13)
+  nov11: NOV11
+
+  # NOV18 (data: NOV18_DYNAMIC/NOV18; also under JAN13)
+  nov18: NOV18
+
+  # NOV25 (data: NOV25_DYNAMIC/NOV25; also under JAN13)
+  nov25: NOV25
+
+  # DEC09 (data: DEC09_DYNAMIC/DEC09; also under JAN13)
+  dec09: DEC09
+
+  # DEC23 (data: DEC23_DYNAMIC/DEC23, DEC30; JAN06 has DEC23, DEC31, JAN01–JAN06)
+  dec23: DEC23
+  # JAN13 (data: JAN13_DYNAMIC/JAN13)
+  jan13: JAN13
+
+  # JAN20 (data: JAN20_DYNAMIC/JAN20)
+  jan20: JAN20
+
+  # JAN27 (data: JAN27_DYNAMIC/JAN27)
+  jan27: JAN27
+
+  # FEB03 (data: FEB03_DYNAMIC/FEB03)
+  feb03: FEB03
+
+  # FEB10 (data: FEB10_DYNAMIC/FEB10)
+  feb10: FEB10
+
+  # FEB17 (data: FEB17_DYNAMIC/FEB17)
+  feb17: FEB17
 
 
 

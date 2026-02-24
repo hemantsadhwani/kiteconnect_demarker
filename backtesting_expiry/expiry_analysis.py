@@ -160,6 +160,33 @@ class EnhancedExpiryAnalysis:
         # Sort by date (latest first - reverse chronological order)
         sorted_expiry_weeks = sorted(expiry_weeks, key=parse_expiry_week, reverse=True)
         return sorted_expiry_weeks
+
+    def _validate_days_with_summary_included(self, entry_type='Entry2'):
+        """Ensure every day that has a summary file on disk is included in all_expiry_data (and thus in the HTML report)."""
+        entry_type_lower = entry_type.lower()
+        missing = []
+        for item in self.data_dir.iterdir():
+            if not item.is_dir() or '_STATIC' not in item.name and '_DYNAMIC' not in item.name:
+                continue
+            base_expiry = item.name.replace('_STATIC', '').replace('_DYNAMIC', '')
+            expiry_week = base_expiry
+            for day_dir in item.iterdir():
+                if not day_dir.is_dir():
+                    continue
+                day_label = day_dir.name
+                summary_path = day_dir / f"{entry_type_lower}_{'dynamic' if 'DYNAMIC' in item.name else 'static'}_market_sentiment_summary.csv"
+                if not summary_path.exists():
+                    continue
+                if expiry_week not in self.all_expiry_data:
+                    missing.append((str(summary_path), expiry_week, day_label, "expiry_week not in report"))
+                elif day_label not in self.all_expiry_data[expiry_week].get('daily_data', {}):
+                    missing.append((str(summary_path), expiry_week, day_label, "day not in daily_data"))
+        if missing:
+            for path, ew, day, reason in missing:
+                logger.error(f"[VALIDATE] Day with summary not in report: {ew}/{day} (reason: {reason}) file={path}")
+            logger.error(f"[VALIDATE] Total: {len(missing)} day(s) with summary file missing from analysis_entry2.html")
+        else:
+            logger.info("[VALIDATE] All days with summary file are included in the report.")
     
     def day_label_to_date_str(self, day_label):
         """Convert day label (e.g., 'NOV25', 'JAN01') to date string (e.g., '2025-11-25', '2026-01-01')
@@ -295,6 +322,16 @@ class EnhancedExpiryAnalysis:
                             # Add all directories - we'll filter by BACKTESTING_DAYS later
                             # This allows days from different months (e.g., NOV26 in DEC02 expiry)
                             trading_days.add(item.name)
+        
+        # Include expiry date itself as a trading day when its folder exists (e.g. FEB17_DYNAMIC/FEB17/)
+        # DATE_MAPPINGS may only list pre-expiry days (e.g. feb11, feb12, feb13, feb16 -> FEB17), so expiry day FEB17 would otherwise be missed
+        for check_dir in [self.data_dir / f"{base_expiry}_STATIC", self.data_dir / f"{base_expiry}_DYNAMIC"]:
+            if check_dir.exists():
+                expiry_day_dir = check_dir / base_expiry
+                if expiry_day_dir.is_dir():
+                    trading_days.add(base_expiry)
+                    logger.debug(f"Added expiry date as trading day: {base_expiry} (folder exists under {check_dir.name})")
+                    break
         
         # Filter by BACKTESTING_DAYS if configured
         original_count = len(trading_days)
@@ -756,8 +793,7 @@ class EnhancedExpiryAnalysis:
                     logger.debug(f"[INCLUDE] Including {day_label} - CPR width ({cpr_width:.2f}) <= {cpr_width_threshold}")
             # If CPR filter disabled, we still need to check for data files
             
-            # Check if both static and dynamic summary files exist for this entry type
-            # Ensure expiry_week has the correct suffix for file loading
+            # Include day only when at least one summary file exists (required for analysis_entry2.html)
             static_expiry_week = expiry_week if expiry_week.endswith('_STATIC') else f"{expiry_week}_STATIC"
             dynamic_expiry_week = expiry_week if expiry_week.endswith('_DYNAMIC') else f"{expiry_week}_DYNAMIC"
             
@@ -765,7 +801,7 @@ class EnhancedExpiryAnalysis:
             dynamic_summary = self.load_market_sentiment_data(dynamic_expiry_week, day_label, 'DYNAMIC', entry_type=entry_type)
             
             if static_summary is None and dynamic_summary is None:
-                logger.debug(f"Skipping {day_label} - no summary files found for {entry_type}")
+                logger.debug(f"Skipping {day_label} - no summary file found for {entry_type} (require entry2_*_market_sentiment_summary.csv)")
                 continue
             
             # Day passed all filters and has data - add to included_days
@@ -1905,6 +1941,9 @@ class EnhancedExpiryAnalysis:
             # Generate HTML report for this entry type
             html_file = self.generate_html_report(output_dir, entry_type=entry_type)
             html_files.append(html_file)
+            
+            # Validate: every day that has a summary file on disk must appear in the report
+            self._validate_days_with_summary_included(entry_type)
             
             logger.info(f"{entry_type} analysis completed. HTML report: {html_file}")
         
