@@ -17,7 +17,7 @@ BACKTESTING_ANALYSIS:
       HIGH_PRICE: 200   # ATM CE/PE often 200-300+; must be high enough so sentiment output is not empty
       LOW_PRICE: 20
     DYNAMIC_OTM:
-      HIGH_PRICE: 160
+      HIGH_PRICE: 200
       LOW_PRICE: 10
     STATIC_ATM:
       HIGH_PRICE: 600
@@ -29,12 +29,12 @@ BACKTESTING_EXPIRY:
     DYNAMIC_DATA: ENABLE
     STATIC_DATA: ENABLE
   BACKTESTING_DAYS:
-  - '2025-10-20'
-  - '2025-10-28'
-  - '2025-11-04'
-  - '2025-11-11'
-  - '2025-11-18'
-  - '2025-11-25'
+  # - '2025-10-20'
+  # - '2025-10-28'
+  # - '2025-11-04'
+  # - '2025-11-11'
+  # - '2025-11-18'
+  # - '2025-11-25'
   - '2026-01-13'
   - '2025-12-09'
   - '2026-01-13'
@@ -43,6 +43,7 @@ BACKTESTING_EXPIRY:
   - '2026-02-03'
   - '2026-02-10'
   - '2026-02-17'
+  - '2026-02-24'
   BACKTESTING_STRIKE_TYPE:
   - ATM
   - OTM
@@ -62,6 +63,7 @@ BACKTESTING_EXPIRY:
   - FEB03
   - FEB10
   - FEB17
+  - FEB24
 # CPR-derived allowed trading range: trading only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 # Values are read from analytics/cpr_dates.csv (generate with grid_search_tools/cpr_market_sentiment_v5/generate_cpr_dates.py).
 # Worth it: "Above R2" zone has negative PnL; this filter blocks entries above band_R2_upper and below band_S2_lower.

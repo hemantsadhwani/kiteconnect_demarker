@@ -200,7 +200,7 @@ TIME_DISTRIBUTION_FILTER:
     11:00-12:00: true
     12:00-13:00: false
     13:00-14:00: true
-    14:00-15:30: false
+    14:00-15:30: true
 TRADING:
   EOD_EXIT: true
   EOD_EXIT_TIME: '15:14'

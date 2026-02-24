@@ -15,9 +15,12 @@ TRADE_SETTINGS:
   CONTINUATION_MAX_SUPERTREND_DISTANCE_PERCENT: 6 # Max SuperTrend distance for CONTINUATION entries (useEntry3)
   
   # Stop Loss Mode for Entry2 (backtesting_expiry: "Swing Low")
+  # "Fixed Percentage" = use STOP_LOSS_PERCENT below; "Swing Low" = use trailing swing low (SL_SWING_CANDLES)
   SL_MODE: "Swing Low"  # "Fixed Percentage" | "Swing Low"
-  
-  # Price-based Stop Loss Configuration (aligned with backtesting_expiry ENTRY2)
+  # When SL_MODE is "Swing Low": min(low) over the last SL_SWING_CANDLES candles only (no future data)
+  SL_SWING_CANDLES: 5
+
+  # Price-based Stop Loss Configuration (used when SL_MODE is "Fixed Percentage"; aligned with backtesting_expiry ENTRY2)
   STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (backtest: 6.5)
@@ -165,7 +168,7 @@ PRICE_ZONES:
     HIGH_PRICE: 200 # Maximum entry price to take trade
   STATIC_ATM:
     LOW_PRICE: 20    # Minimum entry price (0 = no lower limit)
-    HIGH_PRICE: 250 # Maximum entry price (500 = no upper limit for now)
+    HIGH_PRICE: 200 # Maximum entry price (500 = no upper limit for now)
 
 # Market Sentiment Configuration (aligned with backtesting_expiry MARKET_SENTIMENT_FILTER)
 # HYBRID: strict sentiment only when Nifty at entry is in R1_S1; outside = NEUTRAL (both CE and PE allowed).
