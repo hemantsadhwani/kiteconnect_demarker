@@ -976,6 +976,26 @@ class AsyncLiveTickerHandler:
                 if _has_potential_trigger(entry_mgr.pe_symbol):
                     symbols_in_confirmation.append(entry_mgr.pe_symbol)
         
+        # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: block slab change when a pending optimal entry exists for current CE/PE
+        # so we get to run the next candle's entry check (open > confirm_high) before switching symbols
+        pending = getattr(entry_mgr, 'pending_optimal_entry', None) or {}
+        if entry_mgr.ce_symbol and entry_mgr.ce_symbol in pending:
+            if entry_mgr.ce_symbol not in symbols_in_confirmation:
+                symbols_in_confirmation.append(entry_mgr.ce_symbol)
+            logger.warning(
+                "[SLAB CHANGE] Pending Entry2 optimal entry for %s (confirm_high=%.2f) - blocking slab change until entry/invalidation",
+                entry_mgr.ce_symbol,
+                float(pending[entry_mgr.ce_symbol].get('confirm_high', 0)),
+            )
+        if entry_mgr.pe_symbol and entry_mgr.pe_symbol in pending:
+            if entry_mgr.pe_symbol not in symbols_in_confirmation:
+                symbols_in_confirmation.append(entry_mgr.pe_symbol)
+            logger.warning(
+                "[SLAB CHANGE] Pending Entry2 optimal entry for %s (confirm_high=%.2f) - blocking slab change until entry/invalidation",
+                entry_mgr.pe_symbol,
+                float(pending[entry_mgr.pe_symbol].get('confirm_high', 0)),
+            )
+        
         return len(symbols_in_confirmation) > 0, symbols_in_confirmation
 
     def _dispatch_nifty_candle_complete(self, candle_timestamp):
@@ -1140,12 +1160,12 @@ class AsyncLiveTickerHandler:
                                 self._dispatch_nifty_candle_complete(candle_key)
                                 return
                         elif entry2_active:
-                            # CRITICAL: Do NOT allow slab changes when Entry2 confirmation window is active
-                            # This prevents losing Entry2 state machine during confirmation window
+                            # CRITICAL: Do NOT allow slab changes when Entry2 confirmation window or pending optimal entry is active
+                            # This prevents losing Entry2 state machine or missing the deferred entry (open > confirm_high)
                             if slab_would_change:
-                                logger.warning(f"[ALERT][ALERT][ALERT] SLAB CHANGE BLOCKED: Entry2 confirmation window active for: {symbols_in_confirmation} [ALERT][ALERT][ALERT]")
+                                logger.warning(f"[ALERT][ALERT][ALERT] SLAB CHANGE BLOCKED: Entry2 confirmation window or pending optimal entry active for: {symbols_in_confirmation} [ALERT][ALERT][ALERT]")
                                 logger.warning(f"[ALERT] NIFTY (calculated)={nifty_calculated_price:.2f}, close={nifty_close:.2f} | Would change: CE {current_ce}->{potential_ce}, PE {current_pe}->{potential_pe}")
-                                logger.warning(f"[ALERT] Slab change prevented to protect Entry2 state machine. Will retry after confirmation window expires.")
+                                logger.warning(f"[ALERT] Slab change prevented to protect Entry2 state. Will retry after confirmation window expires or optimal entry is taken/invalidated.")
                                 self._dispatch_nifty_candle_complete(candle_key)
                                 return
                         else:

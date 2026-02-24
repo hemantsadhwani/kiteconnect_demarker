@@ -204,30 +204,17 @@ def calculate_demarker(df, period=14, column_name='demarker'):
 
 def calculate_swing_low(df, candles=5):
     """
-    Calculate swing low: minimum low price within a window of N candles before and N candles after.
-    
-    A swing low is identified when a candle's low is lower than the lows of N candles before 
-    and N candles after it, where N = candles parameter.
+    Calculate swing low: minimum low over the last N candles only (no future data).
     
     Args:
         df: DataFrame with OHLC data (must have 'low' column)
-        candles: Number of candles to look back/forward (default: 5)
+        candles: Number of past candles to include (default: 5)
     
     Returns:
         DataFrame with 'swing_low' column added
     """
-    # Use rolling window to find minimum low in a window of (2*candles + 1) candles
-    # This includes N candles before, current candle, and N candles after
-    window_size = 2 * candles + 1
-    
-    # Calculate rolling minimum of low prices
-    # Use center=True to center the window (includes N before, current, N after)
-    swing_low_values = df['low'].rolling(window=window_size, center=True, min_periods=1).min()
-    
-    # For the first and last N candles, we can't have a full window, so use available data
-    # Fill NaN values with the minimum available in that range
+    swing_low_values = df['low'].rolling(window=candles, min_periods=1).min()
     df['swing_low'] = swing_low_values.round(2)
-    
     return df
 
 def calculate_all_indicators(df, 

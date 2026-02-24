@@ -43,12 +43,17 @@ class StrategyExecutor:
         # SL_MODE for Entry2: "Fixed Percentage" | "Swing Low" (trailing swing low at entry)
         sl_mode_raw = (trade_settings.get('SL_MODE') or 'Fixed Percentage').strip()
         self.sl_mode_use_swing_low = sl_mode_raw.upper().startswith('SWING')
+        # Swing low window: TRADE_SETTINGS.SL_SWING_CANDLES (when SL_MODE is Swing Low) else INDICATORS.SWING_LOW_PERIOD
         indicators_config = config.get('INDICATORS', {})
-        self.swing_low_candles = indicators_config.get('SWING_LOW_PERIOD', 5)
+        self.swing_low_candles = int(
+            trade_settings.get('SL_SWING_CANDLES')
+            or indicators_config.get('SWING_LOW_PERIOD')
+            or 5
+        )
         if self.sl_mode_use_swing_low:
-            self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low=True, window={2 * self.swing_low_candles + 1} bars)")
+            self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low=True, SL_SWING_CANDLES={self.swing_low_candles} past candles only)")
         else:
-            self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low=False)")
+            self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low=False, Fixed %% uses STOP_LOSS_PERCENT)")
 
     @retry(stop_max_attempt_number=2, wait_fixed=500, retry_on_exception=_retry_if_connection_error)
     def _retry_api_call(self, func):
@@ -1926,7 +1931,7 @@ class StrategyExecutor:
     def _get_entry_swing_low_sl_price(self, symbol):
         """
         Get trailing swing low at entry for Entry2 when SL_MODE is Swing Low.
-        Uses min(low) over last (2*SWING_LOW_CANDLES+1) bars, matching backtest logic.
+        Uses min(low) over the last SL_SWING_CANDLES candles only (no future data).
         Returns None if not enough data or indicators unavailable.
         """
         if not self.ticker_handler:
@@ -1937,7 +1942,7 @@ class StrategyExecutor:
         df = self.ticker_handler.get_indicators(token)
         if df is None or df.empty or 'low' not in df.columns:
             return None
-        window = 2 * self.swing_low_candles + 1
+        window = self.swing_low_candles
         if len(df) < window:
             self.logger.debug(f"Swing Low SL: not enough bars for {symbol} (have {len(df)}, need {window})")
             return None

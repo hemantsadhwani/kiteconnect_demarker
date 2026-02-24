@@ -2101,11 +2101,9 @@ class Entry2BacktestStrategyFixed:
                     self.filtered_entries_count += 1
                 return False
             
-            # Use TRAILING swing low (no look-ahead): min(low) over last (2*CANDLES+1) bars ending at current bar.
-            # The indicator column 'swing_low' uses center=True and includes future bars, which would block valid
-            # entries (e.g. 10:47 entry sees 10:50 low and gets 13% distance; true recent low 10:43 is ~10%).
-            window_size = 2 * self.swing_low_candles + 1
-            start_idx = max(0, current_index - window_size + 1)
+            # Use trailing swing low (past only): min(low) over last swing_low_candles bars ending at current bar.
+            window_size = self.swing_low_candles
+            start_idx = max(0, current_index + 1 - window_size)
             swing_low_price = float(df['low'].iloc[start_idx:current_index + 1].min())
             if pd.isna(swing_low_price):
                 logger.warning(f"Trailing swing_low is NaN for {symbol} at bar {current_index}. Blocking entry.")
@@ -2333,14 +2331,14 @@ class Entry2BacktestStrategyFixed:
         self.entry_signal = True
         self.entry_type = signal_type  # Track which entry type (Entry1, Entry2, Entry3)
         
-        # Swing Low SL (Entry2 only): at entry, compute trailing swing low over last (2*CANDLES+1) bars ending at entry bar
+        # Swing Low SL (Entry2 only): at entry, min(low) over last swing_low_candles bars only (no future)
         if self.sl_mode_use_swing_low and signal_type == 'Entry2' and 'low' in df.columns:
             exec_bar = self.entry_bar_index
-            window = 2 * self.swing_low_candles + 1
-            start_idx = max(0, exec_bar - window + 1)
+            window = self.swing_low_candles
+            start_idx = max(0, exec_bar + 1 - window)
             if exec_bar < len(df):
                 self.entry_swing_low_sl_price = float(df['low'].iloc[start_idx:exec_bar + 1].min())
-                logger.info(f"Entry2 Swing Low SL: at entry bar {exec_bar}, swing_low = {self.entry_swing_low_sl_price:.2f}")
+                logger.info(f"Entry2 Swing Low SL: at entry bar {exec_bar}, swing_low = {self.entry_swing_low_sl_price:.2f} (last {window} candles)")
             else:
                 self.entry_swing_low_sl_price = None
         else:

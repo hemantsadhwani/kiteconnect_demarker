@@ -147,7 +147,11 @@ class EntryConditionManager:
         self.optimal_entry_above_confirm_open = strategy_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
         self.optimal_entry_wpr_invalidate = strategy_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
         self.logger.info(f"OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: {self.optimal_entry_above_confirm_open}, OPTIMAL_ENTRY_WPR_INVALIDATE: {self.optimal_entry_wpr_invalidate}")
-        
+        # SL_MODE for Entry2: "Swing Low" = use swing low as invalidation level for pending optimal entry; "Fixed Percentage" = use % below confirm close
+        sl_mode_raw = (strategy_config.get('SL_MODE') or 'Fixed Percentage').strip()
+        self.sl_mode_use_swing_low = sl_mode_raw.upper().startswith('SWING')
+        self.logger.info(f"Entry2 SL_MODE: {sl_mode_raw} (use_swing_low_for_pending_invalidate={self.sl_mode_use_swing_low})")
+
         # Load MARKET_SENTIMENT: effective sentiment (MODE + MANUAL_SENTIMENT or algo) drives filtering.
         # NEUTRAL = both CE and PE allowed; BULLISH = CE only; BEARISH = PE only (no separate ENABLED flag).
         # HYBRID: strict sentiment only when Nifty at entry is in HYBRID_STRICT_ZONE (e.g. R1_S1); outside = NEUTRAL.
@@ -523,6 +527,7 @@ class EntryConditionManager:
                                                             'state': 'AWAITING_TRIGGER',
                                                             'confirmation_countdown': 0,
                                                             'trigger_bar_index': None,
+                                                            'trigger_candle_timestamp': None,
                                                             'trigger_source': None,
                                                             'wpr_9_confirmed_in_window': False,
                                                             'wpr_28_confirmed_in_window': False,
@@ -532,15 +537,21 @@ class EntryConditionManager:
                                                     state_machine_slab = self.entry2_state_machine[symbol]
                                                     state_machine_slab['state'] = 'AWAITING_CONFIRMATION'
                                                     state_machine_slab['confirmation_countdown'] = self.entry2_confirmation_window
-                                                    state_machine_slab['trigger_bar_index'] = self.current_bar_index
+                                                    # Use DataFrame-based bar index so window expiry matches PROCESS CONFIRMATION STATE (len(df)-1); using self.current_bar_index would expire the window immediately.
+                                                    trigger_bar_idx_df = len(df_with_indicators) - 1
+                                                    state_machine_slab['trigger_bar_index'] = trigger_bar_idx_df
+                                                    try:
+                                                        state_machine_slab['trigger_candle_timestamp'] = df_with_indicators.index[-1]
+                                                    except Exception:
+                                                        state_machine_slab['trigger_candle_timestamp'] = None
                                                     # trigger_source from slab: both_cross_slab -> 'both', else wpr_9 or wpr_28
                                                     state_machine_slab['trigger_source'] = 'both' if both_cross_slab else ('wpr_9' if trigger_from_wpr9_slab else 'wpr_28')
                                                     state_machine_slab['wpr_9_confirmed_in_window'] = bool(wpr_9_crosses_slab and (is_bearish_slab or getattr(self, 'flexible_stochrsi_confirmation', True)))
                                                     state_machine_slab['wpr_28_confirmed_in_window'] = bool(wpr_28_crosses_slab and (is_bearish_slab or getattr(self, 'flexible_stochrsi_confirmation', True)))
                                                     state_machine_slab['stoch_rsi_confirmed_in_window'] = False  # Must confirm on NEW symbol
                                                     
-                                                    window_end_slab = self.current_bar_index + self.entry2_confirmation_window
-                                                    self.logger.info(f"[SLAB CHANGE TRIGGER] Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {self.current_bar_index} (trigger detected during slab change)")
+                                                    window_end_slab = trigger_bar_idx_df + self.entry2_confirmation_window
+                                                    self.logger.info(f"[SLAB CHANGE TRIGGER] Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window for {symbol} at bar {trigger_bar_idx_df} (trigger detected during slab change)")
                                                     
                                                     # If W%R(28) also crossed, it's already confirmed
                                                     if state_machine_slab['wpr_28_confirmed_in_window']:
@@ -665,7 +676,8 @@ class EntryConditionManager:
             self.entry2_state_machine[symbol] = {
                 'state': 'AWAITING_TRIGGER',
                 'confirmation_countdown': 0,
-                'trigger_bar_index': None,  # Store trigger bar index for window calculation
+                'trigger_bar_index': None,  # Store trigger bar index for window calculation (fallback)
+                'trigger_candle_timestamp': None,  # Trigger candle timestamp for stable window expiry when df length varies
                 'trigger_source': None,  # 'wpr_9' | 'wpr_28' | 'both' - which W%R started the trigger
                 'wpr_9_confirmed_in_window': False,
                 'wpr_28_confirmed_in_window': False,
@@ -745,13 +757,26 @@ class EntryConditionManager:
         
         # --- PROCESS CONFIRMATION STATE ---
         if state_machine['state'] == 'AWAITING_CONFIRMATION':
-            current_bar_index_for_window = len(df_with_indicators) - 1  # df-based so we don't expire one bar early
+            current_bar_index_for_window = len(df_with_indicators) - 1  # df-based (fallback)
             if os.getenv('TEST_ENTRY2', 'false').lower() == 'true':
                 self.logger.info(f"Entry2: Processing AWAITING_CONFIRMATION state for {symbol}, current_bar_index={self.current_bar_index}, current_bar_index_for_window={current_bar_index_for_window}")
             
             trigger_bar_index = state_machine.get('trigger_bar_index')
-            # Window expiration (align with backtest): valid bars are T .. T+window-1; expire when current_bar >= T+window
-            if trigger_bar_index is not None:
+            # Prefer timestamp-based window expiry so window is correct when DataFrame length varies
+            trigger_ts_first = state_machine.get('trigger_candle_timestamp')
+            try:
+                current_ts_first = df_with_indicators.index[-1]
+            except Exception:
+                current_ts_first = None
+            if trigger_ts_first is not None and current_ts_first is not None and hasattr(trigger_ts_first, 'replace') and hasattr(current_ts_first, 'replace'):
+                trigger_norm_first = trigger_ts_first.replace(second=0, microsecond=0)
+                current_norm_first = current_ts_first.replace(second=0, microsecond=0)
+                window_end_ts_first = trigger_norm_first + timedelta(minutes=self.entry2_confirmation_window)
+                if current_norm_first >= window_end_ts_first:
+                    self.logger.debug(f"Entry2: Window expired for {symbol} (timestamp-based: current={current_norm_first.strftime('%H:%M')} >= {window_end_ts_first.strftime('%H:%M')}) - resetting before confirmation check")
+                    self._reset_entry2_state_machine(symbol)
+                    return False
+            elif trigger_bar_index is not None:
                 window_end = trigger_bar_index + self.entry2_confirmation_window
                 if current_bar_index_for_window >= window_end:
                     self.logger.debug(f"Entry2: Window expired for {symbol} at bar {current_bar_index_for_window} (trigger={trigger_bar_index}, window_end={window_end}) - resetting before confirmation check")
@@ -890,7 +915,14 @@ class EntryConditionManager:
                         sl_pct = self.strategy_executor._determine_stop_loss_percent(confirm_close)
                     except Exception:
                         sl_pct = 8.0
-                    sl_price = confirm_close * (1 - sl_pct / 100.0)
+                    if getattr(self, 'sl_mode_use_swing_low', False):
+                        swing_low_val = df_with_indicators.iloc[-1].get('swing_low')
+                        if pd.notna(swing_low_val):
+                            sl_price = float(swing_low_val)
+                        else:
+                            sl_price = confirm_close * (1 - sl_pct / 100.0)
+                    else:
+                        sl_price = confirm_close * (1 - sl_pct / 100.0)
                     option_type = 'CE' if symbol.endswith('CE') else 'PE'
                     if not hasattr(self, 'pending_optimal_entry'):
                         self.pending_optimal_entry = {}
@@ -961,9 +993,13 @@ class EntryConditionManager:
                     self.logger.info(f"Entry2: Trigger detected for {symbol} - {trigger_reason}: W%R(9) {wpr_fast_prev:.2f} -> {wpr_fast_current:.2f}, W%R(28) {wpr_slow_prev:.2f} -> {wpr_slow_current:.2f}, SuperTrend bearish")
                     state_machine['state'] = 'AWAITING_CONFIRMATION'
                     state_machine['confirmation_countdown'] = self.entry2_confirmation_window  # Start N-candle window
-                    # Use df-based bar index so window expiry matches the candle we're evaluating (avoids expiring one bar early)
+                    # Use df-based bar index (fallback) and trigger candle timestamp for stable window expiry when df length varies
                     trigger_bar_index_new = len(df_with_indicators) - 1
                     state_machine['trigger_bar_index'] = trigger_bar_index_new
+                    try:
+                        state_machine['trigger_candle_timestamp'] = df_with_indicators.index[-1]
+                    except Exception:
+                        state_machine['trigger_candle_timestamp'] = None
                     state_machine['trigger_source'] = 'both' if both_cross_same_candle else ('wpr_9' if trigger_from_wpr9 else 'wpr_28')
                     state_machine['wpr_9_confirmed_in_window'] = False
                     state_machine['wpr_28_confirmed_in_window'] = False
@@ -1030,6 +1066,38 @@ class EntryConditionManager:
                             self._reset_entry2_state_machine(symbol)
                             self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
                             return False
+                        # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter when a later candle opens above confirm_high; invalidate if SL breached (same as confirmation-window path)
+                        if getattr(self, 'optimal_entry_above_confirm_open', False):
+                            confirm_high = float(df_with_indicators.iloc[-1]['high'])
+                            confirm_close = float(df_with_indicators.iloc[-1]['close'])
+                            confirm_candle_timestamp = df_with_indicators.index[-1]
+                            try:
+                                sl_pct = self.strategy_executor._determine_stop_loss_percent(confirm_close)
+                            except Exception:
+                                sl_pct = 8.0
+                            if getattr(self, 'sl_mode_use_swing_low', False):
+                                swing_low_val = df_with_indicators.iloc[-1].get('swing_low')
+                                if pd.notna(swing_low_val):
+                                    sl_price = float(swing_low_val)
+                                else:
+                                    sl_price = confirm_close * (1 - sl_pct / 100.0)
+                            else:
+                                sl_price = confirm_close * (1 - sl_pct / 100.0)
+                            option_type = 'CE' if symbol.endswith('CE') else 'PE'
+                            if not hasattr(self, 'pending_optimal_entry'):
+                                self.pending_optimal_entry = {}
+                            self.pending_optimal_entry[symbol] = {
+                                'confirm_candle_timestamp': confirm_candle_timestamp,
+                                'confirm_high': confirm_high,
+                                'sl_price': sl_price,
+                                'option_type': option_type,
+                            }
+                            self._reset_entry2_state_machine(symbol)
+                            self.logger.info(
+                                f"Entry2 optimal entry: Pending for {symbol} (same-candle signal, confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
+                                "will enter when a later candle opens above confirm_high"
+                            )
+                            return False
                         price_str = self._log_entry_confirmation_prices(symbol)
                         self.logger.info(f"[TARGET] Entry2: BUY SIGNAL GENERATED for {symbol} (all conditions met on same candle) - {price_str}")
                         self._reset_entry2_state_machine(symbol)
@@ -1056,19 +1124,34 @@ class EntryConditionManager:
             
             trigger_bar_index = state_machine.get('trigger_bar_index')
             
-            # CRITICAL FIX: Check window expiration FIRST, before checking confirmations
-            # Use current_bar_index_for_window (df-based) so the last valid bar can still confirm.
-            # Window includes bars T, T+1, T+2, ..., T+(CONFIRMATION_WINDOW-1) (CONFIRMATION_WINDOW bars total)
-            # If trigger_bar=17 and window=4, valid bars are 17,18,19,20 (window_end=21)
-            # Window expires when current_index >= window_end (bar 21 and beyond)
+            # CRITICAL FIX: Check window expiration FIRST, before checking confirmations.
+            # Prefer timestamp-based expiry so window is correct when DataFrame length varies (e.g. 66 rows at trigger vs 106 later).
+            # Window = trigger candle + (CONFIRMATION_WINDOW - 1) more candles; expire when current >= trigger + CONFIRMATION_WINDOW minutes.
             window_expired = False
-            if trigger_bar_index is not None:
+            trigger_ts = state_machine.get('trigger_candle_timestamp')
+            try:
+                current_ts = df_with_indicators.index[-1]
+            except Exception:
+                current_ts = None
+            if trigger_ts is not None and current_ts is not None and hasattr(trigger_ts, 'replace') and hasattr(current_ts, 'replace'):
+                trigger_norm = trigger_ts.replace(second=0, microsecond=0)
+                current_norm = current_ts.replace(second=0, microsecond=0)
+                window_end_ts = trigger_norm + timedelta(minutes=self.entry2_confirmation_window)
+                if current_norm >= window_end_ts:
+                    window_expired = True
+                    wpr9_status = "OK" if state_machine.get('wpr_9_confirmed_in_window', False) else "X"
+                    wpr28_status = "OK" if state_machine.get('wpr_28_confirmed_in_window', False) else "X"
+                    stoch_status = "OK" if state_machine['stoch_rsi_confirmed_in_window'] else "X"
+                    self.logger.info(
+                        f"[TIME] Entry2: Window expired for {symbol} (timestamp-based: current={current_norm.strftime('%H:%M')} >= window_end={window_end_ts.strftime('%H:%M')}) - W%R(9): {wpr9_status}, W%R(28): {wpr28_status}, StochRSI: {stoch_status}"
+                    )
+                    self._reset_entry2_state_machine(symbol)
+                    return False
+            elif trigger_bar_index is not None:
+                # Fallback: bar-index-based expiry (used when trigger_candle_timestamp not set, e.g. legacy state)
                 window_end = trigger_bar_index + self.entry2_confirmation_window
-                # DEBUG: Log window calculation for troubleshooting
                 if self.debug_entry2:
                     self.logger.debug(f"[DEBUG_ENTRY2] Entry2 window check for {symbol}: trigger_bar={trigger_bar_index}, current_bar_for_window={current_bar_index_for_window}, window_end={window_end}, within_window={current_bar_index_for_window < window_end}")
-                
-                # Window expires when current_bar_index_for_window >= window_end
                 if current_bar_index_for_window >= window_end:
                     window_expired = True
                     wpr9_status = "OK" if state_machine.get('wpr_9_confirmed_in_window', False) else "X"
@@ -1202,7 +1285,14 @@ class EntryConditionManager:
                         sl_pct = self.strategy_executor._determine_stop_loss_percent(confirm_close)
                     except Exception:
                         sl_pct = 8.0
-                    sl_price = confirm_close * (1 - sl_pct / 100.0)
+                    if getattr(self, 'sl_mode_use_swing_low', False):
+                        swing_low_val = df_with_indicators.iloc[-1].get('swing_low')
+                        if pd.notna(swing_low_val):
+                            sl_price = float(swing_low_val)
+                        else:
+                            sl_price = confirm_close * (1 - sl_pct / 100.0)
+                    else:
+                        sl_price = confirm_close * (1 - sl_pct / 100.0)
                     option_type = 'CE' if symbol.endswith('CE') else 'PE'
                     if not hasattr(self, 'pending_optimal_entry'):
                         self.pending_optimal_entry = {}
@@ -1249,6 +1339,7 @@ class EntryConditionManager:
                 'state': 'AWAITING_TRIGGER',
                 'confirmation_countdown': 0,
                 'trigger_bar_index': None,
+                'trigger_candle_timestamp': None,
                 'trigger_source': None,
                 'wpr_9_confirmed_in_window': False,
                 'wpr_28_confirmed_in_window': False,
@@ -3525,6 +3616,7 @@ class EntryConditionManager:
                     'state': 'AWAITING_TRIGGER',
                     'confirmation_countdown': 0,
                     'trigger_bar_index': None,
+                    'trigger_candle_timestamp': None,
                     'trigger_source': None,
                     'wpr_9_confirmed_in_window': False,
                     'wpr_28_confirmed_in_window': False,
@@ -4053,6 +4145,7 @@ class EntryConditionManager:
                     'state': 'AWAITING_TRIGGER',
                     'confirmation_countdown': 0,
                     'trigger_bar_index': None,
+                    'trigger_candle_timestamp': None,
                     'trigger_source': None,
                     'wpr_9_confirmed_in_window': False,
                     'wpr_28_confirmed_in_window': False,
