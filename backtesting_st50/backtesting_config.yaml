@@ -68,6 +68,7 @@ BACKTESTING_EXPIRY:
   - '2026-02-19'
   - '2026-02-20'
   - '2026-02-23'
+  - '2026-02-25'
   BACKTESTING_STRIKE_TYPE:
   - ATM
   - OTM
@@ -88,6 +89,7 @@ BACKTESTING_EXPIRY:
   - FEB10
   - FEB17
   - FEB24
+  - MAR02
 CPR_TRADING_RANGE:
   ENABLED: true
   CPR_UPPER: R2
@@ -158,7 +160,7 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: false
+    12:00-13:00: true
     13:00-14:00: true
     14:00-15:30: true
 TRADING:

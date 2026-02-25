@@ -499,8 +499,10 @@ def analyze_trades(data_dir: Path = None, entry_type: str = 'Entry2'):
         for bucket in bucket_order:
             if bucket in time_buckets:
                 data = time_buckets[bucket]
-                # Calculate win rate
+                # Calculate win rate and avg PnL per trade
                 win_rate = (data['wins'] / data['count'] * 100) if data['count'] > 0 else 0.0
+                avg_pnl = (data['pnl'] / data['count']) if data['count'] > 0 else 0.0
+                avg_pnl_str = f"+{avg_pnl:.2f}%" if avg_pnl >= 0 else f"{avg_pnl:.2f}%"
                 markers = []
                 if bucket == best_pnl_bucket:
                     markers.append(" <-- Best P&L")
@@ -509,7 +511,7 @@ def analyze_trades(data_dir: Path = None, entry_type: str = 'Entry2'):
                 if data['pnl'] < 10 and data['count'] > 20:
                     markers.append(" <-- Lowest P&L")
                 
-                print(f"{bucket}: {data['count']} trades, P&L: {data['pnl']:.2f}%, Win Rate: {win_rate:.2f}%{''.join(markers)}")
+                print(f"{bucket}: {data['count']} trades, P&L: {data['pnl']:.2f}%, Win Rate: {win_rate:.2f}%, Avg PnL/trade: {avg_pnl_str}{''.join(markers)}")
     
     # Win Rate by Entry Price Slabs
     print("\n" + "-" * 100)
