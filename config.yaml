@@ -72,7 +72,7 @@ TRADE_SETTINGS:
   SKIP_FIRST: false
 
   # Optimal entry: defer Entry2 execution; enter when a subsequent candle opens above confirmation high; invalidate if SL breached (aligned with backtesting_st50).
-  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: false
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
   WPR_INVALIDATION: true
 

@@ -398,31 +398,16 @@ def format_option_symbol(strike_price, option_type, expiry_date, is_monthly=Fals
         symbol = f"NIFTY{year_short}{month_abbr}{int(strike_price)}{option_type}"
         logging.debug(f"Generated monthly option symbol: {symbol}")
     else:
-        # Weekly format: NIFTY<YY><MONTH_LETTER><DD><STRIKE><TYPE> (e.g., NIFTY25O0724700CE)
-        # Special cases: January and February use month number instead of letter to avoid ambiguity
-        # Format: NIFTY<YY><MM><DD><STRIKE><TYPE> for January and February (e.g., NIFTY2610626200PE, NIFTY2620325200CE)
-        # For other months: NIFTY<YY><MONTH_LETTER><DD><STRIKE><TYPE> (e.g., NIFTY25O0724700CE)
-        if expiry_date.month == 1 or expiry_date.month == 2:  # January or February
-            # Use month number for January and February: NIFTY2610626200PE, NIFTY2620325200CE
-            day = expiry_date.strftime('%d')
-            symbol = f"NIFTY{year_short}{expiry_date.month}{day}{int(strike_price)}{option_type}"
-        else:
-            # Month letter mapping (first letter of each month) for other months
-            month_letters = {
-                3: 'M',  # March
-                4: 'A',  # April
-                5: 'M',  # May
-                6: 'J',  # June
-                7: 'J',  # July
-                8: 'A',  # August
-                9: 'S',  # September
-                10: 'O', # October
-                11: 'N', # November
-                12: 'D'  # December
-            }
-            month_letter = month_letters[expiry_date.month]
-            day = expiry_date.strftime('%d')
-            symbol = f"NIFTY{year_short}{month_letter}{day}{int(strike_price)}{option_type}"
+        # Weekly format (NSE/Kite): NIFTY<YY><M><DD><STRIKE><TYPE>
+        # Month code: 1-9 for Jan-Sep, O=October, N=November, D=December (see Kite forum 5574)
+        # e.g. NIFTY2630325650CE = 26 Mar 03 25650 CE, NIFTY21O2817300PE = 21 Oct 28 17300 PE
+        month_codes = {
+            1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9',
+            10: 'O', 11: 'N', 12: 'D'
+        }
+        month_code = month_codes[expiry_date.month]
+        day = expiry_date.strftime('%d')
+        symbol = f"NIFTY{year_short}{month_code}{day}{int(strike_price)}{option_type}"
         logging.debug(f"Generated weekly option symbol: {symbol}")
         
     return symbol
@@ -860,29 +845,30 @@ def detect_expiry_from_symbols(kite, target_strike=None):
         }
         
         import re
+        # NSE weekly month code: 1-9 for Jan-Sep, O=Oct, N=Nov, D=Dec
+        nse_month_code_to_num = {'O': 10, 'N': 11, 'D': 12}
         for symbol in option_symbols:
             # Remove NIFTY prefix and CE/PE suffix
             core = symbol[5:-2]  # Remove "NIFTY" and "CE"/"PE"
             
-            # Try weekly format: YY + MonthLetter + DD + Strike (or YY + MonthNumber + DD + Strike for January/February)
-            # Example: 25D0225850 -> 25 (year), D (Dec), 02 (day), 25850 (strike)
-            # Example: 2610626200 -> 26 (year), 1 (Jan month number), 06 (day), 26200 (strike)
-            # Example: 2620325200 -> 26 (year), 2 (Feb month number), 03 (day), 25200 (strike)
-            # First try January/February format: YY + MonthNumber(1 or 2) + DD + Strike
-            jan_feb_weekly_match = re.match(r'(\d{2})([12])(\d{2})(\d+)', core)
-            if jan_feb_weekly_match:
-                year_short, month_num, day_str, strike = jan_feb_weekly_match.groups()
+            # Try NSE weekly format: YY + M + DD + Strike (M = 1-9 or O/N/D)
+            # Example: 2630325650 -> 26 (year), 3 (Mar), 03 (day), 25650 (strike); 21O2817300 -> Oct 28
+            nse_weekly_match = re.match(r'(\d{2})([1-9OND])(\d{2})(\d+)', core)
+            if nse_weekly_match:
+                year_short, m_code, day_str, strike = nse_weekly_match.groups()
                 year = 2000 + int(year_short)
-                month = int(month_num)  # 1 for January, 2 for February
                 day = int(day_str)
+                month = nse_month_code_to_num.get(m_code)
+                if month is None:
+                    month = int(m_code)  # 1-9
                 try:
                     expiry_date = datetime(year, month, day)
                     expiry_patterns.append((expiry_date, False))  # False = weekly
                     continue
-                except ValueError:
+                except (ValueError, TypeError):
                     pass
             
-            # Try weekly format: YY + MonthLetter + DD + Strike (for other months)
+            # Legacy: YY + MonthLetter + DD + Strike (for old symbols if any)
             weekly_match = re.match(r'(\d{2})([A-Z])(\d{2})(\d+)', core)
             if weekly_match:
                 year_short, month_letter, day_str, strike = weekly_match.groups()
@@ -980,64 +966,75 @@ def generate_option_tokens_and_update_file(kite, ce_strike, pe_strike, expiry_da
         ce_token = get_instrument_token_by_symbol(kite, ce_symbol)
         pe_token = get_instrument_token_by_symbol(kite, pe_symbol)
         
-        # If first attempt fails, try the opposite format
+        # If first attempt fails, try other options before giving up
         if ce_token is None or pe_token is None:
-            logging.warning(f"Could not find tokens with {'monthly' if is_monthly else 'weekly'} format. Trying {'weekly' if is_monthly else 'monthly'} format...")
-            
-            # Try opposite format
-            alternate_is_monthly = not is_monthly
-            ce_symbol_alt = format_option_symbol(ce_strike, 'CE', expiry_date, alternate_is_monthly)
-            pe_symbol_alt = format_option_symbol(pe_strike, 'PE', expiry_date, alternate_is_monthly)
-            
-            logging.info(f"Trying alternate format: {'Monthly' if alternate_is_monthly else 'Weekly'}")
-            logging.info(f"Alternate symbols: CE={ce_symbol_alt}, PE={pe_symbol_alt}")
-            
-            ce_token_alt = get_instrument_token_by_symbol(kite, ce_symbol_alt)
-            pe_token_alt = get_instrument_token_by_symbol(kite, pe_symbol_alt)
-            
-            if ce_token_alt is not None and pe_token_alt is not None:
-                # Use alternate format
-                ce_symbol = ce_symbol_alt
-                pe_symbol = pe_symbol_alt
-                ce_token = ce_token_alt
-                pe_token = pe_token_alt
-                is_monthly = alternate_is_monthly
-                logging.info(f"Successfully found tokens using {'monthly' if is_monthly else 'weekly'} format")
-            else:
-                # Both formats failed - try to detect expiry from available symbols
-                logging.warning("Both calculated formats failed. Attempting to detect expiry from available symbols...")
+            # When weekly failed: try expiry inferred from Kite's listed symbols (e.g. 26302 = Mar 2)
+            # so we use the exchange's actual weekly contract date before falling back to monthly
+            if not is_monthly:
                 detected_expiry, detected_is_monthly = detect_expiry_from_symbols(kite, ce_strike)
-                
-                if detected_expiry:
-                    logging.info(f"Detected expiry: {detected_expiry.strftime('%Y-%m-%d')}, is_monthly={detected_is_monthly}")
-                    # Try with detected expiry
-                    ce_symbol_detected = format_option_symbol(ce_strike, 'CE', detected_expiry, detected_is_monthly)
-                    pe_symbol_detected = format_option_symbol(pe_strike, 'PE', detected_expiry, detected_is_monthly)
-                    
-                    logging.info(f"Trying detected expiry symbols: CE={ce_symbol_detected}, PE={pe_symbol_detected}")
-                    ce_token_detected = get_instrument_token_by_symbol(kite, ce_symbol_detected)
-                    pe_token_detected = get_instrument_token_by_symbol(kite, pe_symbol_detected)
-                    
-                    if ce_token_detected is not None and pe_token_detected is not None:
-                        # Use detected expiry
-                        ce_symbol = ce_symbol_detected
-                        pe_symbol = pe_symbol_detected
-                        ce_token = ce_token_detected
-                        pe_token = pe_token_detected
-                        is_monthly = detected_is_monthly
+                if detected_expiry and not detected_is_monthly:
+                    ce_symbol_det = format_option_symbol(ce_strike, 'CE', detected_expiry, False)
+                    pe_symbol_det = format_option_symbol(pe_strike, 'PE', detected_expiry, False)
+                    logging.info(f"Weekly format with our date failed. Trying weekly with expiry from symbols: {detected_expiry.strftime('%Y-%m-%d')}")
+                    logging.info(f"Symbols: CE={ce_symbol_det}, PE={pe_symbol_det}")
+                    ce_tok_det = get_instrument_token_by_symbol(kite, ce_symbol_det)
+                    pe_tok_det = get_instrument_token_by_symbol(kite, pe_symbol_det)
+                    if ce_tok_det is not None and pe_tok_det is not None:
+                        ce_symbol, pe_symbol = ce_symbol_det, pe_symbol_det
+                        ce_token, pe_token = ce_tok_det, pe_tok_det
                         expiry_date = detected_expiry
-                        logging.info(f"Successfully found tokens using detected expiry!")
+                        logging.info(f"Successfully found tokens using weekly format (expiry from symbols: {expiry_date.strftime('%Y-%m-%d')})")
                     else:
-                        logging.error(f"Could not find tokens even with detected expiry:")
-                        logging.error(f"  Detected expiry format: CE={ce_symbol_detected}, PE={pe_symbol_detected}")
-                        logging.error(f"  Original monthly format: CE={ce_symbol if is_monthly else ce_symbol_alt}, PE={pe_symbol if is_monthly else pe_symbol_alt}")
-                        logging.error(f"  Original weekly format: CE={ce_symbol_alt if is_monthly else ce_symbol}, PE={pe_symbol_alt if is_monthly else pe_symbol}")
-                        return None
+                        detected_expiry = None  # fall through to try monthly
                 else:
-                    logging.error(f"Could not detect expiry from symbols. Failed formats:")
-                    logging.error(f"  Monthly format: CE={ce_symbol if is_monthly else ce_symbol_alt}, PE={pe_symbol if is_monthly else pe_symbol_alt}")
-                    logging.error(f"  Weekly format: CE={ce_symbol_alt if is_monthly else ce_symbol}, PE={pe_symbol_alt if is_monthly else pe_symbol}")
-                    return None
+                    detected_expiry = None
+
+            if ce_token is None or pe_token is None:
+                logging.warning(f"Could not find tokens with {'monthly' if is_monthly else 'weekly'} format. Trying {'weekly' if is_monthly else 'monthly'} format...")
+                alternate_is_monthly = not is_monthly
+                ce_symbol_alt = format_option_symbol(ce_strike, 'CE', expiry_date, alternate_is_monthly)
+                pe_symbol_alt = format_option_symbol(pe_strike, 'PE', expiry_date, alternate_is_monthly)
+                logging.info(f"Trying alternate format: {'Monthly' if alternate_is_monthly else 'Weekly'}")
+                logging.info(f"Alternate symbols: CE={ce_symbol_alt}, PE={pe_symbol_alt}")
+                ce_token_alt = get_instrument_token_by_symbol(kite, ce_symbol_alt)
+                pe_token_alt = get_instrument_token_by_symbol(kite, pe_symbol_alt)
+                if ce_token_alt is not None and pe_token_alt is not None:
+                    ce_symbol = ce_symbol_alt
+                    pe_symbol = pe_symbol_alt
+                    ce_token = ce_token_alt
+                    pe_token = pe_token_alt
+                    is_monthly = alternate_is_monthly
+                    logging.info(f"Successfully found tokens using {'monthly' if is_monthly else 'weekly'} format")
+                elif ce_token is None or pe_token is None:
+                    # Both formats failed - try to detect expiry from available symbols
+                    logging.warning("Both calculated formats failed. Attempting to detect expiry from available symbols...")
+                    detected_expiry, detected_is_monthly = detect_expiry_from_symbols(kite, ce_strike)
+                    if detected_expiry:
+                        logging.info(f"Detected expiry: {detected_expiry.strftime('%Y-%m-%d')}, is_monthly={detected_is_monthly}")
+                        ce_symbol_detected = format_option_symbol(ce_strike, 'CE', detected_expiry, detected_is_monthly)
+                        pe_symbol_detected = format_option_symbol(pe_strike, 'PE', detected_expiry, detected_is_monthly)
+                        logging.info(f"Trying detected expiry symbols: CE={ce_symbol_detected}, PE={pe_symbol_detected}")
+                        ce_token_detected = get_instrument_token_by_symbol(kite, ce_symbol_detected)
+                        pe_token_detected = get_instrument_token_by_symbol(kite, pe_symbol_detected)
+                        if ce_token_detected is not None and pe_token_detected is not None:
+                            ce_symbol = ce_symbol_detected
+                            pe_symbol = pe_symbol_detected
+                            ce_token = ce_token_detected
+                            pe_token = pe_token_detected
+                            is_monthly = detected_is_monthly
+                            expiry_date = detected_expiry
+                            logging.info(f"Successfully found tokens using detected expiry!")
+                        else:
+                            logging.error(f"Could not find tokens even with detected expiry:")
+                            logging.error(f"  Detected expiry format: CE={ce_symbol_detected}, PE={pe_symbol_detected}")
+                            logging.error(f"  Original monthly format: CE={ce_symbol if is_monthly else ce_symbol_alt}, PE={pe_symbol if is_monthly else pe_symbol_alt}")
+                            logging.error(f"  Original weekly format: CE={ce_symbol_alt if is_monthly else ce_symbol}, PE={pe_symbol_alt if is_monthly else pe_symbol}")
+                            return None
+                    else:
+                        logging.error(f"Could not detect expiry from symbols. Failed formats:")
+                        logging.error(f"  Monthly format: CE={ce_symbol if is_monthly else ce_symbol_alt}, PE={pe_symbol if is_monthly else pe_symbol_alt}")
+                        logging.error(f"  Weekly format: CE={ce_symbol_alt if is_monthly else ce_symbol}, PE={pe_symbol_alt if is_monthly else pe_symbol}")
+                        return None
         
         # Create updated symbols dictionary
         updated_symbols = {
