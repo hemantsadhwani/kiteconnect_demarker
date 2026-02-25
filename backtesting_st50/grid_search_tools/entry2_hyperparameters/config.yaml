@@ -8,30 +8,42 @@ GRID_SEARCH:
   WPR_FAST_LENGTH:
     MIN: 9
     MAX: 29
-    STEP: 10
+    STEP: 5
   
   # WPR Slow Length range
   WPR_SLOW_LENGTH:
     MIN: 28
-    MAX: 68
-    STEP: 10
+    MAX: 78
+    STEP: 5
   
   # WPR Fast Oversold threshold range
   WPR_FAST_OVERSOLD:
     MIN: -79
-    MAX: -77
+    MAX: -70
     STEP: 1
   
   # WPR Slow Oversold threshold range
   WPR_SLOW_OVERSOLD:
     MIN: -79
-    MAX: -77
+    MAX: -70
     STEP: 1
+  
+  # StochRSI Oversold threshold (THRESHOLDS.STOCH_RSI_OVERSOLD in indicators_config.yaml)
+  STOCH_RSI_OVERSOLD:
+    MIN: 18
+    MAX: 22
+    STEP: 1
+  
+  # SUPERTREND1 factor (INDICATORS.SUPERTREND1.FACTOR in indicators_config.yaml)
+  SUPERTREND1_FACTOR:
+    MIN: 2.0
+    MAX: 3.0
+    STEP: 0.5
 
 # Optimization Target
 OPTIMIZATION:
   # Primary metric to optimize for
-  PRIMARY_METRIC: "composite"  # Options: filtered_pnl, win_rate, composite
+  PRIMARY_METRIC: "filtered_pnl"  # Options: filtered_pnl, win_rate, composite
   
   # Composite scoring weights (if PRIMARY_METRIC is "composite")
   # Goal: Reduce trades, increase win rate, with marginal P&L reduction
@@ -41,7 +53,7 @@ OPTIMIZATION:
     TRADE_REDUCTION: 0.2   # Weight on reducing number of trades
   
   # Strike type to optimize for (DYNAMIC_ATM only - no market sentiment filter)
-  STRIKE_TYPE: "DYNAMIC_ATM"  # Only DYNAMIC_ATM is optimized
+  STRIKE_TYPE: "DYNAMIC_OTM"  # Only DYNAMIC_ATM is optimized
 
 # Execution Settings
 EXECUTION:

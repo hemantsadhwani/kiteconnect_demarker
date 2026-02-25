@@ -39,12 +39,13 @@ import yaml
 import argparse
 import random
 
-# Setup basic logging (will be enhanced in __init__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]  # Only console handler initially
-)
+# -----------------------------------------------------------------------------
+# Base path: backtesting_st50 directory. Change this to run against a different project.
+# -----------------------------------------------------------------------------
+BACKTESTING_BASE_PATH = Path(r"C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting_st50")
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -71,14 +72,9 @@ class StopLossGridSearch:
         # Load configuration
         self.config = self._load_config(config_path)
         
-        # Determine base path (backtesting directory)
+        # Base path: use BACKTESTING_BASE_PATH (set at top of file)
         script_dir = Path(__file__).parent
-        if script_dir.name == 'sl_grid_search':
-            self.base_path = script_dir.parent.parent
-        elif script_dir.name == 'grid_search_tools':
-            self.base_path = script_dir.parent
-        else:
-            self.base_path = Path.cwd() / "backtesting"
+        self.base_path = Path(BACKTESTING_BASE_PATH)
         
         # Setup paths
         self.backtesting_config_path = self.base_path / "backtesting_config.yaml"
@@ -612,7 +608,7 @@ class StopLossGridSearch:
             metrics['win_rate_improvement'] = self._round_to_2_decimals(wr_improvement)
             metrics['trade_change'] = trade_change  # Integer, no rounding needed
             
-            logger.info(f"[OK] Combination - "
+            logger.info(f"✅ Threshold=[{threshold_high},{threshold_low}] Above={above_percent}% Between={between_percent}% Below={below_percent}% - "
                        f"P&L: {metrics['filtered_pnl']:.2f}% "
                        f"({pnl_improvement:+.2f}% vs baseline) | "
                        f"Win Rate: {metrics['win_rate']:.1f}% "
@@ -620,7 +616,7 @@ class StopLossGridSearch:
                        f"Trades: {metrics['filtered_trades']} "
                        f"({trade_change:+d} vs baseline)")
         else:
-            logger.info(f"[OK] Combination - "
+            logger.info(f"✅ Threshold=[{threshold_high},{threshold_low}] Above={above_percent}% Between={between_percent}% Below={below_percent}% - "
                        f"P&L: {metrics['filtered_pnl']:.2f}% | "
                        f"Win Rate: {metrics['win_rate']:.1f}% | "
                        f"Trades: {metrics['filtered_trades']}")
@@ -722,19 +718,23 @@ class StopLossGridSearch:
                 progress_percent = (i / len(test_combinations)) * 100
                 
                 if i > 1:
-                    # Format time nicely
-                    elapsed_str = self._format_time(elapsed_time)
-                    remaining_str = self._format_time((elapsed_time / (i - 1)) * (len(test_combinations) - i))
-                    total_str = self._format_time(elapsed_time + ((elapsed_time / (i - 1)) * (len(test_combinations) - i)))
+                    # Calculate estimates based on completed iterations
+                    avg_time_per_combination = elapsed_time / (i - 1)
+                    remaining_combinations = len(test_combinations) - i
+                    estimated_remaining_time = avg_time_per_combination * remaining_combinations
+                    estimated_total_time = elapsed_time + estimated_remaining_time
                     
-                    # Calculate ETA
-                    eta = datetime.now() + timedelta(seconds=(elapsed_time / (i - 1)) * (len(test_combinations) - i))
+                    elapsed_str = self._format_time(elapsed_time)
+                    remaining_str = self._format_time(estimated_remaining_time)
+                    total_str = self._format_time(estimated_total_time)
+                    
+                    eta = datetime.now() + timedelta(seconds=estimated_remaining_time)
                     eta_str = eta.strftime("%H:%M:%S")
                     
                     logger.info(f"\n[TEST {i}/{len(test_combinations)} ({progress_percent:.1f}%)] "
                               f"Threshold=[{th_high}, {th_low}], "
                               f"Above={above_pct}%, Between={between_pct}%, Below={below_pct}%")
-                    logger.info(f"[TIME] Elapsed: {elapsed_str} | "
+                    logger.info(f"⏱️  Elapsed: {elapsed_str} | "
                               f"Est. Remaining: {remaining_str} | "
                               f"Est. Total: {total_str} | "
                               f"ETA: {eta_str}")
@@ -758,23 +758,23 @@ class StopLossGridSearch:
                 if result['score'] > best_score:
                     best_score = result['score']
                     best_combination = (th_high, th_low, above_pct, between_pct, below_pct)
-                    logger.info(f"[BEST] NEW BEST: Threshold=[{th_high}, {th_low}], "
+                    logger.info(f"🏆 NEW BEST: Threshold=[{th_high}, {th_low}], "
                               f"Above={above_pct}%, Between={between_pct}%, Below={below_pct}% "
                               f"with {result['filtered_pnl']:.2f}% P&L!")
             else:
-                logger.error(f"[FAILED] Combination - FAILED")
+                logger.error(f"❌ Threshold=[{th_high}, {th_low}], Above={above_pct}%, Between={between_pct}%, Below={below_pct}% - FAILED")
             
             logger.info("-" * 80)
         
         total_time = time.time() - start_time
-        logger.info(f"\n[COMPLETE] TEST COMPLETE!")
-        logger.info(f"[TIME] Total time: {self._format_time(total_time)}")
+        logger.info(f"\n🎯 TEST COMPLETE!")
+        logger.info(f"⏱️  Total time: {self._format_time(total_time)}")
         if iteration_times:
             avg_iteration_time = sum(iteration_times) / len(iteration_times)
-            logger.info(f"[STATS] Average time per iteration: {self._format_time(avg_iteration_time)}")
+            logger.info(f"📊 Average time per iteration: {self._format_time(avg_iteration_time)}")
         
         if best_combination:
-            logger.info(f"[BEST] BEST TEST COMBINATION: "
+            logger.info(f"🏆 BEST TEST COMBINATION: "
                       f"Threshold=[{best_combination[0]}, {best_combination[1]}], "
                       f"Above={best_combination[2]}%, Between={best_combination[3]}%, Below={best_combination[4]}%")
         
@@ -826,7 +826,7 @@ class StopLossGridSearch:
                     logger.info(f"\n[PROGRESS {i}/{len(all_combinations)} ({progress_percent:.1f}%)] "
                               f"Threshold=[{th_high}, {th_low}], "
                               f"Above={above_pct}%, Between={between_pct}%, Below={below_pct}%")
-                    logger.info(f"[TIME] Elapsed: {elapsed_str} | "
+                    logger.info(f"⏱️  Elapsed: {elapsed_str} | "
                               f"Est. Remaining: {remaining_str} | "
                               f"Est. Total: {total_str} | "
                               f"ETA: {eta_str}")
@@ -834,7 +834,7 @@ class StopLossGridSearch:
                     logger.info(f"\n[PROGRESS {i}/{len(all_combinations)}] "
                               f"Threshold=[{th_high}, {th_low}], "
                               f"Above={above_pct}%, Between={between_pct}%, Below={below_pct}%")
-                    logger.info("[TIME] Calculating time estimates after first iteration...")
+                    logger.info("⏱️  Calculating time estimates after first iteration...")
             
             result = self.test_combination(
                 th_high, th_low,
@@ -851,26 +851,26 @@ class StopLossGridSearch:
                 if result['score'] > best_score:
                     best_score = result['score']
                     best_combination = (th_high, th_low, above_pct, between_pct, below_pct)
-                    logger.info(f"[BEST] NEW BEST: Threshold=[{th_high}, {th_low}], "
+                    logger.info(f"🏆 NEW BEST: Threshold=[{th_high}, {th_low}], "
                               f"Above={above_pct}%, Between={between_pct}%, Below={below_pct}% "
                               f"with {result['filtered_pnl']:.2f}% P&L!")
             else:
-                logger.error(f"[FAILED] Combination - FAILED")
+                logger.error(f"❌ Threshold=[{th_high}, {th_low}], Above={above_pct}%, Between={between_pct}%, Below={below_pct}% - FAILED")
             
             logger.info("-" * 80)
         
         total_time = time.time() - start_time
-        logger.info(f"\n[COMPLETE] GRID SEARCH COMPLETE!")
-        logger.info(f"[STATS] Total combinations tested: {len(all_combinations)}")
-        logger.info(f"[STATS] Successful tests: {len(results)}")
-        logger.info(f"[STATS] Failed tests: {len(all_combinations) - len(results)}")
-        logger.info(f"[TIME] Total time: {self._format_time(total_time)}")
+        logger.info(f"\n🎯 GRID SEARCH COMPLETE!")
+        logger.info(f"📊 Total combinations tested: {len(all_combinations)}")
+        logger.info(f"✅ Successful tests: {len(results)}")
+        logger.info(f"❌ Failed tests: {len(all_combinations) - len(results)}")
+        logger.info(f"⏱️  Total time: {self._format_time(total_time)}")
         if iteration_times:
             avg_iteration_time = sum(iteration_times) / len(iteration_times)
-            logger.info(f"[STATS] Average time per iteration: {self._format_time(avg_iteration_time)}")
+            logger.info(f"📊 Average time per iteration: {self._format_time(avg_iteration_time)}")
         
         if best_combination:
-            logger.info(f"[BEST] BEST COMBINATION: "
+            logger.info(f"🏆 BEST COMBINATION: "
                       f"Threshold=[{best_combination[0]}, {best_combination[1]}], "
                       f"Above={best_combination[2]}%, Between={best_combination[3]}%, Below={best_combination[4]}%")
         
@@ -1095,12 +1095,12 @@ def main():
             if results:
                 results_file = grid_search.save_results(results)
                 grid_search.print_summary(results)
-                logger.info(f"\n[OK] Results saved to: {results_file}")
+                logger.info(f"\n✅ Results saved to: {results_file}")
                 
                 # Save top 15 results to separate file
                 top_results_file = grid_search.save_top_results(results, top_n=15)
                 if top_results_file:
-                    logger.info(f"[OK] Top 15 results saved to: {top_results_file}")
+                    logger.info(f"✅ Top 15 results saved to: {top_results_file}")
             else:
                 logger.error("No results obtained")
                 
@@ -1108,10 +1108,11 @@ def main():
             logger.info("Grid search interrupted by user")
             if 'results' in locals() and results:
                 grid_search.save_results(results, filename="grid_search_results_interrupted.json")
-                # Also save top results
                 grid_search.save_top_results(results, top_n=15, filename="grid_search_top_results_interrupted.json")
+            grid_search.cleanup_backups = False
         except Exception as e:
             logger.error(f"Error during grid search: {e}", exc_info=True)
+            grid_search.cleanup_backups = False
         finally:
             # Restore backtesting config
             logger.info("Restoring original backtesting config...")
@@ -1121,6 +1122,8 @@ def main():
             if restore_success and grid_search.cleanup_backups:
                 logger.info("Cleaning up backup files...")
                 grid_search.cleanup_backup_files(cleanup_old=True)
+            elif not restore_success:
+                logger.info("Keeping backup files (restoration failed or was skipped)")
             
     except Exception as e:
         logger.error(f"Failed to initialize grid search: {e}", exc_info=True)

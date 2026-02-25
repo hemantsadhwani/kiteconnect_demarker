@@ -24,6 +24,7 @@ Usage:
 """
 
 import sys
+import io
 import pandas as pd
 import numpy as np
 import logging
@@ -39,12 +40,20 @@ import yaml
 import argparse
 import random
 
-# Setup basic logging (will be enhanced in __init__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]  # Only console handler initially
-)
+# -----------------------------------------------------------------------------
+# Base path: backtesting_st50 directory. Change this to run against a different project.
+# -----------------------------------------------------------------------------
+BACKTESTING_BASE_PATH = Path(r"C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting_st50")
+
+# On Windows, force UTF-8 for console so emoji log messages (e.g. ✅ 🏆 ⏱️) don't raise UnicodeEncodeError (cp1252)
+if sys.platform == 'win32':
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
@@ -71,14 +80,9 @@ class Entry2HyperparametersGridSearch:
         # Load configuration
         self.config = self._load_config(config_path)
         
-        # Determine base path (backtesting directory)
+        # Base path: use BACKTESTING_BASE_PATH (set at top of file)
         script_dir = Path(__file__).parent
-        if script_dir.name == 'entry2_hyperparameters':
-            self.base_path = script_dir.parent.parent
-        elif script_dir.name == 'grid_search_tools':
-            self.base_path = script_dir.parent
-        else:
-            self.base_path = Path.cwd() / "backtesting"
+        self.base_path = Path(BACKTESTING_BASE_PATH)
         
         # Setup paths
         self.indicators_config_path = self.base_path / "indicators_config.yaml"
@@ -103,14 +107,8 @@ class Entry2HyperparametersGridSearch:
         self.wpr_slow_length_range = self._get_range(grid_config['WPR_SLOW_LENGTH'])
         self.wpr_fast_oversold_range = self._get_range(grid_config['WPR_FAST_OVERSOLD'])
         self.wpr_slow_oversold_range = self._get_range(grid_config['WPR_SLOW_OVERSOLD'])
-        
-        # Load STOCH_RSI_OVERSOLD from indicators_config.yaml (not optimized)
-        indicators_config = self.load_indicators_config()
-        if indicators_config:
-            thresholds = indicators_config.get('THRESHOLDS', {})
-            self.stoch_rsi_oversold = thresholds.get('STOCH_RSI_OVERSOLD', 20)
-        else:
-            self.stoch_rsi_oversold = 20  # Default fallback
+        self.stoch_rsi_oversold_range = self._get_range(grid_config['STOCH_RSI_OVERSOLD'])
+        self.supertrend1_factor_range = self._get_range(grid_config['SUPERTREND1_FACTOR'])
         
         # Optimization settings
         self.primary_metric = self.config['OPTIMIZATION']['PRIMARY_METRIC']
@@ -143,7 +141,7 @@ class Entry2HyperparametersGridSearch:
                     root_logger.removeHandler(handler)
             
             # Create file handler
-            file_handler = logging.FileHandler(log_file_path, mode='a')
+            file_handler = logging.FileHandler(log_file_path, mode='a', encoding='utf-8')
             file_handler.setLevel(log_level)
             file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             file_handler.setFormatter(file_formatter)
@@ -166,7 +164,8 @@ class Entry2HyperparametersGridSearch:
         logger.info(f"WPR Slow Length: {self.wpr_slow_length_range['MIN']}-{self.wpr_slow_length_range['MAX']} (step: {self.wpr_slow_length_range['STEP']})")
         logger.info(f"WPR Fast Oversold: {self.wpr_fast_oversold_range['MIN']}-{self.wpr_fast_oversold_range['MAX']} (step: {self.wpr_fast_oversold_range['STEP']})")
         logger.info(f"WPR Slow Oversold: {self.wpr_slow_oversold_range['MIN']}-{self.wpr_slow_oversold_range['MAX']} (step: {self.wpr_slow_oversold_range['STEP']})")
-        logger.info(f"StochRSI Oversold: {self.stoch_rsi_oversold} (from indicators_config.yaml, not optimized)")
+        logger.info(f"StochRSI Oversold: {self.stoch_rsi_oversold_range['MIN']}-{self.stoch_rsi_oversold_range['MAX']} (step: {self.stoch_rsi_oversold_range['STEP']})")
+        logger.info(f"SUPERTREND1 FACTOR: {self.supertrend1_factor_range['MIN']}-{self.supertrend1_factor_range['MAX']} (step: {self.supertrend1_factor_range['STEP']})")
         logger.info(f"Optimization target: {self.primary_metric} for {self.strike_type}")
     
     def _get_range(self, range_config):
@@ -210,7 +209,9 @@ class Entry2HyperparametersGridSearch:
                     'WPR_FAST_LENGTH': {'MIN': 9, 'MAX': 70, 'STEP': 4},
                     'WPR_SLOW_LENGTH': {'MIN': 21, 'MAX': 141, 'STEP': 4},
                     'WPR_FAST_OVERSOLD': {'MIN': -82, 'MAX': -76, 'STEP': 1},
-                    'WPR_SLOW_OVERSOLD': {'MIN': -82, 'MAX': -76, 'STEP': 1}
+                    'WPR_SLOW_OVERSOLD': {'MIN': -82, 'MAX': -76, 'STEP': 1},
+                    'STOCH_RSI_OVERSOLD': {'MIN': 18, 'MAX': 22, 'STEP': 1},
+                    'SUPERTREND1_FACTOR': {'MIN': 2.0, 'MAX': 3.0, 'STEP': 0.5}
                 },
                 'OPTIMIZATION': {
                     'PRIMARY_METRIC': 'composite',
@@ -378,8 +379,9 @@ class Entry2HyperparametersGridSearch:
             logger.warning(f"Error cleaning up backup files: {e}")
             return False
     
-    def update_entry2_hyperparameters(self, wpr_fast_length, wpr_slow_length, 
-                                     wpr_fast_oversold, wpr_slow_oversold):
+    def update_entry2_hyperparameters(self, wpr_fast_length, wpr_slow_length,
+                                     wpr_fast_oversold, wpr_slow_oversold,
+                                     stoch_rsi_oversold, supertrend1_factor):
         """Update Entry2 hyperparameters in indicators_config.yaml"""
         config = self.load_indicators_config()
         if config is None:
@@ -393,16 +395,19 @@ class Entry2HyperparametersGridSearch:
         config['INDICATORS']['WPR_FAST_LENGTH'] = wpr_fast_length
         config['INDICATORS']['WPR_SLOW_LENGTH'] = wpr_slow_length
         
+        # Update SUPERTREND1.FACTOR
+        if 'SUPERTREND1' not in config['INDICATORS']:
+            config['INDICATORS']['SUPERTREND1'] = {}
+        config['INDICATORS']['SUPERTREND1']['FACTOR'] = supertrend1_factor
+        
         # Ensure THRESHOLDS section exists
         if 'THRESHOLDS' not in config:
             config['THRESHOLDS'] = {}
         
-        # Update thresholds (STOCH_RSI_OVERSOLD uses value from indicators_config.yaml, not optimized)
+        # Update thresholds
         config['THRESHOLDS']['WPR_FAST_OVERSOLD'] = wpr_fast_oversold
         config['THRESHOLDS']['WPR_SLOW_OVERSOLD'] = wpr_slow_oversold
-        # Keep existing STOCH_RSI_OVERSOLD value (don't change it)
-        if 'STOCH_RSI_OVERSOLD' not in config['THRESHOLDS']:
-            config['THRESHOLDS']['STOCH_RSI_OVERSOLD'] = self.stoch_rsi_oversold
+        config['THRESHOLDS']['STOCH_RSI_OVERSOLD'] = stoch_rsi_oversold
         
         return self.save_indicators_config(config)
     
@@ -525,6 +530,8 @@ class Entry2HyperparametersGridSearch:
         wpr_fast_oversold = thresholds.get('WPR_FAST_OVERSOLD', -78)
         wpr_slow_oversold = thresholds.get('WPR_SLOW_OVERSOLD', -78)
         stoch_rsi_oversold = thresholds.get('STOCH_RSI_OVERSOLD', 20)
+        supertrend1 = indicators.get('SUPERTREND1', {})
+        supertrend1_factor = supertrend1.get('FACTOR', 2.5)
         
         logger.info(f"Current configuration:")
         logger.info(f"  WPR_FAST_LENGTH: {wpr_fast_length}")
@@ -532,6 +539,7 @@ class Entry2HyperparametersGridSearch:
         logger.info(f"  WPR_FAST_OVERSOLD: {wpr_fast_oversold}")
         logger.info(f"  WPR_SLOW_OVERSOLD: {wpr_slow_oversold}")
         logger.info(f"  STOCH_RSI_OVERSOLD: {stoch_rsi_oversold}")
+        logger.info(f"  SUPERTREND1.FACTOR: {supertrend1_factor}")
         logger.info("")
         logger.info("Running baseline workflow...")
         
@@ -556,12 +564,14 @@ class Entry2HyperparametersGridSearch:
         self.baseline_metrics['wpr_fast_oversold'] = wpr_fast_oversold
         self.baseline_metrics['wpr_slow_oversold'] = wpr_slow_oversold
         self.baseline_metrics['stoch_rsi_oversold'] = stoch_rsi_oversold
+        self.baseline_metrics['supertrend1_factor'] = supertrend1_factor
         
         logger.info("=" * 80)
         logger.info("BASELINE ESTABLISHED")
         logger.info("=" * 80)
         logger.info(f"WPR Fast: {wpr_fast_length} | WPR Slow: {wpr_slow_length}")
-        logger.info(f"WPR Fast Oversold: {wpr_fast_oversold} | WPR Slow Oversold: {wpr_slow_oversold} | StochRSI Oversold: {stoch_rsi_oversold}")
+        logger.info(f"WPR Fast Oversold: {wpr_fast_oversold} | WPR Slow Oversold: {wpr_slow_oversold}")
+        logger.info(f"StochRSI Oversold: {stoch_rsi_oversold} | SUPERTREND1 FACTOR: {supertrend1_factor}")
         logger.info(f"Filtered P&L: {baseline_metrics['filtered_pnl']:.2f}%")
         logger.info(f"Win Rate: {baseline_metrics['win_rate']:.1f}%")
         logger.info(f"Total Trades: {baseline_metrics['total_trades']}")
@@ -602,17 +612,19 @@ class Entry2HyperparametersGridSearch:
         else:
             return self._round_to_2_decimals(metrics['filtered_pnl'])  # Default
     
-    def test_combination(self, wpr_fast_length, wpr_slow_length, 
-                        wpr_fast_oversold, wpr_slow_oversold):
+    def test_combination(self, wpr_fast_length, wpr_slow_length,
+                        wpr_fast_oversold, wpr_slow_oversold,
+                        stoch_rsi_oversold, supertrend1_factor):
         """Test a specific hyperparameter combination"""
         logger.info(f"Testing combination: WPR_Fast={wpr_fast_length}, WPR_Slow={wpr_slow_length}, "
-                   f"WPR_Fast_Oversold={wpr_fast_oversold}, WPR_Slow_Oversold={wpr_slow_oversold}, "
-                   f"StochRSI_Oversold={self.stoch_rsi_oversold} (fixed)")
+                   f"WPR_Fast_OV={wpr_fast_oversold}, WPR_Slow_OV={wpr_slow_oversold}, "
+                   f"StochRSI_OV={stoch_rsi_oversold}, Factor={supertrend1_factor}")
         
         # Update indicators config
         if not self.update_entry2_hyperparameters(
             wpr_fast_length, wpr_slow_length,
-            wpr_fast_oversold, wpr_slow_oversold
+            wpr_fast_oversold, wpr_slow_oversold,
+            stoch_rsi_oversold, supertrend1_factor
         ):
             logger.error("Failed to update indicators config")
             return None
@@ -638,7 +650,8 @@ class Entry2HyperparametersGridSearch:
         metrics['wpr_slow_length'] = wpr_slow_length
         metrics['wpr_fast_oversold'] = wpr_fast_oversold
         metrics['wpr_slow_oversold'] = wpr_slow_oversold
-        metrics['stoch_rsi_oversold'] = self.stoch_rsi_oversold  # Fixed value
+        metrics['stoch_rsi_oversold'] = stoch_rsi_oversold
+        metrics['supertrend1_factor'] = supertrend1_factor
         metrics['score'] = self.calculate_score(metrics)
         
         # Compare with baseline
@@ -650,7 +663,7 @@ class Entry2HyperparametersGridSearch:
             metrics['win_rate_improvement'] = self._round_to_2_decimals(wr_improvement)
             metrics['trade_change'] = trade_change  # Integer, no rounding needed
             
-            logger.info(f"[OK] Combination - "
+            logger.info(f"✅ WPR_Fast={wpr_fast_length} WPR_Slow={wpr_slow_length} Fast_OV={wpr_fast_oversold} Slow_OV={wpr_slow_oversold} Stoch_OV={stoch_rsi_oversold} Factor={supertrend1_factor} - "
                        f"P&L: {metrics['filtered_pnl']:.2f}% "
                        f"({pnl_improvement:+.2f}% vs baseline) | "
                        f"Win Rate: {metrics['win_rate']:.1f}% "
@@ -658,7 +671,7 @@ class Entry2HyperparametersGridSearch:
                        f"Trades: {metrics['filtered_trades']} "
                        f"({trade_change:+d} vs baseline)")
         else:
-            logger.info(f"[OK] Combination - "
+            logger.info(f"✅ WPR_Fast={wpr_fast_length} WPR_Slow={wpr_slow_length} Fast_OV={wpr_fast_oversold} Slow_OV={wpr_slow_oversold} Stoch_OV={stoch_rsi_oversold} Factor={supertrend1_factor} - "
                        f"P&L: {metrics['filtered_pnl']:.2f}% | "
                        f"Win Rate: {metrics['win_rate']:.1f}% | "
                        f"Trades: {metrics['filtered_trades']}")
@@ -666,10 +679,21 @@ class Entry2HyperparametersGridSearch:
         return metrics
     
     def _generate_range(self, min_val, max_val, step):
-        """Generate range list, handling STEP=0 case (when MIN=MAX)"""
+        """Generate range list for integers, handling STEP=0 case (when MIN=MAX)"""
         if step == 0 or min_val == max_val:
             return [min_val]
-        return list(range(min_val, max_val + 1, step))
+        return list(range(int(min_val), int(max_val) + 1, int(step)))
+    
+    def _generate_range_float(self, min_val, max_val, step):
+        """Generate range list for floats (e.g. SUPERTREND1 FACTOR)."""
+        if step == 0 or min_val == max_val:
+            return [round(float(min_val), 2)]
+        result = []
+        current = float(min_val)
+        while current <= max_val + (step / 2):
+            result.append(round(current, 2))
+            current += step
+        return result
     
     def generate_all_combinations(self):
         """Generate all possible hyperparameter combinations"""
@@ -693,8 +717,18 @@ class Entry2HyperparametersGridSearch:
             self.wpr_slow_oversold_range['MAX'],
             self.wpr_slow_oversold_range['STEP']
         )
+        stoch_rsi_oversolds = self._generate_range(
+            self.stoch_rsi_oversold_range['MIN'],
+            self.stoch_rsi_oversold_range['MAX'],
+            self.stoch_rsi_oversold_range['STEP']
+        )
+        supertrend1_factors = self._generate_range_float(
+            self.supertrend1_factor_range['MIN'],
+            self.supertrend1_factor_range['MAX'],
+            self.supertrend1_factor_range['STEP']
+        )
         
-        # Generate all combinations (STOCH_RSI_OVERSOLD is fixed from indicators_config.yaml)
+        # Generate all combinations
         all_combinations = []
         for wpr_fast_len in wpr_fast_lengths:
             for wpr_slow_len in wpr_slow_lengths:
@@ -703,10 +737,13 @@ class Entry2HyperparametersGridSearch:
                     continue
                 for wpr_fast_ov in wpr_fast_oversolds:
                     for wpr_slow_ov in wpr_slow_oversolds:
-                        all_combinations.append((
-                            wpr_fast_len, wpr_slow_len,
-                            wpr_fast_ov, wpr_slow_ov
-                        ))
+                        for stoch_ov in stoch_rsi_oversolds:
+                            for factor in supertrend1_factors:
+                                all_combinations.append((
+                                    wpr_fast_len, wpr_slow_len,
+                                    wpr_fast_ov, wpr_slow_ov,
+                                    stoch_ov, factor
+                                ))
         
         return all_combinations
     
@@ -740,7 +777,7 @@ class Entry2HyperparametersGridSearch:
         start_time = time.time()
         iteration_times = []
         
-        for i, (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov) in enumerate(test_combinations, 1):
+        for i, (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov, stoch_ov, factor) in enumerate(test_combinations, 1):
             iteration_start = time.time()
             
             if self.show_progress:
@@ -748,30 +785,35 @@ class Entry2HyperparametersGridSearch:
                 progress_percent = (i / len(test_combinations)) * 100
                 
                 if i > 1:
-                    # Format time nicely
-                    elapsed_str = self._format_time(elapsed_time)
-                    remaining_str = self._format_time((elapsed_time / (i - 1)) * (len(test_combinations) - i))
-                    total_str = self._format_time(elapsed_time + ((elapsed_time / (i - 1)) * (len(test_combinations) - i)))
+                    # Calculate estimates based on completed iterations
+                    avg_time_per_combination = elapsed_time / (i - 1)
+                    remaining_combinations = len(test_combinations) - i
+                    estimated_remaining_time = avg_time_per_combination * remaining_combinations
+                    estimated_total_time = elapsed_time + estimated_remaining_time
                     
-                    # Calculate ETA
-                    eta = datetime.now() + timedelta(seconds=(elapsed_time / (i - 1)) * (len(test_combinations) - i))
+                    elapsed_str = self._format_time(elapsed_time)
+                    remaining_str = self._format_time(estimated_remaining_time)
+                    total_str = self._format_time(estimated_total_time)
+                    
+                    eta = datetime.now() + timedelta(seconds=estimated_remaining_time)
                     eta_str = eta.strftime("%H:%M:%S")
                     
                     logger.info(f"\n[TEST {i}/{len(test_combinations)} ({progress_percent:.1f}%)] "
                               f"WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
-                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}")
-                    logger.info(f"[TIME] Elapsed: {elapsed_str} | "
+                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor}")
+                    logger.info(f"⏱️  Elapsed: {elapsed_str} | "
                               f"Est. Remaining: {remaining_str} | "
                               f"Est. Total: {total_str} | "
                               f"ETA: {eta_str}")
                 else:
                     logger.info(f"\n[TEST {i}/{len(test_combinations)}] "
                               f"WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
-                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}")
+                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor}")
             
             result = self.test_combination(
                 wpr_fast_len, wpr_slow_len,
-                wpr_fast_ov, wpr_slow_ov
+                wpr_fast_ov, wpr_slow_ov,
+                stoch_ov, factor
             )
             
             iteration_time = time.time() - iteration_start
@@ -783,26 +825,27 @@ class Entry2HyperparametersGridSearch:
                 # Track best result
                 if result['score'] > best_score:
                     best_score = result['score']
-                    best_combination = (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov, stoch_ov)
+                    best_combination = (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov, stoch_ov, factor)
                     logger.info(f"🏆 NEW BEST: WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
-                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, StochRSI_OV={stoch_ov} "
+                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor} "
                               f"with {result['filtered_pnl']:.2f}% P&L!")
             else:
-                logger.error(f"❌ Combination - FAILED")
+                logger.error(f"❌ WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor} - FAILED")
             
             logger.info("-" * 80)
         
         total_time = time.time() - start_time
-        logger.info(f"\n[COMPLETE] TEST COMPLETE!")
-        logger.info(f"[TIME] Total time: {self._format_time(total_time)}")
+        logger.info(f"\n🎯 TEST COMPLETE!")
+        logger.info(f"⏱️  Total time: {self._format_time(total_time)}")
         if iteration_times:
             avg_iteration_time = sum(iteration_times) / len(iteration_times)
-            logger.info(f"[STATS] Average time per iteration: {self._format_time(avg_iteration_time)}")
+            logger.info(f"📊 Average time per iteration: {self._format_time(avg_iteration_time)}")
         
         if best_combination:
-            logger.info(f"[BEST] BEST TEST COMBINATION: "
+            logger.info(f"🏆 BEST TEST COMBINATION: "
                       f"WPR_Fast={best_combination[0]}, WPR_Slow={best_combination[1]}, "
-                      f"WPR_Fast_OV={best_combination[2]}, WPR_Slow_OV={best_combination[3]}")
+                      f"WPR_Fast_OV={best_combination[2]}, WPR_Slow_OV={best_combination[3]}, "
+                      f"Stoch_OV={best_combination[4]}, Factor={best_combination[5]}")
         
         return results
     
@@ -818,6 +861,8 @@ class Entry2HyperparametersGridSearch:
         logger.info(f"WPR Slow Length: {self.wpr_slow_length_range['MIN']}-{self.wpr_slow_length_range['MAX']} (step: {self.wpr_slow_length_range['STEP']})")
         logger.info(f"WPR Fast Oversold: {self.wpr_fast_oversold_range['MIN']}-{self.wpr_fast_oversold_range['MAX']} (step: {self.wpr_fast_oversold_range['STEP']})")
         logger.info(f"WPR Slow Oversold: {self.wpr_slow_oversold_range['MIN']}-{self.wpr_slow_oversold_range['MAX']} (step: {self.wpr_slow_oversold_range['STEP']})")
+        logger.info(f"StochRSI Oversold: {self.stoch_rsi_oversold_range['MIN']}-{self.stoch_rsi_oversold_range['MAX']} (step: {self.stoch_rsi_oversold_range['STEP']})")
+        logger.info(f"SUPERTREND1 FACTOR: {self.supertrend1_factor_range['MIN']}-{self.supertrend1_factor_range['MAX']} (step: {self.supertrend1_factor_range['STEP']})")
         
         results = []
         best_score = float('-inf')
@@ -825,7 +870,7 @@ class Entry2HyperparametersGridSearch:
         start_time = time.time()
         iteration_times = []
         
-        for i, (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov) in enumerate(all_combinations, 1):
+        for i, (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov, stoch_ov, factor) in enumerate(all_combinations, 1):
             iteration_start = time.time()
             
             if self.show_progress:
@@ -850,20 +895,21 @@ class Entry2HyperparametersGridSearch:
                     
                     logger.info(f"\n[PROGRESS {i}/{len(all_combinations)} ({progress_percent:.1f}%)] "
                               f"WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
-                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}")
-                    logger.info(f"[TIME] Elapsed: {elapsed_str} | "
+                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor}")
+                    logger.info(f"⏱️  Elapsed: {elapsed_str} | "
                               f"Est. Remaining: {remaining_str} | "
                               f"Est. Total: {total_str} | "
                               f"ETA: {eta_str}")
                 else:
                     logger.info(f"\n[PROGRESS {i}/{len(all_combinations)}] "
                               f"WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
-                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}")
-                    logger.info("[TIME] Calculating time estimates after first iteration...")
+                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor}")
+                    logger.info("⏱️  Calculating time estimates after first iteration...")
             
             result = self.test_combination(
                 wpr_fast_len, wpr_slow_len,
-                wpr_fast_ov, wpr_slow_ov
+                wpr_fast_ov, wpr_slow_ov,
+                stoch_ov, factor
             )
             
             iteration_time = time.time() - iteration_start
@@ -875,29 +921,30 @@ class Entry2HyperparametersGridSearch:
                 # Track best result
                 if result['score'] > best_score:
                     best_score = result['score']
-                    best_combination = (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov)
-                    logger.info(f"[BEST] NEW BEST: WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
-                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov} "
+                    best_combination = (wpr_fast_len, wpr_slow_len, wpr_fast_ov, wpr_slow_ov, stoch_ov, factor)
+                    logger.info(f"🏆 NEW BEST: WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, "
+                              f"WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor} "
                               f"with {result['filtered_pnl']:.2f}% P&L!")
             else:
-                logger.error(f"[FAILED] Combination - FAILED")
+                logger.error(f"❌ WPR_Fast={wpr_fast_len}, WPR_Slow={wpr_slow_len}, WPR_Fast_OV={wpr_fast_ov}, WPR_Slow_OV={wpr_slow_ov}, Stoch_OV={stoch_ov}, Factor={factor} - FAILED")
             
             logger.info("-" * 80)
         
         total_time = time.time() - start_time
-        logger.info(f"\n[COMPLETE] GRID SEARCH COMPLETE!")
-        logger.info(f"[STATS] Total combinations tested: {len(all_combinations)}")
-        logger.info(f"[STATS] Successful tests: {len(results)}")
-        logger.info(f"[STATS] Failed tests: {len(all_combinations) - len(results)}")
-        logger.info(f"[TIME] Total time: {self._format_time(total_time)}")
+        logger.info(f"\n🎯 GRID SEARCH COMPLETE!")
+        logger.info(f"📊 Total combinations tested: {len(all_combinations)}")
+        logger.info(f"✅ Successful tests: {len(results)}")
+        logger.info(f"❌ Failed tests: {len(all_combinations) - len(results)}")
+        logger.info(f"⏱️  Total time: {self._format_time(total_time)}")
         if iteration_times:
             avg_iteration_time = sum(iteration_times) / len(iteration_times)
-            logger.info(f"[STATS] Average time per iteration: {self._format_time(avg_iteration_time)}")
+            logger.info(f"📊 Average time per iteration: {self._format_time(avg_iteration_time)}")
         
         if best_combination:
-            logger.info(f"[BEST] BEST COMBINATION: "
+            logger.info(f"🏆 BEST COMBINATION: "
                       f"WPR_Fast={best_combination[0]}, WPR_Slow={best_combination[1]}, "
-                      f"WPR_Fast_OV={best_combination[2]}, WPR_Slow_OV={best_combination[3]}")
+                      f"WPR_Fast_OV={best_combination[2]}, WPR_Slow_OV={best_combination[3]}, "
+                      f"Stoch_OV={best_combination[4]}, Factor={best_combination[5]}")
         
         return results
     
@@ -1012,12 +1059,12 @@ class Entry2HyperparametersGridSearch:
         # Sort by score descending
         sorted_results = sorted(results, key=lambda x: x.get('score', float('-inf')), reverse=True)
         
-        logger.info("=" * 120)
+        logger.info("=" * 140)
         logger.info("GRID SEARCH RESULTS SUMMARY (Top 10)")
-        logger.info("=" * 120)
-        logger.info(f"{'WPR_Fast':<8} {'WPR_Slow':<8} {'WPR_F_OV':<8} {'WPR_S_OV':<8} "
+        logger.info("=" * 140)
+        logger.info(f"{'WPR_Fast':<8} {'WPR_Slow':<8} {'WPR_F_OV':<8} {'WPR_S_OV':<8} {'Stoch_OV':<8} {'Factor':<8} "
                    f"{'P&L':<10} {'Win Rate':<10} {'Trades':<8} {'Score':<10}")
-        logger.info("-" * 120)
+        logger.info("-" * 140)
         
         for i, result in enumerate(sorted_results[:10], 1):
             pnl_str = f"{result['filtered_pnl']:.2f}%"
@@ -1026,18 +1073,20 @@ class Entry2HyperparametersGridSearch:
             
             logger.info(f"{result['wpr_fast_length']:<8} {result['wpr_slow_length']:<8} "
                        f"{result['wpr_fast_oversold']:<8} {result['wpr_slow_oversold']:<8} "
+                       f"{result['stoch_rsi_oversold']:<8} {result['supertrend1_factor']:<8} "
                        f"{pnl_str:<18} "
                        f"{result['win_rate']:<10.1f}% {result['filtered_trades']:<8} "
                        f"{result['score']:<10.4f}")
         
-        logger.info("=" * 120)
+        logger.info("=" * 140)
         
         # Best combination
         best = sorted_results[0] if sorted_results else None
         if best:
             logger.info(f"BEST COMBINATION:")
             logger.info(f"  WPR_Fast: {best['wpr_fast_length']} | WPR_Slow: {best['wpr_slow_length']}")
-            logger.info(f"  WPR_Fast_Oversold: {best['wpr_fast_oversold']} | WPR_Slow_Oversold: {best['wpr_slow_oversold']} | StochRSI_Oversold: {best['stoch_rsi_oversold']} (fixed)")
+            logger.info(f"  WPR_Fast_Oversold: {best['wpr_fast_oversold']} | WPR_Slow_Oversold: {best['wpr_slow_oversold']}")
+            logger.info(f"  StochRSI_Oversold: {best['stoch_rsi_oversold']} | SUPERTREND1 FACTOR: {best['supertrend1_factor']}")
             logger.info(f"Filtered P&L: {best['filtered_pnl']:.2f}%")
             if 'pnl_improvement' in best:
                 logger.info(f"P&L Improvement: {best['pnl_improvement']:+.2f}%")
@@ -1097,11 +1146,15 @@ def main():
                 logger.info("Skipping baseline establishment (using existing summary CSV)")
                 grid_search.baseline_metrics = grid_search.get_dynamic_atm_metrics()
                 if grid_search.baseline_metrics:
-                    grid_search.baseline_metrics['wpr_fast_length'] = 'BASELINE'
-                    grid_search.baseline_metrics['wpr_slow_length'] = 'BASELINE'
-                    grid_search.baseline_metrics['wpr_fast_oversold'] = 'BASELINE'
-                    grid_search.baseline_metrics['wpr_slow_oversold'] = 'BASELINE'
-                    grid_search.baseline_metrics['stoch_rsi_oversold'] = grid_search.stoch_rsi_oversold  # Use fixed value
+                    config = grid_search.load_indicators_config()
+                    indicators = config.get('INDICATORS', {}) if config else {}
+                    thresholds = config.get('THRESHOLDS', {}) if config else {}
+                    grid_search.baseline_metrics['wpr_fast_length'] = indicators.get('WPR_FAST_LENGTH', 'BASELINE')
+                    grid_search.baseline_metrics['wpr_slow_length'] = indicators.get('WPR_SLOW_LENGTH', 'BASELINE')
+                    grid_search.baseline_metrics['wpr_fast_oversold'] = thresholds.get('WPR_FAST_OVERSOLD', 'BASELINE')
+                    grid_search.baseline_metrics['wpr_slow_oversold'] = thresholds.get('WPR_SLOW_OVERSOLD', 'BASELINE')
+                    grid_search.baseline_metrics['stoch_rsi_oversold'] = thresholds.get('STOCH_RSI_OVERSOLD', 'BASELINE')
+                    grid_search.baseline_metrics['supertrend1_factor'] = indicators.get('SUPERTREND1', {}).get('FACTOR', 'BASELINE')
             
             if args.test:
                 # Run test mode
@@ -1116,12 +1169,12 @@ def main():
             if results:
                 results_file = grid_search.save_results(results)
                 grid_search.print_summary(results)
-                logger.info(f"\n[OK] Results saved to: {results_file}")
+                logger.info(f"\n✅ Results saved to: {results_file}")
                 
                 # Save top 15 results to separate file
                 top_results_file = grid_search.save_top_results(results, top_n=15)
                 if top_results_file:
-                    logger.info(f"[OK] Top 15 results saved to: {top_results_file}")
+                    logger.info(f"✅ Top 15 results saved to: {top_results_file}")
             else:
                 logger.error("No results obtained")
                 
@@ -1129,10 +1182,11 @@ def main():
             logger.info("Grid search interrupted by user")
             if 'results' in locals() and results:
                 grid_search.save_results(results, filename="grid_search_results_interrupted.json")
-                # Also save top results
                 grid_search.save_top_results(results, top_n=15, filename="grid_search_top_results_interrupted.json")
+            grid_search.cleanup_backups = False
         except Exception as e:
             logger.error(f"Error during grid search: {e}", exc_info=True)
+            grid_search.cleanup_backups = False
         finally:
             # Restore indicators config
             logger.info("Restoring original indicators config...")
@@ -1142,6 +1196,8 @@ def main():
             if restore_success and grid_search.cleanup_backups:
                 logger.info("Cleaning up backup files...")
                 grid_search.cleanup_backup_files(cleanup_old=True)
+            elif not restore_success:
+                logger.info("Keeping backup files (restoration failed or was skipped)")
             
     except Exception as e:
         logger.error(f"Failed to initialize grid search: {e}", exc_info=True)

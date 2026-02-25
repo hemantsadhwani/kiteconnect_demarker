@@ -2,7 +2,7 @@
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
-  CAPITAL: 12000 # Max capital to use per trade
+  CAPITAL: 20000 # Max capital to use per trade
   PRODUCT: "NRML" # NRML is required for GTT orders
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
@@ -13,7 +13,7 @@ TRADE_SETTINGS:
   # - If option price is between thresholds (70-120), use BETWEEN_THRESHOLD percentage (12%)
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (15%)
   REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT:
-    ABOVE_THRESHOLD: 13  # Max swing low distance % when entry price > 120 (aligned with backtesting_st50)
+    ABOVE_THRESHOLD: 14  # Max swing low distance % when entry price > 120 (aligned with backtesting_st50)
     BETWEEN_THRESHOLD: 19  # Max swing low distance % when entry price is between 70 and 120
     BELOW_THRESHOLD: 20  # Max swing low distance % when entry price < 70
   CONTINUATION_MAX_SUPERTREND_DISTANCE_PERCENT: 6 # Max SuperTrend distance for CONTINUATION entries (useEntry3)
@@ -80,7 +80,7 @@ TRADE_SETTINGS:
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 12000  # Starting daily capital (backtest uses 100000)
+  CAPITAL: 20000  # Starting daily capital (backtest uses 100000)
   LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
   PER_DAY: true
   USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
@@ -140,10 +140,10 @@ INDICATORS:
     STOCH_PERIOD: 14
   FAST_MA:
     MA: sma
-    LENGTH: 11
+    LENGTH: 9
   SLOW_MA:
-    MA: sma
-    LENGTH: 13
+    MA: ema
+    LENGTH: 15
   SWING_LOW_PERIOD: 5
   DEMARKER:
     PERIOD: 14  # Same as backtesting (run_indicators.py / indicators_backtesting.py)

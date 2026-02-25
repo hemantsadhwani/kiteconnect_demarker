@@ -6,8 +6,8 @@
 GRID_SEARCH:
   # Period range for both FAST_MA and SLOW_MA indicators
   PERIOD_RANGE:
-    MIN: 9
-    MAX: 21
+    MIN: 3
+    MAX: 15
     STEP: 1
   
   # Indicator types to test (MA types: EMA or SMA)
@@ -25,8 +25,8 @@ OPTIMIZATION:
     FILTERED_PNL: 0.6
     WIN_RATE: 0.4
   
-  # Strike type to optimize for (DYNAMIC_ATM only - no market sentiment filter)
-  STRIKE_TYPE: "DYNAMIC_ATM"  # Only DYNAMIC_ATM is optimized
+  # Strike type to optimize for
+  STRIKE_TYPE: "DYNAMIC_OTM"  # Use DYNAMIC_OTM to match aggregate summary (e.g. 1048% baseline)
 
 # Execution Settings
 EXECUTION:
