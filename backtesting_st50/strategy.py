@@ -2790,8 +2790,9 @@ class Entry2BacktestStrategyFixed:
                 if 'entry2_exit_reason' not in df.columns:
                     df['entry2_exit_reason'] = ''
                 # When OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: mark confirmation bar for visualization (signal bar vs execution bar)
+                # Use numeric 0 so later we can assign 1 without pandas dtype error (str column rejects int on strict dtypes)
                 if 'entry2_signal_bar' not in df.columns:
-                    df['entry2_signal_bar'] = ''
+                    df['entry2_signal_bar'] = 0
             
             # Entry3 columns (only if Entry3 is enabled)
             if use_entry3:
@@ -3166,7 +3167,7 @@ class Entry2BacktestStrategyFixed:
                                         self.pending_optimal_entry[symbol] = {'confirm_bar': signal_bar_index, 'confirm_high': confirm_high, 'sl_price': sl_price}
                                         # Mark confirmation bar for HTML visualization (signal bar vs execution bar)
                                         if 'entry2_signal_bar' in df.columns:
-                                            df.at[signal_bar_index, 'entry2_signal_bar'] = 1
+                                            df.at[signal_bar_index, 'entry2_signal_bar'] = 1  # 1 = signal bar (numeric)
                                         self._reset_entry2_state_machine(symbol)
                                         logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f})")
                                     else:

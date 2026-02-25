@@ -189,8 +189,13 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
     df['drawdown_limit'] = 0.0
     if 'trade_status' not in df.columns:
         df['trade_status'] = ''
+    else:
+        df['trade_status'] = df['trade_status'].astype(object)
     if 'trade_status_reason' not in df.columns:
         df['trade_status_reason'] = ''
+    else:
+        # Ensure object dtype so we can assign '' (CSV may have read as float64 when column was empty)
+        df['trade_status_reason'] = df['trade_status_reason'].astype(object)
     
     logger.info(f"Processing {len(df)} trades...")
     
