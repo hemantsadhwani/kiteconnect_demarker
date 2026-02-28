@@ -684,6 +684,13 @@ class ConsolidatedDynamicOTMAnalysis:
                     return f"NIFTY25{month_map[month_label][0]}{day_str}25"
                 except ValueError:
                     return f"NIFTY{year_suffix}{month_map[month_label][0]}{day_str}{year_suffix}"
+            elif month_label == "MAR" and year_suffix == "26":
+                # 2026 MAR weekly: strategy files use NIFTY26302 (26 + 3*100+02), not NIFTY26M02
+                try:
+                    mm = 3 * 100 + int(day_str)
+                    return f"NIFTY26{mm}"
+                except ValueError:
+                    return f"NIFTY26M{day_str}26"
             else:
                 month_letter = month_map[month_label][0]
                 return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"

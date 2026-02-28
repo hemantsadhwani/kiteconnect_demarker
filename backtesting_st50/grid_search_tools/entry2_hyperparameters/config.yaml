@@ -4,17 +4,17 @@
 
 # Grid Search Parameters
 GRID_SEARCH:
-  # WPR Fast Length range
-  WPR_FAST_LENGTH:
-    MIN: 9
-    MAX: 29
-    STEP: 5
+  # # WPR Fast Length range
+  # WPR_FAST_LENGTH:
+  #   MIN: 9
+  #   MAX: 29
+  #   STEP: 5
   
-  # WPR Slow Length range
-  WPR_SLOW_LENGTH:
-    MIN: 28
-    MAX: 78
-    STEP: 5
+  # # WPR Slow Length range
+  # WPR_SLOW_LENGTH:
+  #   MIN: 28
+  #   MAX: 78
+  #   STEP: 5
   
   # WPR Fast Oversold threshold range
   WPR_FAST_OVERSOLD:

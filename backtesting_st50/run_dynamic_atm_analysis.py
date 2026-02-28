@@ -1574,6 +1574,13 @@ class ConsolidatedDynamicATMAnalysis:
                 except ValueError:
                     month_letter = month_map[month_label][0]
                     return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"
+            elif month_label == "MAR" and year_suffix == "26":
+                # 2026 MAR weekly: strategy files use NIFTY26302 (26 + 3*100+02), not NIFTY26M02
+                try:
+                    mm = 3 * 100 + int(day_str)
+                    return f"NIFTY26{mm}"
+                except ValueError:
+                    return f"NIFTY26M{day_str}26"
             else:
                 month_letter = month_map[month_label][0]
                 return f"NIFTY{year_suffix}{month_letter}{day_str}{year_suffix}"
@@ -1693,6 +1700,17 @@ class ConsolidatedDynamicATMAnalysis:
             # Add entry signals to global list
             for _, entry_signal in entry_signals.iterrows():
                 signal_candle_time = entry_signal['date']
+                # For optimal entry: Entry may be marked on a later bar (e.g. 12:22) than the signal bar (e.g. 12:13).
+                # Use the signal bar time for period matching so we match the strike that was ATM when the signal fired.
+                signal_bar_time = signal_candle_time
+                if 'entry2_signal_bar' in df_symbol.columns:
+                    signal_bars = df_symbol[pd.notna(df_symbol['entry2_signal_bar']) & (df_symbol['entry2_signal_bar'].fillna(0).astype(float) == 1)]
+                    if not signal_bars.empty:
+                        before_entry = signal_bars[signal_bars['date'] <= signal_candle_time]
+                        if not before_entry.empty:
+                            signal_bar_time = before_entry['date'].max()
+                            if signal_bar_time != signal_candle_time:
+                                logger.debug(f"Optimal entry: using signal bar time {signal_bar_time} for period match (entry bar {signal_candle_time}) for {symbol}")
                 # CRITICAL FIX: When a candle completes at time T, the entry conditions are evaluated.
                 # If conditions are met, the trade executes at the start of the next candle.
                 # Pattern: Signal detected when candle T completes -> Execution at T+1 minute + 1 second
@@ -1710,7 +1728,8 @@ class ConsolidatedDynamicATMAnalysis:
                     'time': entry_execution_time,  # Use execution time (signal time + 1 min + 1 sec)
                     'symbol': symbol,
                     'data': entry_signal,  # Keep original signal data with candle time for price reference
-                    'exits_after': exit_trades[exit_trades['date'] > signal_candle_time]  # Compare with original candle time
+                    'exits_after': exit_trades[exit_trades['date'] > signal_candle_time],  # Compare with original candle time
+                    'signal_bar_time': signal_bar_time,  # For period matching: use when signal fired (optimal entry may execute later)
                 })
             
             # Add exit signals to global list
@@ -2113,8 +2132,18 @@ class ConsolidatedDynamicATMAnalysis:
                 
                 entry_period = None
                 # Initialize signal_candle_time_obj for period matching and logging (uses signal candle time, not execution time)
+                # For optimal entry, use signal_bar_time (when BUY signal fired) so we match the strike that was ATM at signal time.
+                time_for_match_raw = signal.get('signal_bar_time') if isinstance(signal, dict) else None
+                if time_for_match_raw is None:
+                    time_for_match_raw = entry_signal['date'] if isinstance(entry_signal, pd.Series) else entry_signal.get('date')
                 signal_candle_time = entry_signal['date'] if isinstance(entry_signal, pd.Series) else entry_signal.get('date')
-                if isinstance(signal_candle_time, pd.Timestamp):
+                if isinstance(time_for_match_raw, pd.Timestamp):
+                    signal_candle_time_obj = time_for_match_raw.time()
+                elif isinstance(time_for_match_raw, str):
+                    signal_candle_time_obj = pd.to_datetime(time_for_match_raw).time()
+                elif time_for_match_raw is not None and hasattr(time_for_match_raw, 'time'):
+                    signal_candle_time_obj = time_for_match_raw.time()
+                elif isinstance(signal_candle_time, pd.Timestamp):
                     signal_candle_time_obj = signal_candle_time.time()
                 elif isinstance(signal_candle_time, str):
                     signal_candle_time_obj = pd.to_datetime(signal_candle_time).time()
@@ -2124,9 +2153,7 @@ class ConsolidatedDynamicATMAnalysis:
                     signal_candle_time_obj = entry_time_obj
                 # CRITICAL: Use SIGNAL CANDLE time for period matching, not execution time.
                 # The trade is taken on the symbol that was ATM when the signal fired (signal candle).
-                # If we use execution time (signal + 1min + 1sec), a 9:59 signal executes at 10:00:01 and can
-                # match the next period (10:00+) which may have a different strike -> trade wrongly dropped.
-                # Matching on signal time ensures the 9:59 trade matches the period containing 9:59 (correct strike).
+                # For optimal entry, signal_bar_time is the bar when the BUY fired; entry may be on a later bar.
                 time_for_period_match = signal_candle_time_obj
                 
                 # Enhanced logging for period matching diagnosis

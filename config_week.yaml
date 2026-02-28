@@ -32,7 +32,7 @@ TRADE_SETTINGS:
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (aligned with backtesting_st50)
     BETWEEN_THRESHOLD: 8.0 # Stop loss % when entry price between 40 and 140
-    BELOW_THRESHOLD: 6.5   # Stop loss % when entry price < 40
+    BELOW_THRESHOLD: 8.0   # Stop loss % when entry price < 40
   # Legacy single value (for backward compatibility, will be overridden by above if both exist)
   # STOP_LOSS_PERCENT: 6.0 # Fixed percentage stop loss (Stage 1) - DEPRECATED: Use STOP_LOSS_PERCENT.ABOVE_THRESHOLD/BELOW_THRESHOLD
   TAKE_PROFIT_PERCENT: 8.0 # Fixed percentage take profit (Stage 1; aligned with backtesting_st50)
@@ -140,10 +140,10 @@ INDICATORS:
     STOCH_PERIOD: 14
   FAST_MA:
     MA: sma
-    LENGTH: 11
+    LENGTH: 9
   SLOW_MA:
-    MA: sma
-    LENGTH: 13
+    MA: ema
+    LENGTH: 15
   SWING_LOW_PERIOD: 5
   DEMARKER:
     PERIOD: 14  # Same as backtesting (run_indicators.py / indicators_backtesting.py)

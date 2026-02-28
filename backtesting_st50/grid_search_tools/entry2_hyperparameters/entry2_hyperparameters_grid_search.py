@@ -101,10 +101,11 @@ class Entry2HyperparametersGridSearch:
         else:
             self.summary_csv = self.base_path / f"{entry_type_lower}_aggregate_weekly_market_sentiment_summary.csv"
         
-        # Grid search parameters
+        # Grid search parameters (WPR lengths optional: if omitted, use baseline from indicators_config = 4D grid)
         grid_config = self.config['GRID_SEARCH']
-        self.wpr_fast_length_range = self._get_range(grid_config['WPR_FAST_LENGTH'])
-        self.wpr_slow_length_range = self._get_range(grid_config['WPR_SLOW_LENGTH'])
+        self.wpr_fast_length_range = self._get_range(grid_config['WPR_FAST_LENGTH']) if 'WPR_FAST_LENGTH' in grid_config else None
+        self.wpr_slow_length_range = self._get_range(grid_config['WPR_SLOW_LENGTH']) if 'WPR_SLOW_LENGTH' in grid_config else None
+        self._set_wpr_length_baselines_from_indicators()
         self.wpr_fast_oversold_range = self._get_range(grid_config['WPR_FAST_OVERSOLD'])
         self.wpr_slow_oversold_range = self._get_range(grid_config['WPR_SLOW_OVERSOLD'])
         self.stoch_rsi_oversold_range = self._get_range(grid_config['STOCH_RSI_OVERSOLD'])
@@ -160,8 +161,11 @@ class Entry2HyperparametersGridSearch:
         logger.info(f"Base path: {self.base_path}")
         logger.info(f"Entry type: {self.entry_type}")
         logger.info(f"Summary CSV: {self.summary_csv}")
-        logger.info(f"WPR Fast Length: {self.wpr_fast_length_range['MIN']}-{self.wpr_fast_length_range['MAX']} (step: {self.wpr_fast_length_range['STEP']})")
-        logger.info(f"WPR Slow Length: {self.wpr_slow_length_range['MIN']}-{self.wpr_slow_length_range['MAX']} (step: {self.wpr_slow_length_range['STEP']})")
+        if self.wpr_fast_length_range and self.wpr_slow_length_range:
+            logger.info(f"WPR Fast Length: {self.wpr_fast_length_range['MIN']}-{self.wpr_fast_length_range['MAX']} (step: {self.wpr_fast_length_range['STEP']})")
+            logger.info(f"WPR Slow Length: {self.wpr_slow_length_range['MIN']}-{self.wpr_slow_length_range['MAX']} (step: {self.wpr_slow_length_range['STEP']})")
+        else:
+            logger.info(f"WPR lengths: baseline only (Fast={self.wpr_fast_length_baseline}, Slow={self.wpr_slow_length_baseline}) — 4 dimensions")
         logger.info(f"WPR Fast Oversold: {self.wpr_fast_oversold_range['MIN']}-{self.wpr_fast_oversold_range['MAX']} (step: {self.wpr_fast_oversold_range['STEP']})")
         logger.info(f"WPR Slow Oversold: {self.wpr_slow_oversold_range['MIN']}-{self.wpr_slow_oversold_range['MAX']} (step: {self.wpr_slow_oversold_range['STEP']})")
         logger.info(f"StochRSI Oversold: {self.stoch_rsi_oversold_range['MIN']}-{self.stoch_rsi_oversold_range['MAX']} (step: {self.stoch_rsi_oversold_range['STEP']})")
@@ -175,6 +179,20 @@ class Entry2HyperparametersGridSearch:
             'MAX': range_config['MAX'],
             'STEP': range_config['STEP']
         }
+
+    def _set_wpr_length_baselines_from_indicators(self):
+        """Set WPR length baselines from indicators_config when not gridding over them (4D mode)."""
+        self.wpr_fast_length_baseline = 9
+        self.wpr_slow_length_baseline = 28
+        if self.indicators_config_path.exists():
+            try:
+                with open(self.indicators_config_path, 'r') as f:
+                    cfg = yaml.safe_load(f)
+                ind = cfg.get('INDICATORS', {})
+                self.wpr_fast_length_baseline = ind.get('WPR_FAST_LENGTH', 9)
+                self.wpr_slow_length_baseline = ind.get('WPR_SLOW_LENGTH', 28)
+            except Exception:
+                pass
     
     def _format_time(self, seconds):
         """Format time in seconds to human-readable string"""
@@ -203,11 +221,10 @@ class Entry2HyperparametersGridSearch:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
             
-            # Set defaults for missing keys
+            # Set defaults for missing keys (do NOT add WPR_FAST_LENGTH/WPR_SLOW_LENGTH:
+            # when commented out, grid uses baseline from indicators_config = 4 dimensions only)
             defaults = {
                 'GRID_SEARCH': {
-                    'WPR_FAST_LENGTH': {'MIN': 9, 'MAX': 70, 'STEP': 4},
-                    'WPR_SLOW_LENGTH': {'MIN': 21, 'MAX': 141, 'STEP': 4},
                     'WPR_FAST_OVERSOLD': {'MIN': -82, 'MAX': -76, 'STEP': 1},
                     'WPR_SLOW_OVERSOLD': {'MIN': -82, 'MAX': -76, 'STEP': 1},
                     'STOCH_RSI_OVERSOLD': {'MIN': 18, 'MAX': 22, 'STEP': 1},
@@ -696,17 +713,21 @@ class Entry2HyperparametersGridSearch:
         return result
     
     def generate_all_combinations(self):
-        """Generate all possible hyperparameter combinations"""
-        wpr_fast_lengths = self._generate_range(
-            self.wpr_fast_length_range['MIN'],
-            self.wpr_fast_length_range['MAX'],
-            self.wpr_fast_length_range['STEP']
-        )
-        wpr_slow_lengths = self._generate_range(
-            self.wpr_slow_length_range['MIN'],
-            self.wpr_slow_length_range['MAX'],
-            self.wpr_slow_length_range['STEP']
-        )
+        """Generate all possible hyperparameter combinations (6D if WPR lengths in config, else 4D)."""
+        if self.wpr_fast_length_range and self.wpr_slow_length_range:
+            wpr_fast_lengths = self._generate_range(
+                self.wpr_fast_length_range['MIN'],
+                self.wpr_fast_length_range['MAX'],
+                self.wpr_fast_length_range['STEP']
+            )
+            wpr_slow_lengths = self._generate_range(
+                self.wpr_slow_length_range['MIN'],
+                self.wpr_slow_length_range['MAX'],
+                self.wpr_slow_length_range['STEP']
+            )
+        else:
+            wpr_fast_lengths = [self.wpr_fast_length_baseline]
+            wpr_slow_lengths = [self.wpr_slow_length_baseline]
         wpr_fast_oversolds = self._generate_range(
             self.wpr_fast_oversold_range['MIN'],
             self.wpr_fast_oversold_range['MAX'],
@@ -728,6 +749,23 @@ class Entry2HyperparametersGridSearch:
             self.supertrend1_factor_range['STEP']
         )
         
+        # Dimension counts (for logging/verification)
+        n_fast = len(wpr_fast_lengths)
+        n_slow = len(wpr_slow_lengths)
+        n_fast_ov = len(wpr_fast_oversolds)
+        n_slow_ov = len(wpr_slow_oversolds)
+        n_stoch = len(stoch_rsi_oversolds)
+        n_factor = len(supertrend1_factors)
+        # Valid (fast, slow) pairs: only where fast < slow (1 when using baseline only)
+        valid_wpr_pairs = sum(1 for f in wpr_fast_lengths for s in wpr_slow_lengths if f < s)
+        expected_total = valid_wpr_pairs * n_fast_ov * n_slow_ov * n_stoch * n_factor
+        dim_desc = f"WPR_Fast={n_fast}, WPR_Slow={n_slow} -> valid pairs={valid_wpr_pairs}" if (n_fast * n_slow) > 1 else "WPR lengths=baseline (1)"
+        logger.info(
+            f"Combination dimensions: {dim_desc} | "
+            f"WPR_Fast_OV={n_fast_ov}, WPR_Slow_OV={n_slow_ov}, Stoch_OV={n_stoch}, Factor={n_factor} | "
+            f"Expected total = {valid_wpr_pairs} × {n_fast_ov} × {n_slow_ov} × {n_stoch} × {n_factor} = {expected_total}"
+        )
+
         # Generate all combinations
         all_combinations = []
         for wpr_fast_len in wpr_fast_lengths:
@@ -744,7 +782,10 @@ class Entry2HyperparametersGridSearch:
                                     wpr_fast_ov, wpr_slow_ov,
                                     stoch_ov, factor
                                 ))
-        
+        if len(all_combinations) != expected_total:
+            logger.warning(
+                f"Combination count mismatch: expected {expected_total}, got {len(all_combinations)}"
+            )
         return all_combinations
     
     def generate_test_combinations(self, num_combinations=4):
@@ -857,8 +898,11 @@ class Entry2HyperparametersGridSearch:
         all_combinations = self.generate_all_combinations()
         
         logger.info(f"Total combinations to test: {len(all_combinations)}")
-        logger.info(f"WPR Fast Length: {self.wpr_fast_length_range['MIN']}-{self.wpr_fast_length_range['MAX']} (step: {self.wpr_fast_length_range['STEP']})")
-        logger.info(f"WPR Slow Length: {self.wpr_slow_length_range['MIN']}-{self.wpr_slow_length_range['MAX']} (step: {self.wpr_slow_length_range['STEP']})")
+        if self.wpr_fast_length_range and self.wpr_slow_length_range:
+            logger.info(f"WPR Fast Length: {self.wpr_fast_length_range['MIN']}-{self.wpr_fast_length_range['MAX']} (step: {self.wpr_fast_length_range['STEP']})")
+            logger.info(f"WPR Slow Length: {self.wpr_slow_length_range['MIN']}-{self.wpr_slow_length_range['MAX']} (step: {self.wpr_slow_length_range['STEP']})")
+        else:
+            logger.info(f"WPR lengths: baseline only (Fast={self.wpr_fast_length_baseline}, Slow={self.wpr_slow_length_baseline})")
         logger.info(f"WPR Fast Oversold: {self.wpr_fast_oversold_range['MIN']}-{self.wpr_fast_oversold_range['MAX']} (step: {self.wpr_fast_oversold_range['STEP']})")
         logger.info(f"WPR Slow Oversold: {self.wpr_slow_oversold_range['MIN']}-{self.wpr_slow_oversold_range['MAX']} (step: {self.wpr_slow_oversold_range['STEP']})")
         logger.info(f"StochRSI Oversold: {self.stoch_rsi_oversold_range['MIN']}-{self.stoch_rsi_oversold_range['MAX']} (step: {self.stoch_rsi_oversold_range['STEP']})")

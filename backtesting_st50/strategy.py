@@ -2874,12 +2874,11 @@ class Entry2BacktestStrategyFixed:
                                 logger.info(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend1 became bullish. SuperTrend1 stop loss activated IMMEDIATELY.")
                         
                         # Check SuperTrend trailing stop loss first (if active)
-                        # This is tick-level/immediate exit when price hits SuperTrend SL
+                        # ST_SL_WHEN_TRAILING_TP: when false, never exit on SuperTrend SL (disable it entirely).
+                        # When true, apply ST SL as usual (including when trailing is active).
                         if self.supertrend_stop_loss_active and pd.notna(current_low) and pd.notna(current_supertrend_value):
-                            should_check_st_sl = (
-                                not self.is_dynamic_trailing_ma_active or self.st_sl_when_trailing_tp
-                            )
-                            logger.debug(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend SL active={self.supertrend_stop_loss_active}, should_check={should_check_st_sl}, trailing_ma_active={self.is_dynamic_trailing_ma_active}, st_sl_when_trailing_tp={self.st_sl_when_trailing_tp}")
+                            should_check_st_sl = self.st_sl_when_trailing_tp
+                            logger.debug(f"[SL DEBUG] {time_str} (bar {i}): SuperTrend SL active={self.supertrend_stop_loss_active}, should_check={should_check_st_sl} (ST_SL_WHEN_TRAILING_TP={self.st_sl_when_trailing_tp})")
                             if should_check_st_sl:
                                 # Check if SuperTrend SL is hit
                                 if current_supertrend_dir == 1:
