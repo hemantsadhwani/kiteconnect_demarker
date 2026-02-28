@@ -2,7 +2,7 @@
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
-  CAPITAL: 20000 # Max capital to use per trade
+  CAPITAL: 12000 # Max capital to use per trade
   PRODUCT: "NRML" # NRML is required for GTT orders
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
@@ -28,11 +28,11 @@ TRADE_SETTINGS:
   # - If option price > highest threshold (120), use ABOVE_THRESHOLD percentage (6.0%)
   # - If option price is between thresholds (70-120), use BETWEEN_THRESHOLD percentage (7.0%)
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (8.0%)
-  STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
+  STOP_LOSS_PRICE_THRESHOLD: [120, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (aligned with backtesting_st50)
     BETWEEN_THRESHOLD: 8.0 # Stop loss % when entry price between 40 and 140
-    BELOW_THRESHOLD: 8.0   # Stop loss % when entry price < 40
+    BELOW_THRESHOLD: 6.5   # Stop loss % when entry price < 40
   # Legacy single value (for backward compatibility, will be overridden by above if both exist)
   # STOP_LOSS_PERCENT: 6.0 # Fixed percentage stop loss (Stage 1) - DEPRECATED: Use STOP_LOSS_PERCENT.ABOVE_THRESHOLD/BELOW_THRESHOLD
   TAKE_PROFIT_PERCENT: 8.0 # Fixed percentage take profit (Stage 1; aligned with backtesting_st50)
@@ -72,7 +72,7 @@ TRADE_SETTINGS:
   SKIP_FIRST: false
 
   # Optimal entry: defer Entry2 execution; enter when a subsequent candle opens above confirmation high; invalidate if SL breached (aligned with backtesting_st50).
-  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: false
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
   WPR_INVALIDATION: true
 
@@ -80,7 +80,7 @@ TRADE_SETTINGS:
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 20000  # Starting daily capital (backtest uses 100000)
+  CAPITAL: 12000  # Starting daily capital (backtest uses 100000)
   LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
   PER_DAY: true
   USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
@@ -140,10 +140,10 @@ INDICATORS:
     STOCH_PERIOD: 14
   FAST_MA:
     MA: sma
-    LENGTH: 9
+    LENGTH: 11
   SLOW_MA:
-    MA: ema
-    LENGTH: 25
+    MA: sma
+    LENGTH: 13
   SWING_LOW_PERIOD: 5
   DEMARKER:
     PERIOD: 14  # Same as backtesting (run_indicators.py / indicators_backtesting.py)
@@ -155,9 +155,9 @@ INDICATORS:
 THRESHOLDS:
   WPR_FAST_OVERSOLD: -79    # Fast Williams %R oversold threshold (default: -80)
                             # WPR9 must cross above this value to trigger Entry2
-  WPR_SLOW_OVERSOLD: -77    # Slow Williams %R oversold threshold (default: -80)
+  WPR_SLOW_OVERSOLD: -78    # Slow Williams %R oversold threshold (default: -80)
                             # WPR28 must cross above this value to trigger Entry2
-  STOCH_RSI_OVERSOLD: 20 # Stochastic RSI oversold threshold (default: 20)
+  STOCH_RSI_OVERSOLD: 19 # Stochastic RSI oversold threshold (default: 20)
                          # StochK must be above this value AND above StochD to trigger Entry2
 
 # Dynamic ATM Configuration
@@ -192,7 +192,7 @@ PRICE_ZONES:
     HIGH_PRICE: 200
   DYNAMIC_OTM:
     LOW_PRICE: 20
-    HIGH_PRICE: 200
+    HIGH_PRICE: 160
   STATIC_ATM:
     LOW_PRICE: 20
     HIGH_PRICE: 250
