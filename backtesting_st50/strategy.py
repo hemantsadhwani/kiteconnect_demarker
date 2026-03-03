@@ -478,6 +478,9 @@ class Entry2BacktestStrategyFixed:
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
+        self.exit_when_demarker_below_oversold = entry2_config.get('EXIT_WHEN_DEMARKER_BELOW_OVERSOLD', True)
+        if self.entry2_trigger == 'DEMARKER' and self.exit_when_demarker_below_oversold:
+            logger.info(f"Entry2 (DeMarker): EXIT_WHEN_DEMARKER_BELOW_OVERSOLD enabled - will exit trade when DeMarker < {self.demarker_oversold} and reset for new trigger")
         logger.info(f"Entry2 (DeMarker): DEMARKER_OVERSOLD={self.demarker_oversold}, STOCH_K_MIN={self.stoch_k_min} (from indicators_config THRESHOLDS)")
         # Risk at entry uses REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT (slab-wise) above; no separate MAX_RISK_REVERSAL
         
@@ -636,12 +639,13 @@ class Entry2BacktestStrategyFixed:
             if wpr_both_below:
                 logger.info(f"Entry2 optimal entry: INVALIDATE at bar {current_index} for {symbol} (both WPR below oversold)")
                 return 'invalidate'
-        # Bar confirm_bar+1: skip entry on this candle; only invalidation checked above
-        if current_index <= confirm_bar + 1:
+        # Bar confirm_bar+1 (first candle after confirmation): allow entry if open >= confirm_high (so we can enter when open equals high, e.g. 10:52 open=77.3 when confirm_high=77.3)
+        # Bar >= confirm_bar+2: same condition
+        if current_index <= confirm_bar:
             return 'wait'
-        # Bar >= confirm_bar+2: enter if open > confirm_high
-        if pd.notna(open_price) and open_price > confirm_high:
-            logger.info(f"Entry2 optimal entry: ENTER at bar {current_index} for {symbol} (open={open_price:.2f} > confirm_high={confirm_high:.2f})")
+        # Enter when open >= confirm_high (use >= so "opens at or above" confirmation high qualifies)
+        if pd.notna(open_price) and open_price >= confirm_high:
+            logger.info(f"Entry2 optimal entry: ENTER at bar {current_index} for {symbol} (open={open_price:.2f} >= confirm_high={confirm_high:.2f})")
             return 'enter'
         return 'wait'
 
@@ -1117,6 +1121,8 @@ class Entry2BacktestStrategyFixed:
                 'state': 'AWAITING_TRIGGER',
                 'confirmation_countdown': 0,
                 'trigger_bar_index': None,  # Store trigger bar index for reset logic
+                'trigger_source': None,  # 'wpr_9' | 'wpr_28' | 'both' - which W%R started the trigger (doc: "the other W%R" must confirm)
+                'wpr_9_confirmed_in_window': False,
                 'wpr_28_confirmed_in_window': False,
                 'stoch_rsi_confirmed_in_window': False
             }
@@ -1238,6 +1244,8 @@ class Entry2BacktestStrategyFixed:
             state_machine['state'] = 'AWAITING_CONFIRMATION'
             state_machine['confirmation_countdown'] = self.entry2_confirmation_window  # Start N-candle window
             state_machine['trigger_bar_index'] = current_index  # Store trigger bar index
+            state_machine['trigger_source'] = 'both' if both_cross_same_candle else ('wpr_9' if trigger_from_wpr9 else 'wpr_28')
+            state_machine['wpr_9_confirmed_in_window'] = False
             state_machine['wpr_28_confirmed_in_window'] = False
             state_machine['stoch_rsi_confirmed_in_window'] = False
             logger.debug(f"Entry2: Starting {self.entry2_confirmation_window}-candle confirmation window (T, T+1, ..., T+{self.entry2_confirmation_window-1})")
@@ -1252,7 +1260,7 @@ class Entry2BacktestStrategyFixed:
             else:
                 stoch_rsi_condition = (stoch_k_current > stoch_d_current) and (stoch_k_current > self.stoch_rsi_oversold) and is_bearish
             
-            # WPR28 confirmation: crossover or already above; flexible = no bearish required, strict = bearish required
+            # W%R(28) confirmation: crossover or already above; flexible = no bearish required, strict = bearish required
             if wpr_28_confirm_ok_same:
                 state_machine['wpr_28_confirmed_in_window'] = True
                 mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
@@ -1260,14 +1268,30 @@ class Entry2BacktestStrategyFixed:
                     logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (crossed above {self.wpr_28_oversold} from {wpr_slow_prev:.2f} to {wpr_slow_current:.2f}, same candle as trigger, {mode_desc} mode)")
                 else:
                     logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (already above {self.wpr_28_oversold} at {wpr_slow_current:.2f}, same candle as trigger, {mode_desc} mode)")
+            # W%R(9) confirmation (doc: "the other W%R" - when trigger was wpr_28 we need wpr_9 to confirm)
+            wpr_9_crosses_above_here = (wpr_fast_prev <= self.wpr_9_oversold) and (wpr_fast_current > self.wpr_9_oversold)
+            wpr_9_confirm_ok_same = (wpr_9_crosses_above_here or (wpr_fast_current > self.wpr_9_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+            if wpr_9_confirm_ok_same:
+                state_machine['wpr_9_confirmed_in_window'] = True
+                mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                logger.info(f"Entry2: W%R(9) confirmation at index {current_index} (same candle as trigger, {mode_desc} mode)")
             
             if stoch_rsi_condition:
                 state_machine['stoch_rsi_confirmed_in_window'] = True
                 mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
                 logger.debug(f"Entry2: StochRSI confirmation at index {current_index} (same candle as trigger, {mode_desc} mode)")
             
+            # Success = "the other W%R" confirmed + StochRSI (doc Entry2_WPR.md: trigger=wpr_9 -> need wpr_28; trigger=wpr_28 -> need wpr_9; trigger=both -> either)
+            trigger_src = state_machine.get('trigger_source')
+            other_wpr_confirmed_same = (
+                (trigger_src == 'wpr_9' and state_machine['wpr_28_confirmed_in_window']) or
+                (trigger_src == 'wpr_28' and state_machine.get('wpr_9_confirmed_in_window', False)) or
+                (trigger_src == 'both' and (state_machine['wpr_28_confirmed_in_window'] or state_machine.get('wpr_9_confirmed_in_window', False)))
+            )
+            if trigger_src is None:
+                other_wpr_confirmed_same = state_machine['wpr_28_confirmed_in_window']  # legacy: no trigger_source
             # If both confirmations met on same candle as trigger, check SKIP_FIRST and generate signal
-            if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
+            if other_wpr_confirmed_same and state_machine['stoch_rsi_confirmed_in_window']:
                 # Check SKIP_FIRST flag before generating signal
                 # Use next bar's data (entry bar) for sentiment calculation
                 if self.skip_first:
@@ -1299,7 +1323,6 @@ class Entry2BacktestStrategyFixed:
             
             # Check for confirmations and remember them if they occur
             # W%R(28) confirmation: production parity — (crossover OR already above) AND (flexible OR is_bearish)
-            # Flexible = no SuperTrend requirement; strict = is_bearish required for both crossover and already above
             wpr_28_confirm_ok_window = (wpr_28_crosses_above_basic or (wpr_slow_current > self.wpr_28_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
             if wpr_28_confirm_ok_window:
                 if not state_machine.get('wpr_28_confirmed_in_window', False):
@@ -1311,6 +1334,14 @@ class Entry2BacktestStrategyFixed:
                         logger.info(f"Entry2: W%R(28) confirmation at index {current_index} (already above {self.wpr_28_oversold} at {wpr_slow_current:.2f}, {mode_desc} mode, crossover happened earlier) - trigger was at {trigger_bar_index}")
                 else:
                     logger.debug(f"Entry2: W%R(28) is above {self.wpr_28_oversold} ({wpr_slow_current:.2f}) and already confirmed (prev={wpr_slow_prev:.2f}) - trigger was at {trigger_bar_index}")
+            # W%R(9) confirmation (doc: "the other W%R" - when trigger was wpr_28 we need wpr_9 to confirm in window)
+            wpr_9_crosses_above_window = (wpr_fast_prev <= self.wpr_9_oversold) and (wpr_fast_current > self.wpr_9_oversold)
+            wpr_9_confirm_ok_window = (wpr_9_crosses_above_window or (wpr_fast_current > self.wpr_9_oversold)) and (self.flexible_stochrsi_confirmation or is_bearish)
+            if wpr_9_confirm_ok_window:
+                if not state_machine.get('wpr_9_confirmed_in_window', False):
+                    state_machine['wpr_9_confirmed_in_window'] = True
+                    mode_desc = "flexible" if self.flexible_stochrsi_confirmation else "strict"
+                    logger.info(f"Entry2: W%R(9) confirmation at index {current_index} ({mode_desc} mode) - trigger was at {trigger_bar_index}")
             
             # StochRSI confirmation: Mode-dependent (flexible or strict)
             # CRITICAL FIX: Confirm if condition is met at current_index OR if it was already met
@@ -1327,7 +1358,7 @@ class Entry2BacktestStrategyFixed:
                 window_expires_at = trigger_bar_index + self.entry2_confirmation_window
                 in_window = current_index < window_expires_at
                 
-                logger.info(f"Entry2: Confirmation check at index {current_index} (trigger at {trigger_bar_index}, {bars_since_trigger} bars since trigger, window={self.entry2_confirmation_window}, expires at {window_expires_at}, in_window={in_window}): WPR28_confirmed={state_machine.get('wpr_28_confirmed_in_window', False)}, StochRSI_confirmed={state_machine.get('stoch_rsi_confirmed_in_window', False)}, wpr28_prev={wpr_slow_prev:.2f}, wpr28_current={wpr_slow_current:.2f}, wpr28_crosses={wpr_28_crosses_above}, wpr28_above={wpr_slow_current > self.wpr_28_oversold}, is_bearish={is_bearish}, stoch_k={stoch_k_current:.2f}, stoch_d={stoch_d_current:.2f}, stoch_condition={stoch_rsi_condition}")
+                logger.info(f"Entry2: Confirmation check at index {current_index} (trigger_source={state_machine.get('trigger_source')}, trigger at {trigger_bar_index}, {bars_since_trigger} bars since trigger, window={self.entry2_confirmation_window}, expires at {window_expires_at}, in_window={in_window}): WPR9_confirmed={state_machine.get('wpr_9_confirmed_in_window', False)}, WPR28_confirmed={state_machine.get('wpr_28_confirmed_in_window', False)}, StochRSI_confirmed={state_machine.get('stoch_rsi_confirmed_in_window', False)}, wpr28_prev={wpr_slow_prev:.2f}, wpr28_current={wpr_slow_current:.2f}, is_bearish={is_bearish}, stoch_k={stoch_k_current:.2f}, stoch_d={stoch_d_current:.2f}, stoch_condition={stoch_rsi_condition}")
             
             # WPR invalidation (production-aligned): right before signal, if both W%R below oversold on current candle, invalidate even if confirmations were met.
             if self.wpr_invalidation:
@@ -1338,9 +1369,18 @@ class Entry2BacktestStrategyFixed:
                     self._reset_entry2_state_machine(symbol)
                     return False
             
+            # Success = "the other W%R" confirmed + StochRSI (doc Entry2_WPR.md)
+            trigger_src = state_machine.get('trigger_source')
+            other_wpr_confirmed = (
+                (trigger_src == 'wpr_9' and state_machine.get('wpr_28_confirmed_in_window', False)) or
+                (trigger_src == 'wpr_28' and state_machine.get('wpr_9_confirmed_in_window', False)) or
+                (trigger_src == 'both' and (state_machine.get('wpr_28_confirmed_in_window', False) or state_machine.get('wpr_9_confirmed_in_window', False)))
+            )
+            if trigger_src is None:
+                other_wpr_confirmed = state_machine.get('wpr_28_confirmed_in_window', False)  # legacy
             # Check for success condition
-            if state_machine['wpr_28_confirmed_in_window'] and state_machine['stoch_rsi_confirmed_in_window']:
-                logger.info(f"Entry2: *** BOTH CONFIRMATIONS MET *** at index {current_index} for {symbol} - generating signal (trigger was at {trigger_bar_index}, wpr28_confirmed={state_machine['wpr_28_confirmed_in_window']}, stochrsi_confirmed={state_machine['stoch_rsi_confirmed_in_window']})")
+            if other_wpr_confirmed and state_machine['stoch_rsi_confirmed_in_window']:
+                logger.info(f"Entry2: *** BOTH CONFIRMATIONS MET *** at index {current_index} for {symbol} - generating signal (trigger_source={trigger_src}, trigger at {trigger_bar_index}, other_wpr_confirmed={other_wpr_confirmed}, stochrsi_confirmed={state_machine['stoch_rsi_confirmed_in_window']})")
                 # Check SKIP_FIRST flag before generating signal
                 # IMPORTANT: Use next bar's data (entry bar) for sentiment calculation, not signal bar
                 if self.skip_first:
@@ -1994,6 +2034,8 @@ class Entry2BacktestStrategyFixed:
             'state': 'AWAITING_TRIGGER',
             'confirmation_countdown': 0,
             'trigger_bar_index': None,  # Reset trigger bar index
+            'trigger_source': None,
+            'wpr_9_confirmed_in_window': False,
             'wpr_28_confirmed_in_window': False,
             'stoch_rsi_confirmed_in_window': False
         }
@@ -2243,17 +2285,18 @@ class Entry2BacktestStrategyFixed:
         # Previous bar: Fast MA >= Slow MA, Current bar: Fast MA < Slow MA
         return prev_fast_ma >= prev_slow_ma and current_fast_ma < current_slow_ma
 
-    def _enter_position(self, df: pd.DataFrame, current_index: int, signal_type: str) -> bool:
-        """Enter a position. Returns True if position was taken, False if skipped (CPR, NaN price, etc.)."""
+    def _enter_position(self, df: pd.DataFrame, current_index: int, signal_type: str, skip_cpr_for_optimal_entry: bool = False) -> bool:
+        """Enter a position. Returns True if position was taken, False if skipped (CPR, NaN price, etc.).
+        When skip_cpr_for_optimal_entry is True (call from optimal-entry path), CPR check is skipped so the
+        strategy CSV records the entry; downstream market sentiment filter can still apply CPR band."""
         current_row = df.iloc[current_index]
         # Execution bar = next candle (entry happens on next bar)
         execution_index = current_index + 1 if current_index + 1 < len(df) else current_index
         execution_row = df.iloc[execution_index]
 
         # CPR trading range: allow entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
-        # Strict: if CPR is enabled but we cannot verify (no CPR bounds, no Nifty file, or no Nifty price), skip entry
-        # so that analytics zones outside [band_S2_lower, band_R2_upper] stay 0.
-        if self.cpr_trading_range_enabled and getattr(self, '_cpr_by_date', None):
+        # Skip when skip_cpr_for_optimal_entry so optimal-entry executions (e.g. 10:52/10:58) are recorded.
+        if not skip_cpr_for_optimal_entry and self.cpr_trading_range_enabled and getattr(self, '_cpr_by_date', None):
             try:
                 exec_date = execution_row.get('date')
                 if exec_date is None or pd.isna(exec_date):
@@ -2481,6 +2524,16 @@ class Entry2BacktestStrategyFixed:
             logger.debug(f"Entry2 exit: Time zone filter blocked at {current_timestamp}")
             return False, "", 0.0
 
+        # Entry2 DeMarker: exit when DeMarker goes below DEMARKER_OVERSOLD (then next bar can trigger again)
+        if (self.entry_type == 'Entry2' and getattr(self, 'entry2_trigger', 'WPR') == 'DEMARKER' and
+                getattr(self, 'exit_when_demarker_below_oversold', False)):
+            dem_curr = current_row.get('demarker', None)
+            if pd.notna(dem_curr) and dem_curr < self.demarker_oversold:
+                exit_px = close_price if pd.notna(close_price) else high_price
+                if pd.notna(exit_px):
+                    logger.info(f"Entry2 (DeMarker): Exiting - DeMarker {dem_curr:.4f} below oversold {self.demarker_oversold} at bar {current_index}")
+                    return True, "DeMarker below oversold", float(exit_px)
+
         # Note: Breakeven (SL_TO_PRICE) check is now done in the main loop BEFORE SuperTrend stop loss
         # This ensures breakeven is activated before other stop losses can trigger
         
@@ -2607,24 +2660,29 @@ class Entry2BacktestStrategyFixed:
         # new trigger on same bar). Do NOT reset state machine if we're in AWAITING_CONFIRMATION - let
         # confirmation complete on later bars and take the new trade (e.g. trigger @10:43, SL @10:43,
         # confirmation @10:47 -> entry at 10:48:01). Only reset when there is no pending trigger.
+        # Exception: DeMarker below oversold exit — always reset so next bar can look for new trigger immediately.
         if hasattr(self, 'csv_file_path') and self.csv_file_path:
             symbol = self.csv_file_path.stem
-            state_machine = getattr(self, 'entry2_state_machine', {}) or {}
-            sm = state_machine.get(symbol, {})
-            if sm.get('state') != 'AWAITING_CONFIRMATION' or sm.get('trigger_bar_index') is None:
+            if "DeMarker below oversold" in (exit_reason or ""):
                 self._reset_entry2_state_machine(symbol)
-                logger.debug(f"Entry2: Reset state machine for {symbol} after trade exit at index {current_index}")
+                logger.info(f"Entry2 (DeMarker): Reset state machine for {symbol} after DeMarker-below-oversold exit at index {current_index} - next bar can trigger")
             else:
-                # Trigger was on same bar as exit (e.g. 10:43). Shift effective trigger to next bar so
-                # confirmation window is 10:44..10:47 (4 bars), matching production (confirmation @10:47).
-                old_trigger = sm.get('trigger_bar_index')
-                new_trigger = current_index + 1
-                if old_trigger == current_index and new_trigger < len(df):
-                    self.entry2_state_machine[symbol]['trigger_bar_index'] = new_trigger
-                    self.entry2_state_machine[symbol]['extended_window_after_exit'] = True  # allow bar 94 (10:47) in window
-                    logger.info(f"Entry2: Preserving state machine for {symbol} after exit at bar {current_index} - shifted trigger bar to {new_trigger} so confirmation window includes next 4 bars")
+                state_machine = getattr(self, 'entry2_state_machine', {}) or {}
+                sm = state_machine.get(symbol, {})
+                if sm.get('state') != 'AWAITING_CONFIRMATION' or sm.get('trigger_bar_index') is None:
+                    self._reset_entry2_state_machine(symbol)
+                    logger.debug(f"Entry2: Reset state machine for {symbol} after trade exit at index {current_index}")
                 else:
-                    logger.info(f"Entry2: Preserving state machine for {symbol} after exit at bar {current_index} (trigger at bar {old_trigger} - confirmation can complete on next bar)")
+                    # Trigger was on same bar as exit (e.g. 10:43). Shift effective trigger to next bar so
+                    # confirmation window is 10:44..10:47 (4 bars), matching production (confirmation @10:47).
+                    old_trigger = sm.get('trigger_bar_index')
+                    new_trigger = current_index + 1
+                    if old_trigger == current_index and new_trigger < len(df):
+                        self.entry2_state_machine[symbol]['trigger_bar_index'] = new_trigger
+                        self.entry2_state_machine[symbol]['extended_window_after_exit'] = True  # allow bar 94 (10:47) in window
+                        logger.info(f"Entry2: Preserving state machine for {symbol} after exit at bar {current_index} - shifted trigger bar to {new_trigger} so confirmation window includes next 4 bars")
+                    else:
+                        logger.info(f"Entry2: Preserving state machine for {symbol} after exit at bar {current_index} (trigger at bar {old_trigger} - confirmation can complete on next bar)")
             
             # Apply deferred Entry2 if trigger+confirmation completed while we were in trade (execute now that we exited)
             deferred_bar = getattr(self, 'deferred_entry2_bar', None)
@@ -3129,7 +3187,7 @@ class Entry2BacktestStrategyFixed:
                             if not hasattr(self, 'entry2_last_signal_index'):
                                 self.entry2_last_signal_index = {}
                             self.entry2_last_signal_index[symbol] = i
-                            entered = self._enter_position(df, i - 1, "Entry2")  # execution at bar i's open
+                            entered = self._enter_position(df, i - 1, "Entry2", skip_cpr_for_optimal_entry=True)  # execution at bar i's open
                             if entered:
                                 entry2_signal_detected = True
                                 if 'entry2_signal' in df.columns:
@@ -3139,11 +3197,31 @@ class Entry2BacktestStrategyFixed:
                                 if 'entry2_pnl' in df.columns:
                                     df.at[i, 'entry2_pnl'] = 0.0
                                 logger.info(f"Entry2 optimal entry: Marked Entry at bar {i} for {symbol}")
-                            del self.pending_optimal_entry[symbol]
+                                del self.pending_optimal_entry[symbol]
+                            else:
+                                logger.info(f"Entry2 optimal entry: bar {i} ({symbol}) open>=confirm_high but _enter_position returned False (e.g. CPR_TRADING_RANGE or Nifty file) - keeping pending for next bar")
                         elif result == 'invalidate':
                             del self.pending_optimal_entry[symbol]
+                        # When we had pending but didn't enter (wait or invalidate), still allow current bar's new Entry2 signal to set/overwrite pending (so e.g. 10:51 signal is not ignored while holding an older pending)
+                        if not entry2_signal_detected and entry2_result:
+                            signal_bar_index = self.entry2_last_signal_index.get(symbol, i) if hasattr(self, 'entry2_last_signal_index') else i
+                            should_enter = self._check_entry_risk_validation(df, signal_bar_index, symbol, count_filtered=True)
+                            if should_enter and getattr(self, 'entry2_optimal_entry_above_confirm_open', False):
+                                next_bar = signal_bar_index + 1
+                                if next_bar < len(df):
+                                    next_open = float(df.iloc[next_bar]['open'])
+                                    sl_pct = self._determine_stop_loss_percent(next_open)
+                                    sl_price = next_open * (1 - sl_pct / 100.0)
+                                    confirm_high = float(df.iloc[signal_bar_index]['high'])
+                                    if not hasattr(self, 'pending_optimal_entry'):
+                                        self.pending_optimal_entry = {}
+                                    self.pending_optimal_entry[symbol] = {'confirm_bar': signal_bar_index, 'confirm_high': confirm_high, 'sl_price': sl_price}
+                                    if 'entry2_signal_bar' in df.columns:
+                                        df.at[signal_bar_index, 'entry2_signal_bar'] = 1
+                                    self._reset_entry2_state_machine(symbol)
+                                    logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}) [new signal overwrote previous pending]")
                     else:
-                        # Normal Entry2 path (or no pending)
+                        # Normal Entry2 path (no pending)
                         signal_bar_index = i
                         if hasattr(self, 'entry2_last_signal_index'):
                             signal_bar_index = self.entry2_last_signal_index.get(symbol, i)
@@ -3192,7 +3270,7 @@ class Entry2BacktestStrategyFixed:
                                             df.at[signal_bar_index, 'entry2_pnl'] = 0.0
                                         logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
                             else:
-                                logger.debug(f"Entry2 signal at signal_bar_index={signal_bar_index} filtered out by risk validation - not marking entry2_signal")
+                                logger.info(f"Entry2 signal at bar {signal_bar_index} ({symbol}) filtered out by risk validation - not setting pending/marking entry")
                         else:
                             logger.debug(f"No Entry2 signal at index {i} for {symbol}")
                     

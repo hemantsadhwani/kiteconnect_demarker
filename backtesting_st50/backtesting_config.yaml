@@ -10,7 +10,7 @@ ANALYSIS:
   SAVE_JSON_REPORTS: false
   SAVE_TRADE_DETAILS: true
 BACKTESTING_ANALYSIS:
-  DYNAMIC_ATM: ENABLE
+  DYNAMIC_ATM: DISABLE
   DYNAMIC_OTM: ENABLE
   PRICE_ZONES:
     DYNAMIC_ATM:
@@ -29,37 +29,39 @@ BACKTESTING_EXPIRY:
     DYNAMIC_DATA: ENABLE
     STATIC_DATA: DISABLE
   BACKTESTING_DAYS:
-  # - '2025-11-26'
-  # - '2025-11-27'
-  # - '2025-11-28'
-  # - '2025-12-01'
-  # - '2025-12-03'
-  # - '2025-12-04'
-  # - '2025-12-05'
-  # - '2025-12-08'
-  # - '2025-12-10'
-  # - '2025-12-11'
-  # - '2025-12-12'
-  # - '2025-12-15'
-  # - '2026-01-07'
-  # - '2026-01-08'
-  # - '2026-01-09'
-  # - '2026-01-12'
-  # - '2026-01-14'
-  # - '2026-01-16'
-  # - '2026-01-19'
-  # - '2026-01-21'
-  # - '2026-01-22'
-  # - '2026-01-23'
-  # - '2026-01-28'
-  # - '2026-01-29'
-  # - '2026-01-30'
-  # - '2026-02-01'
-  # - '2026-02-02'
-  # - '2026-02-04'
-  # - '2026-02-05'
-  # - '2026-02-06'
-  # - '2026-02-09'
+  - '2025-11-26'
+  - '2025-11-27'
+  - '2025-11-28'
+  - '2025-12-01'
+  - '2025-12-03'
+  - '2025-12-04'
+  - '2025-12-05'
+  - '2025-12-08'
+  - '2025-12-10'
+  - '2025-12-11'
+  - '2025-12-12'
+  - '2025-12-15'
+
+  - '2026-01-07'
+  - '2026-01-08'
+  - '2026-01-09'
+  - '2026-01-12'
+  - '2026-01-14'
+  - '2026-01-16'
+  - '2026-01-19'
+  - '2026-01-21'
+  - '2026-01-22'
+  - '2026-01-23'
+  - '2026-01-28'
+  - '2026-01-29'
+  - '2026-01-30'
+  - '2026-02-01'
+  - '2026-02-02'
+
+  - '2026-02-04'
+  - '2026-02-05'
+  - '2026-02-06'
+  - '2026-02-09'
 
   - '2026-02-11'
   - '2026-02-12'
@@ -74,6 +76,7 @@ BACKTESTING_EXPIRY:
   - '2026-02-25'
   - '2026-02-26'
   - '2026-02-27'
+
 
   BACKTESTING_STRIKE_TYPE:
   - ATM
@@ -98,8 +101,8 @@ BACKTESTING_EXPIRY:
   - MAR02
 CPR_TRADING_RANGE:
   ENABLED: true
-  CPR_UPPER: R2
-  CPR_LOWER: S3
+  CPR_UPPER: R1
+  CPR_LOWER: S2
 CPR_WIDTH_FILTER:
   ENABLED: false
   CPR_WIDTH_SIZE: 62
@@ -166,9 +169,9 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: true
+    12:00-13:00: false
     13:00-14:00: true
-    14:00-15:30: true
+    14:00-15:30: false
 TRADING:
   EOD_EXIT: true
   EOD_EXIT_TIME: '15:14'
@@ -179,15 +182,17 @@ ENTRY1:
 ENTRY2:
   DEMARKER_CONFIRMATION_WINDOW: 3
   WPR_CONFIRMATION_WINDOW: 4
-  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: false
+  OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
   SL_MODE: Fixed Percentage #Swing Low 
-  TRIGGER: DEMARKER #WPR 
+  TRIGGER: WPR  #DEMARKER #WPR 
+  # When true (default): exit Entry2 DeMarker trade if DeMarker goes below DEMARKER_OVERSOLD; reset state so new trigger can initiate next bar
+  EXIT_WHEN_DEMARKER_BELOW_OVERSOLD: true
   TRIGGER_REQUIRE_SUPERTREND_BEARISH: true
   FLEXIBLE_STOCHRSI_CONFIRMATION: true
   TAKE_PROFIT_PERCENT: 8.0
   STOP_LOSS_PRICE_THRESHOLD:
-  - 140
+  - 120
   - 40
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5

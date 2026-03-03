@@ -2071,6 +2071,12 @@ class ConsolidatedDynamicOTMAnalysis:
         # Sort strategy files by symbol to ensure consistent processing order
         strategy_files.sort(key=lambda x: x.stem)
         
+        # When OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN is true, strategy marks the EXECUTION bar (where we enter)
+        # with Entry2; that row's date/open are already entry time/price. Do NOT add +1min+1sec or we
+        # shift entry to next minute and execution price lookup uses wrong bar (realized PnL exceeds SL).
+        entry2_config = self.config.get('ENTRY2', {}) or {}
+        optimal_entry_above_confirm = entry2_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
+
         for strategy_file in strategy_files:
             symbol = strategy_file.stem.replace('_strategy', '')
             logger.info(f"Processing strategy file: {strategy_file.name} for symbol: {symbol}")
@@ -2089,11 +2095,12 @@ class ConsolidatedDynamicOTMAnalysis:
             # Add entry signals to global list
             for _, entry_signal in entry_signals.iterrows():
                 signal_candle_time = entry_signal['date']
-                # CRITICAL FIX: In production, when a candle completes at T (e.g., 12:52:00),
-                # the entry condition is evaluated at T+1 minute (e.g., 12:53:01) and trade executes at that time.
-                # So entry_time should be signal_candle_time + 1 minute + 1 second to match production behavior.
-                # Example: Signal detected at 12:52:00 -> Trade executes at 12:53:01
-                entry_execution_time = signal_candle_time + pd.Timedelta(minutes=1, seconds=1)
+                if optimal_entry_above_confirm:
+                    # Row is the execution bar (we enter at this bar's open). Use its time so execution price = this bar's open.
+                    entry_execution_time = signal_candle_time + pd.Timedelta(seconds=1)
+                else:
+                    # Signal at T -> trade executes at T+1 min + 1 sec.
+                    entry_execution_time = signal_candle_time + pd.Timedelta(minutes=1, seconds=1)
                 all_global_signals.append({
                     'type': 'entry',
                     'time': entry_execution_time,  # Use execution time (signal time + 1 min + 1 sec)

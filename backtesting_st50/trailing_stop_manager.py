@@ -85,21 +85,8 @@ class BacktestingTrailingStopManager:
             )
             return False, reason
         
-        # Calculate what capital would be AFTER this trade
-        realized_pnl = self.current_capital * (projected_pnl_percent / 100.0)
-        projected_capital = self.current_capital + realized_pnl
-        
-        # Risk check: if projected capital would fall below drawdown limit, block this trade
-        if projected_capital < drawdown_limit:
-            reason = (
-                f"Trade entry blocked: Projected capital {projected_capital:,.2f} would be < "
-                f"Drawdown Limit {drawdown_limit:,.2f} (HWM: {self.high_water_mark:,.2f}, "
-                f"PnL: {projected_pnl_percent:.2f}%)"
-            )
-            logger.warning(f"Trailing stop triggered: {reason}")
-            self.trading_active = False
-            return False, reason
-        
+        # Do NOT block based on projected capital (cannot know in advance in realtime).
+        # We only stop when capital actually breaches the limit after the trade is executed.
         return True, None
     
     def update_after_trade(self, pnl_percent: float, update_capital: bool = True):
@@ -117,34 +104,27 @@ class BacktestingTrailingStopManager:
             # Trading already stopped - don't update
             return
         
-        # Calculate monetary impact
+        # Calculate monetary impact and execute the trade (update capital first)
         realized_pnl = self.current_capital * (pnl_percent / 100.0)
-        
-        # Calculate what capital would be after this trade
         projected_capital = self.current_capital + realized_pnl
-        
-        # Calculate drawdown limit based on current high water mark
-        drawdown_limit = self._calculate_drawdown_limit()
-        
-        # Risk check: if current or projected capital falls below drawdown limit, stop trading
-        if self.current_capital < drawdown_limit or projected_capital < drawdown_limit:
-            self.trading_active = False
-            logger.warning(
-                f"Trailing stop triggered: {'Current' if self.current_capital < drawdown_limit else 'Projected'} capital "
-                f"{self.current_capital if self.current_capital < drawdown_limit else projected_capital:,.2f} < "
-                f"Drawdown Limit {drawdown_limit:,.2f} (HWM: {self.high_water_mark:,.2f})"
-            )
-            # Don't update capital if trading is stopped
-            return
         
         # Only update capital if update_capital is True (second pass)
         if update_capital:
-            # Update capital
+            # Execute the trade: update capital (we do not block based on projection)
             self.current_capital = projected_capital
             
             # Update high water mark
             if self.current_capital > self.high_water_mark:
                 self.high_water_mark = self.current_capital
+            
+            # After executing: if capital actually breached the limit, stop trading for the day
+            drawdown_limit = self._calculate_drawdown_limit()
+            if self.current_capital < drawdown_limit:
+                self.trading_active = False
+                logger.warning(
+                    f"Trailing stop triggered: Capital {self.current_capital:,.2f} < "
+                    f"Drawdown Limit {drawdown_limit:,.2f} (HWM: {self.high_water_mark:,.2f}). No further trades for the day."
+                )
     
     def _calculate_drawdown_limit(self) -> float:
         """Calculate the drawdown limit based on high water mark."""

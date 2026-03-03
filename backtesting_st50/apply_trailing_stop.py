@@ -301,30 +301,9 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         # Drawdown limit from current high water mark
         drawdown_limit = _drawdown_limit(high_water_mark)
         realized_pnl = current_capital * (pnl_percent / 100.0)
-        projected_capital = current_capital + realized_pnl
-        
-        # Do NOT execute the trade if it would bring capital below the limit (pre-trade check).
-        # This keeps capital from ever breaching LOSS_MARK% — the trade that would breach is skipped.
-        if projected_capital < drawdown_limit:
-            trading_active = False
-            df.at[idx, 'realized_pnl'] = 0.0
-            df.at[idx, 'running_capital'] = round(current_capital, 2)
-            df.at[idx, 'high_water_mark'] = round(high_water_mark, 2)
-            df.at[idx, 'drawdown_limit'] = round(drawdown_limit, 2)
-            df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
-            df.at[idx, 'trade_status_reason'] = (
-                f'MARK2MARKET: Not executed; this trade would have brought capital below {loss_mark}% from '
-                f'{"starting capital" if use_start_capital_for_limit else "day high"} (projected {projected_capital:,.2f} < limit {drawdown_limit:,.2f})'
-            )
-            if 'sentiment_pnl' in df.columns:
-                df.at[idx, 'sentiment_pnl'] = 0
-            logger.warning(
-                f"Trade {idx+1}: Skipped (would breach). Projected {projected_capital:,.2f} < Limit {drawdown_limit:,.2f}. No further trades for the day."
-            )
-            continue
-        
-        # Execute the trade (projected capital is above limit)
-        current_capital = projected_capital
+        # Execute the trade first (no pre-check). In realtime we cannot know in advance;
+        # we only stop when capital actually breaches the limit after the trade is executed.
+        current_capital = current_capital + realized_pnl
         if current_capital > high_water_mark:
             high_water_mark = current_capital
         drawdown_limit = _drawdown_limit(high_water_mark)
@@ -335,6 +314,14 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
         df.at[idx, 'drawdown_limit'] = round(drawdown_limit, 2)
         df.at[idx, 'trade_status'] = 'EXECUTED'
         df.at[idx, 'trade_status_reason'] = ''
+        
+        # After executing: if capital actually breached the limit, stop trading for the rest of the day.
+        # (No pre-trade skip: we only stop when MARK2MARKET has actually breached.)
+        if current_capital < drawdown_limit:
+            trading_active = False
+            logger.warning(
+                f"Trade {idx+1}: Executed; capital {current_capital:,.2f} is below limit {drawdown_limit:,.2f}. No further trades for the day."
+            )
     
     # Sort by entry_time descending (newest first) for output
     if 'entry_time' in df.columns:

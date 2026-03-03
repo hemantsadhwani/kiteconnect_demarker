@@ -81,6 +81,9 @@ DATE_MAPPINGS:
 
 
 
+
+
+
 # Realtime alignment: sentiment of candle T is only known when T closes (at start of T+1).
 # Workflow file (nifty_market_sentiment_<date>.csv) – used by backtest:
 #   true:  row at time T = sentiment computed from candle T-1 (realtime: at T we have T-1's sentiment). Use for production-like backtest.

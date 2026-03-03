@@ -1666,6 +1666,11 @@ class ConsolidatedDynamicATMAnalysis:
         # Collect all signals from all symbols and process globally chronologically
         all_global_signals = []
         
+        # When OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN is true, strategy marks the EXECUTION bar with Entry2;
+        # that row's date/open are entry time/price. Do NOT add +1min+1sec or execution price is wrong.
+        entry2_config = self.config.get('ENTRY2', {}) or {}
+        optimal_entry_above_confirm = entry2_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
+
         # Sort strategy files by symbol to ensure consistent processing order
         strategy_files.sort(key=lambda x: x.stem)
         
@@ -1721,7 +1726,10 @@ class ConsolidatedDynamicATMAnalysis:
                 # - Production can log seconds (e.g., "14:04:01") because it processes tick-by-tick data
                 # - Backtesting lowest resolution is 1 minute (e.g., "14:03:00") because it uses minute candles
                 # - When signal is detected at candle T, execution happens at T+1 minute + 1 second (next candle + 1 second)
-                entry_execution_time = signal_candle_time + pd.Timedelta(minutes=1, seconds=1)
+                if optimal_entry_above_confirm:
+                    entry_execution_time = signal_candle_time + pd.Timedelta(seconds=1)
+                else:
+                    entry_execution_time = signal_candle_time + pd.Timedelta(minutes=1, seconds=1)
                 logger.debug(f"Adding {entry_type} entry signal for {symbol}: signal candle at {signal_candle_time}, execution time {entry_execution_time}")
                 all_global_signals.append({
                     'type': 'entry',

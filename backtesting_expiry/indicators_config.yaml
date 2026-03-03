@@ -29,7 +29,7 @@ THRESHOLDS:
   DEMARKER_OVERSOLD: 0.3
 # Optional: run indicators for only this date (e.g. new trading day). Leave commented for full run.
 # When set, run_indicators.py processes only NEW_DAY instead of all TRADING_DAYS (no need to change TRADING_DAYS).
-NEW_DAY: "2026-02-24"
+# NEW_DAY: "2026-03-02"
 TARGET_EXPIRY:
   EXPIRY_WEEK_LABELS:
   - OCT20
@@ -51,8 +51,9 @@ TARGET_EXPIRY:
   - FEB10
   - FEB17
   - FEB24
+  - MAR02
   TRADING_DAYS:
-  - '2026-02-17'
+  - '2026-03-02'
 
 PATHS:
   DATA_DIR: data

@@ -2,7 +2,7 @@
 
 ## Overview
 
-When **OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN** is **true**, we do **not** enter on the next candle after Entry2 confirmation. We **defer** the entry and only take the trade when a **later** candle **opens above** the confirmation candle’s **high**. So the strategy is “delayed” (we don’t enter immediately) and “optimised” (we only enter when price shows strength by opening above that high).
+When **OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN** is **true**, we do **not** enter on the confirmation candle itself. We **defer** the entry and take the trade on the **first** candle (including the very next candle) whose **open** is **at or above** the confirmation candle’s **high** (i.e. **open ≥ confirm_high**). So we only enter when price shows strength by opening at or above that high.
 
 ## Config
 
@@ -26,16 +26,12 @@ Optional:
   - **sl_price** = invalidation level (from confirmation candle’s close and your SL%, or from swing low if SL_MODE uses swing low)
   - **confirm_candle_timestamp** = time of the confirmation candle
 
-### 2. Skip the immediate next candle
+### 2. From the next candle onward — eligible to enter
 
-- The candle that starts **one minute after** the confirmation candle is **skipped** for entry.
-- On that candle we only check **invalidation** (see below). We do **not** enter even if its open is above confirm_high.
-
-### 3. From the following candle onward — eligible to enter
-
-- For any candle at **confirm_ts + 2 minutes** or later:
-  - If that candle’s **open** is **above confirm_high** → we **enter** (place the trade and clear the pending state).
+- Starting with the candle **immediately after** the confirmation candle (confirm_ts + 1 minute):
+  - If that candle’s **open** is **≥ confirm_high** (at or above) → we **enter** (place the trade and clear the pending state).
   - Otherwise we keep waiting.
+- On every candle we also check **invalidation** (see below).
 
 ### 4. Invalidation (cancel the delayed entry)
 
@@ -47,8 +43,7 @@ Optional:
 ## Timeline (summary)
 
 - **Confirmation candle T** → we set confirm_high and sl_price and go into “pending optimal entry”.
-- **Candle T+1** → skip (only check invalidation).
-- **Candle T+2, T+3, …** → enter on the **first** candle whose **open** is **above confirm_high**; if any candle’s low ≤ sl_price first, we invalidate and never enter.
+- **Candle T+1, T+2, …** → enter on the **first** candle whose **open** is **≥ confirm_high**; if any candle’s low ≤ sl_price first, we invalidate and never enter.
 
 ---
 
@@ -60,6 +55,6 @@ We only take the trade when price has already traded above the confirmation cand
 
 ## Related
 
-- **Entry2** must confirm first (trigger + confirmation window). See [Entry2.md](Entry2.md).
+- **Entry2** must confirm first (trigger + confirmation window). See [Entry2_WPR.md](Entry2_WPR.md).
 - **WPR_INVALIDATION** applies during the confirmation window before we set pending optimal entry. See [WPR_INVALIDATION.md](WPR_INVALIDATION.md).
 - Implementation details (production plan): [OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN_PRODUCTION.md](OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN_PRODUCTION.md).

@@ -3,16 +3,16 @@
 
 # Target Expiry Week Configuration (for data collection)
 TARGET_EXPIRY:
-  EXPIRY_DATE: "2025-02-24"  # Monday expiry date (YYYY-MM-DD format)
-  EXPIRY_WEEK_LABEL: "FEB24"  # Base label for folder naming (e.g., OCT20, NOV25, etc.)
+  EXPIRY_DATE: "2025-03-02"  # Monday expiry date (YYYY-MM-DD format)
+  EXPIRY_WEEK_LABEL: "MAR02"  # Base label for folder naming (e.g., OCT20, NOV25, etc.)
   
   # Trading days in the expiry week (Monday to Friday)
   # NOTE: Only include date mentioned in config (OCT16) - no past or future dates
   TRADING_DAYS:
-  - '2026-02-18'
-  - '2026-02-19'
-  - '2026-02-20'
-  - '2026-02-23'
+  - '2026-02-25'
+  - '2026-02-26'
+  - '2026-02-27'
+
 # Data Collection Settings
 DATA_COLLECTION:
   # NIFTY 50 Configuration

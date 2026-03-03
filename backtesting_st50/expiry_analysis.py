@@ -152,8 +152,8 @@ class EnhancedExpiryAnalysis:
                 }
                 month = month_map.get(month_str, 0)
                 day = int(day_str)
-                # 2026 only for JAN and FEB; MAR through DEC = 2025 so FEB/JAN on top, OCT not after FEB
-                year = 2026 if month <= 2 else 2025
+                # 2026 for JAN/MAR; MAR above FEB in sort; 2025 for APR–DEC
+                year = 2026 if month <= 3 else 2025
                 return (year, month, day)
             return (0, 0, 0)  # Fallback for unrecognized format
         
@@ -347,7 +347,6 @@ class EnhancedExpiryAnalysis:
         
         if not file_path.exists():
             return None
-        
         try:
             df = pd.read_csv(file_path)
             if df.empty:
@@ -1240,7 +1239,7 @@ class EnhancedExpiryAnalysis:
         function getYearForExpiry(expiryWeek) {
             const monthMap = { 'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6, 'JUL': 7, 'AUG': 8, 'SEP': 9, 'OCT': 10, 'NOV': 11, 'DEC': 12 };
             const match = String(expiryWeek || '').toUpperCase().match(/^([A-Z]{3})(\\d{2})$/);
-            if (match) { const month = monthMap[match[1]] || 0; return month <= 2 ? 2026 : 2025; }
+            if (match) { const month = monthMap[match[1]] || 0; return month <= 3 ? 2026 : 2025; }
             return '';
         }
         
@@ -1312,8 +1311,7 @@ class EnhancedExpiryAnalysis:
             const expiryContainer = document.getElementById('expiryData');
             let html = '';
             
-            // Sort expiry weeks chronologically (latest first)
-            // 2026 only for JAN and FEB; MAR through DEC = 2025 so FEB/JAN on top, OCT not after FEB
+            // Sort expiry weeks chronologically (latest first): 2026 above 2025, MAR above FEB above JAN
             const sortedExpiries = Object.values(expiryData).sort((a, b) => {
                 const monthMap = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
@@ -1325,7 +1323,7 @@ class EnhancedExpiryAnalysis:
                     if (match) {
                         const month = monthMap[match[1]] || 0;
                         const day = parseInt(match[2]);
-                        const year = month <= 2 ? 2026 : 2025;
+                        const year = month <= 3 ? 2026 : 2025;
                         return year * 10000 + month * 100 + day;
                     }
                     return 0;
@@ -1551,7 +1549,7 @@ class EnhancedExpiryAnalysis:
             const dailyData = [];
             const dailyLabels = [];
             
-            // Sort expiry weeks chronologically (latest first) - 2026 only JAN/FEB; MAR-DEC=2025
+            // Sort expiry weeks chronologically (latest first): 2026 above 2025, MAR above FEB above JAN
             const sortedExpiriesForChart = Object.values(expiryData).sort((a, b) => {
                 const monthMap = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
@@ -1562,7 +1560,7 @@ class EnhancedExpiryAnalysis:
                     if (match) {
                         const month = monthMap[match[1]] || 0;
                         const day = parseInt(match[2]);
-                        const year = month <= 2 ? 2026 : 2025;
+                        const year = month <= 3 ? 2026 : 2025;
                         return year * 10000 + month * 100 + day;
                     }
                     return 0;
@@ -1647,7 +1645,7 @@ class EnhancedExpiryAnalysis:
             const tradeDistCtx = document.getElementById('tradeDistributionChart').getContext('2d');
             let staticAtmTrades = 0, staticOtmTrades = 0, dynamicAtmTrades = 0, dynamicOtmTrades = 0;
             
-            // Sort expiry weeks chronologically (latest first) - 2026 only JAN/FEB; MAR-DEC=2025
+            // Sort expiry weeks chronologically (latest first): 2026 above 2025, MAR above FEB above JAN
             const sortedExpiriesForDistChart = Object.values(expiryData).sort((a, b) => {
                 const monthMap = {
                     'JAN': 1, 'FEB': 2, 'MAR': 3, 'APR': 4, 'MAY': 5, 'JUN': 6,
@@ -1658,7 +1656,7 @@ class EnhancedExpiryAnalysis:
                     if (match) {
                         const month = monthMap[match[1]] || 0;
                         const day = parseInt(match[2]);
-                        const year = month <= 2 ? 2026 : 2025;
+                        const year = month <= 3 ? 2026 : 2025;
                         return year * 10000 + month * 100 + day;
                     }
                     return 0;
