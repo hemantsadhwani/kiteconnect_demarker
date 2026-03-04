@@ -73,6 +73,8 @@ class AsyncLiveTickerHandler:
         self.trading_bot = None
         # Last NIFTY candle timestamp for which slab/sentiment was processed (dedup: one run per candle)
         self._last_nifty_completed_candle_ts = None
+        # Precomputed band: last minute for which we wrote a snapshot (avoid duplicate writes)
+        self._last_snapshot_minute = None
 
     async def on_ticks(self, ws, ticks):
         """
@@ -298,12 +300,15 @@ class AsyncLiveTickerHandler:
                         )
 
                         # 4. Calculate indicators if sufficient data
-                        # IMPORTANT: Calculate indicators for the COMPLETED candle immediately
-                        # This ensures indicator logs appear as soon as candle completes
+                        # When precomputed band is enabled, log to terminal only for active CE/PE
                         if len(self.completed_candles_data[instrument_token]) >= 35:
-                            # Use the completed candle's timestamp for indicator calculation
                             completed_candle_timestamp = completed_candle['timestamp']
-                            await self._calculate_and_dispatch_indicators(instrument_token, completed_candle_timestamp, is_new_candle=True)
+                            skip_terminal_log = False
+                            if getattr(self.trading_bot, 'precomputed_band', None):
+                                ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+                                pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+                                skip_terminal_log = (instrument_token != ce_tok and instrument_token != pe_tok)
+                            await self._calculate_and_dispatch_indicators(instrument_token, completed_candle_timestamp, is_new_candle=True, skip_terminal_log=skip_terminal_log)
 
                         # 5. Start a new candle for the new minute with the current tick's data
                         self._start_new_candle(instrument_token, tick_time, ltp)
@@ -326,8 +331,8 @@ class AsyncLiveTickerHandler:
             )
 
     # In async_live_ticker_handler.py - Update the _calculate_and_dispatch_indicators method
-    async def _calculate_and_dispatch_indicators(self, token: int, timestamp: datetime, is_new_candle: bool = True):
-        """Calculate indicators and dispatch indicator update event"""
+    async def _calculate_and_dispatch_indicators(self, token: int, timestamp: datetime, is_new_candle: bool = True, skip_terminal_log: bool = False):
+        """Calculate indicators and dispatch indicator update event. When skip_terminal_log=True, do not log to terminal or run trailing SL (used for precomputed band non-active symbols)."""
         try:
             async with self.indicator_lock:  # Use a lock to prevent concurrent calculations
                 # Ensure completed_candles_data[token] is a list
@@ -423,16 +428,15 @@ class AsyncLiveTickerHandler:
                 self.indicators_data[token] = df_with_indicators
                 self.last_indicator_timestamp[token] = timestamp
 
-                # Log indicator calculation for debugging
+                # Log indicator calculation for debugging (skip when precomputed band non-active to avoid terminal spam)
                 symbol = next((s for s, t in self.symbol_token_map.items() if t == token), "Unknown")
-                # CRITICAL: Log when DataFrame is actually updated (before event dispatch)
-                # This helps diagnose race conditions where entry check might use stale data
-                update_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                if token_type in ['CE', 'PE']:
-                    latest_timestamp = df_with_indicators.index[-1] if not df_with_indicators.empty else None
-                    latest_time_str = latest_timestamp.strftime('%H:%M:%S') if hasattr(latest_timestamp, 'strftime') else str(latest_timestamp)
-                    logger.info(f"[DATA UPDATE] {token_type} DataFrame updated for {symbol} at {update_time} - Latest candle: {latest_time_str}, DataFrame length: {len(df_with_indicators)}")
-                logger.debug(f"Calculated indicators for {symbol} (token={token}), is_new_candle={is_new_candle}, token_type={token_type}")
+                if not skip_terminal_log:
+                    update_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                    if token_type in ['CE', 'PE']:
+                        latest_timestamp = df_with_indicators.index[-1] if not df_with_indicators.empty else None
+                        latest_time_str = latest_timestamp.strftime('%H:%M:%S') if hasattr(latest_timestamp, 'strftime') else str(latest_timestamp)
+                        logger.info(f"[DATA UPDATE] {token_type} DataFrame updated for {symbol} at {update_time} - Latest candle: {latest_time_str}, DataFrame length: {len(df_with_indicators)}")
+                    logger.debug(f"Calculated indicators for {symbol} (token={token}), is_new_candle={is_new_candle}, token_type={token_type}")
 
                 # Dispatch indicator update event
                 self.event_dispatcher.dispatch_event(
@@ -444,21 +448,25 @@ class AsyncLiveTickerHandler:
                     }, source='websocket_handler')
                 )
 
-                # Always print indicator data for CE and PE tokens (for every candle completion)
-                if token_type in ['CE', 'PE']:
-                    if not df_with_indicators.empty:
-                        await self._print_indicator_data_async(token, df_with_indicators)
+                # Print indicator data only for active CE/PE when not skipping terminal log (precomputed band: active pair only)
+                if not skip_terminal_log:
+                    if token_type in ['CE', 'PE']:
+                        if not df_with_indicators.empty:
+                            await self._print_indicator_data_async(token, df_with_indicators)
+                        else:
+                            logger.warning(f"[WARN] Indicator data empty for {symbol} (token={token}), token_type={token_type} - cannot print indicator update")
                     else:
-                        logger.warning(f"[WARN] Indicator data empty for {symbol} (token={token}), token_type={token_type} - cannot print indicator update")
-                else:
-                    # Log when token_type is not detected (for debugging missing logs)
-                    if symbol and ('CE' in symbol or 'PE' in symbol):
-                        logger.warning(f"[WARN] Token type not detected for {symbol} (token={token}). Expected CE/PE but got token_type={token_type}. ce_symbol={self.ce_symbol}, pe_symbol={self.pe_symbol}")
-                    logger.debug(f"Skipping indicator update log for {symbol} (token={token}) - token_type={token_type}, not CE/PE")
+                        if symbol and ('CE' in symbol or 'PE' in symbol):
+                            logger.warning(f"[WARN] Token type not detected for {symbol} (token={token}). Expected CE/PE but got token_type={token_type}. ce_symbol={self.ce_symbol}, pe_symbol={self.pe_symbol}")
+                        logger.debug(f"Skipping indicator update log for {symbol} (token={token}) - token_type={token_type}, not CE/PE")
 
-                # Manage trailing stop loss for Entry 2 and Entry 3 trades on new candles
-                if is_new_candle and not df_with_indicators.empty:
+                # Manage trailing stop loss for Entry 2 and Entry 3 trades on new candles (active pair only when band enabled)
+                if not skip_terminal_log and is_new_candle and not df_with_indicators.empty:
                     await self._manage_trailing_sl_for_entry_trades(token, df_with_indicators)
+
+                # Precomputed band: write 23-symbol snapshot once all 22 option indicators are updated for this minute
+                if getattr(self.trading_bot, 'precomputed_band', None) and is_new_candle:
+                    await self._maybe_write_precomputed_band_snapshot(timestamp)
 
         except Exception as e:
             logger.error(f"Error calculating indicators for token {token}: {e}")
@@ -1077,44 +1085,47 @@ class AsyncLiveTickerHandler:
                     )
                     
                     # CRITICAL: If strikes are not derived yet, derive them from first NIFTY candle
-                    # Use calculated price for initial strike derivation as well
                     if not self.trading_bot.strikes_derived:
-                        logger.info(f"[CHART] Strikes not derived yet. Deriving from first NIFTY candle (calculated price: {nifty_calculated_price:.2f}, close: {nifty_close:.2f})")
-                        try:
-                            await self.trading_bot._process_nifty_opening_price(nifty_calculated_price)
-                            # Initialize entry condition manager now that strikes are derived
-                            await self.trading_bot._initialize_entry_condition_manager()
-                            # Wire entry_condition_manager to event handlers
-                            if self.trading_bot.entry_condition_manager:
-                                self.trading_bot.event_handlers.entry_condition_manager = self.trading_bot.entry_condition_manager
-                            
-                            # Subscribe to CE and PE tokens now that strikes are derived
-                            ce_symbol = self.trading_bot.trade_symbols.get('ce_symbol')
-                            pe_symbol = self.trading_bot.trade_symbols.get('pe_symbol')
-                            if ce_symbol and pe_symbol:
-                                ce_token = self.trading_bot.trade_symbols.get('ce_token')
-                                pe_token = self.trading_bot.trade_symbols.get('pe_token')
-                                
-                                # Update symbol_token_map and subscribe
-                                new_symbol_token_map = {
-                                    ce_symbol: ce_token,
-                                    pe_symbol: pe_token
-                                }
-                                
-                                # Add NIFTY back if dynamic ATM or automated sentiment is enabled
-                                if self.trading_bot.use_dynamic_atm or self.trading_bot.use_automated_sentiment:
-                                    new_symbol_token_map['NIFTY 50'] = nifty_token
-                                
-                                await self.update_subscriptions(new_symbol_token_map)
-                                
-                                # Update ticker handler symbols
-                                self.ce_symbol = ce_symbol
-                                self.pe_symbol = pe_symbol
-                                
-                                logger.info(f"[OK] Strikes derived from first NIFTY candle. Subscribed to CE: {ce_symbol}, PE: {pe_symbol}")
-                        except Exception as e:
-                            logger.error(f"[X] Error deriving strikes from first NIFTY candle: {e}", exc_info=True)
-                            # Continue processing - will retry on next candle
+                        band_cfg = self.trading_bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
+                        use_precomputed_band = band_cfg.get('ENABLED', False)
+                        if use_precomputed_band:
+                            await self._initialize_precomputed_band_from_first_nifty_candle(
+                                nifty_open, nifty_high, nifty_low, nifty_close,
+                                completed_candle_timestamp, nifty_token,
+                            )
+                        else:
+                            # Original path: 1 CE + 1 PE + NIFTY
+                            price_for_strikes = nifty_calculated_price
+                            use_kite_first = (self.trading_bot.config.get('DYNAMIC_ATM') or {}).get('USE_KITE_FIRST_CANDLE_FOR_STRIKES', True)
+                            if use_kite_first and hasattr(self.trading_bot, 'kite') and self.trading_bot.kite:
+                                from trading_bot_utils import get_nifty_first_candle_calculated_price_from_kite
+                                kite_price = get_nifty_first_candle_calculated_price_from_kite(self.trading_bot.kite)
+                                if kite_price is not None:
+                                    price_for_strikes = kite_price
+                                    logger.info(f"[CHART] Strikes derived using Kite first-candle price: {price_for_strikes:.2f} (tick-built was {nifty_calculated_price:.2f})")
+                                else:
+                                    logger.info(f"[CHART] Kite first-candle unavailable, using tick-built calculated price: {nifty_calculated_price:.2f}")
+                            else:
+                                logger.info(f"[CHART] Strikes not derived yet. Deriving from first NIFTY candle (calculated price: {price_for_strikes:.2f}, close: {nifty_close:.2f})")
+                            try:
+                                await self.trading_bot._process_nifty_opening_price(price_for_strikes)
+                                await self.trading_bot._initialize_entry_condition_manager()
+                                if self.trading_bot.entry_condition_manager:
+                                    self.trading_bot.event_handlers.entry_condition_manager = self.trading_bot.entry_condition_manager
+                                ce_symbol = self.trading_bot.trade_symbols.get('ce_symbol')
+                                pe_symbol = self.trading_bot.trade_symbols.get('pe_symbol')
+                                if ce_symbol and pe_symbol:
+                                    ce_token = self.trading_bot.trade_symbols.get('ce_token')
+                                    pe_token = self.trading_bot.trade_symbols.get('pe_token')
+                                    new_symbol_token_map = {ce_symbol: ce_token, pe_symbol: pe_token}
+                                    if self.trading_bot.use_dynamic_atm or self.trading_bot.use_automated_sentiment:
+                                        new_symbol_token_map['NIFTY 50'] = nifty_token
+                                    await self.update_subscriptions(new_symbol_token_map)
+                                    self.ce_symbol = ce_symbol
+                                    self.pe_symbol = pe_symbol
+                                    logger.info(f"[OK] Strikes derived from first NIFTY candle. Subscribed to CE: {ce_symbol}, PE: {pe_symbol}")
+                            except Exception as e:
+                                logger.error(f"[X] Error deriving strikes from first NIFTY candle: {e}", exc_info=True)
                     
                     # CRITICAL: Process sentiment FIRST (before slab decision and before entry condition scanning)
                     # Ensures sentiment (v1/v2/v5) is always available before CE/PE evaluation; same as v2 framework.
@@ -1170,17 +1181,15 @@ class AsyncLiveTickerHandler:
                                 return
                         else:
                             # No active trades AND no Entry2 confirmation - safe to process slab change
-                            # Use calculated price instead of close price for more stable slab change decisions
-                            # Pass completed candle timestamp so logs show price is for that candle (e.g. 09:30), not "at 09:31"
                             if await self.trading_bot.dynamic_atm_manager.process_nifty_candle(nifty_calculated_price, candle_timestamp=completed_candle_timestamp):
-                                # Record the candle timestamp that triggered the slab change.
-                                # We need this to correctly "handoff" Entry2 triggers from the old slab to the new slab
-                                # without missing boundary-candle crossovers.
                                 try:
                                     self._last_slab_change_candle_timestamp = completed_candle.get('timestamp')
                                 except Exception:
                                     self._last_slab_change_candle_timestamp = None
-                                await self._update_symbols_after_slab_change()
+                                if getattr(self.trading_bot, 'precomputed_band', None):
+                                    await self._update_symbols_pointer_only()
+                                else:
+                                    await self._update_symbols_after_slab_change()
                     
                     # Signal that NIFTY candle (and slab decision) is done so entry check runs once with correct symbols
                     self._dispatch_nifty_candle_complete(candle_key)
@@ -1192,6 +1201,178 @@ class AsyncLiveTickerHandler:
                     
         except Exception as e:
             logger.error(f"Error processing NIFTY candle for dynamic ATM: {e}", exc_info=True)
+
+    async def _update_symbols_pointer_only(self):
+        """When precomputed band is enabled: switch active CE/PE to band symbols for new slab (no resubscribe, no prefill)."""
+        try:
+            bot = self.trading_bot
+            band = getattr(bot, 'precomputed_band', None)
+            if not band:
+                return
+            atm_manager = bot.dynamic_atm_manager
+            if not atm_manager:
+                return
+            potential_ce = atm_manager.current_active_ce
+            potential_pe = atm_manager.current_active_pe
+            center_ce = band.get('center_ce_strike')
+            center_pe = band.get('center_pe_strike')
+            band_cfg = bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
+            symbol_band = int(band_cfg.get('SYMBOL_BAND', 5))
+            strike_difference = int(bot.config.get('STRIKE_DIFFERENCE', 50))
+            band_ce_symbols = band.get('band_ce_symbols', [])
+            band_pe_symbols = band.get('band_pe_symbols', [])
+            if not band_ce_symbols or not band_pe_symbols:
+                return
+            # Index in band: center is at symbol_band; strike at i = center + (i - symbol_band)*strike_difference
+            idx_ce = symbol_band + (potential_ce - center_ce) // strike_difference
+            idx_pe = symbol_band + (potential_pe - center_pe) // strike_difference
+            # If out of band and ADD_SYMBOL_WHEN_OUT_OF_BAND: add new symbol(s), then pointer will be in range
+            add_ob = band_cfg.get('ADD_SYMBOL_WHEN_OUT_OF_BAND', False)
+            if add_ob and (idx_ce < 0 or idx_ce >= len(band_ce_symbols) or idx_pe < 0 or idx_pe >= len(band_pe_symbols)):
+                added = await self._add_out_of_band_symbols(potential_ce, potential_pe, band, band_cfg, strike_difference)
+                if added:
+                    band = getattr(bot, 'precomputed_band', None)
+                    band_ce_symbols = band.get('band_ce_symbols', [])
+                    band_pe_symbols = band.get('band_pe_symbols', [])
+                    idx_ce = symbol_band + (potential_ce - center_ce) // strike_difference
+                    idx_pe = symbol_band + (potential_pe - center_pe) // strike_difference
+                    idx_ce = max(0, min(idx_ce, len(band_ce_symbols) - 1))
+                    idx_pe = max(0, min(idx_pe, len(band_pe_symbols) - 1))
+            else:
+                idx_ce = max(0, min(idx_ce, len(band_ce_symbols) - 1))
+                idx_pe = max(0, min(idx_pe, len(band_pe_symbols) - 1))
+            new_ce_symbol = band_ce_symbols[idx_ce]
+            new_pe_symbol = band_pe_symbols[idx_pe]
+            new_ce_token = self.symbol_token_map.get(new_ce_symbol)
+            new_pe_token = self.symbol_token_map.get(new_pe_symbol)
+            if new_ce_token is None or new_pe_token is None:
+                logger.warning("[PRECOMPUTED_BAND] New slab symbols not in band map; skipping pointer update")
+                return
+            old_ce_symbol = self.ce_symbol
+            old_pe_symbol = self.pe_symbol
+            bot.trade_symbols.update({
+                'ce_symbol': new_ce_symbol, 'ce_token': new_ce_token,
+                'pe_symbol': new_pe_symbol, 'pe_token': new_pe_token,
+            })
+            self.ce_symbol = new_ce_symbol
+            self.pe_symbol = new_pe_symbol
+            if bot.entry_condition_manager:
+                bot.entry_condition_manager.update_symbols(new_ce_symbol, new_pe_symbol)
+            subscribe_tokens_path = bot.config.get('SUBSCRIBE_TOKENS_FILE_PATH', 'output/subscribe_tokens.json')
+            try:
+                with open(subscribe_tokens_path, 'w') as f:
+                    json.dump(bot.trade_symbols, f, indent=4)
+            except Exception as e:
+                logger.debug(f"Could not update subscribe_tokens.json: {e}")
+            handoff_ts = getattr(self, '_last_slab_change_candle_timestamp', None)
+            handoff_ts_minute = handoff_ts.replace(second=0, microsecond=0) if handoff_ts else None
+            self.slab_change_handoff = {
+                'timestamp_minute': handoff_ts_minute,
+                'old_ce_token': self.symbol_token_map.get(old_ce_symbol),
+                'old_pe_token': self.symbol_token_map.get(old_pe_symbol),
+                'new_ce_symbol': new_ce_symbol,
+                'new_pe_symbol': new_pe_symbol,
+                'ce_applied': False,
+                'pe_applied': False,
+                'applied': False,
+            }
+            logger.info(
+                f"[SLAB CHANGE] Pointer-only (band): CE {old_ce_symbol} -> {new_ce_symbol}, PE {old_pe_symbol} -> {new_pe_symbol}"
+            )
+        except Exception as e:
+            logger.error(f"Error in _update_symbols_pointer_only: {e}", exc_info=True)
+
+    async def _add_out_of_band_symbols(
+        self, potential_ce: int, potential_pe: int, band: dict, band_cfg: dict, strike_difference: int
+    ) -> bool:
+        """Add CE/PE symbols when slab moves outside precomputed band (subscribe + prefill for new symbols only). Returns True if any symbol was added."""
+        from trading_bot_utils import get_weekly_expiry_date, format_option_symbol, get_instrument_token_by_symbol
+        bot = self.trading_bot
+        center_ce = band.get('center_ce_strike')
+        center_pe = band.get('center_pe_strike')
+        symbol_band = int(band_cfg.get('SYMBOL_BAND', 5))
+        max_per_side = int(band_cfg.get('MAX_STRIKES_PER_SIDE', 0))
+        band_ce_symbols = list(band.get('band_ce_symbols', []))
+        band_pe_symbols = list(band.get('band_pe_symbols', []))
+        expiry_date, is_monthly = get_weekly_expiry_date()
+        to_add_ce = []
+        to_add_pe = []
+        # CE: need symbol for potential_ce if outside current band
+        ce_strike_min = center_ce - symbol_band * strike_difference
+        ce_strike_max = center_ce + symbol_band * strike_difference
+        if potential_ce > ce_strike_max:
+            for strike in range(ce_strike_max + strike_difference, potential_ce + 1, strike_difference):
+                sym = format_option_symbol(strike, "CE", expiry_date, is_monthly)
+                if sym not in band_ce_symbols:
+                    to_add_ce.append((strike, sym))
+        elif potential_ce < ce_strike_min:
+            for strike in range(ce_strike_min - strike_difference, potential_ce - 1, -strike_difference):
+                sym = format_option_symbol(strike, "CE", expiry_date, is_monthly)
+                if sym not in band_ce_symbols:
+                    to_add_ce.append((strike, sym))
+        pe_strike_min = center_pe - symbol_band * strike_difference
+        pe_strike_max = center_pe + symbol_band * strike_difference
+        if potential_pe > pe_strike_max:
+            for strike in range(pe_strike_max + strike_difference, potential_pe + 1, strike_difference):
+                sym = format_option_symbol(strike, "PE", expiry_date, is_monthly)
+                if sym not in band_pe_symbols:
+                    to_add_pe.append((strike, sym))
+        elif potential_pe < pe_strike_min:
+            for strike in range(pe_strike_min - strike_difference, potential_pe - 1, -strike_difference):
+                sym = format_option_symbol(strike, "PE", expiry_date, is_monthly)
+                if sym not in band_pe_symbols:
+                    to_add_pe.append((strike, sym))
+        if not to_add_ce and not to_add_pe:
+            return False
+        import re
+        def strike_from_symbol(s):
+            # Strike is the last 4-5 digit group before CE/PE (e.g. NIFTY2630225450CE -> 25450)
+            m = re.search(r'(\d{4,5})(?:CE|PE)$', s)
+            return int(m.group(1)) if m else 0
+        new_pairs = []
+        for _, sym in to_add_ce:
+            tok = get_instrument_token_by_symbol(bot.kite, sym)
+            if tok is not None:
+                band_ce_symbols.append(sym)
+                self.symbol_token_map[sym] = tok
+                new_pairs.append((sym, tok))
+            else:
+                logger.warning("[PRECOMPUTED_BAND] Out-of-band CE token not found: %s", sym)
+        if to_add_ce:
+            band_ce_symbols.sort(key=strike_from_symbol)
+        for _, sym in to_add_pe:
+            tok = get_instrument_token_by_symbol(bot.kite, sym)
+            if tok is not None:
+                band_pe_symbols.append(sym)
+                self.symbol_token_map[sym] = tok
+                new_pairs.append((sym, tok))
+            else:
+                logger.warning("[PRECOMPUTED_BAND] Out-of-band PE token not found: %s", sym)
+        if to_add_pe:
+            band_pe_symbols.sort(key=strike_from_symbol)
+        if not new_pairs:
+            return False
+        if max_per_side > 0:
+            while len(band_ce_symbols) > max_per_side:
+                low_strike = strike_from_symbol(band_ce_symbols[0])
+                high_strike = strike_from_symbol(band_ce_symbols[-1])
+                rem = band_ce_symbols.pop(0) if (center_ce - low_strike) >= (high_strike - center_ce) else band_ce_symbols.pop()
+                self.symbol_token_map.pop(rem, None)
+            while len(band_pe_symbols) > max_per_side:
+                low_strike = strike_from_symbol(band_pe_symbols[0])
+                high_strike = strike_from_symbol(band_pe_symbols[-1])
+                rem = band_pe_symbols.pop(0) if (center_pe - low_strike) >= (high_strike - center_pe) else band_pe_symbols.pop()
+                self.symbol_token_map.pop(rem, None)
+        bot.precomputed_band['band_ce_symbols'] = band_ce_symbols
+        bot.precomputed_band['band_pe_symbols'] = band_pe_symbols
+        await self.update_subscriptions(dict(self.symbol_token_map))
+        logger.info("[PRECOMPUTED_BAND] Out-of-band: added %d symbol(s), prefilling...", len(new_pairs))
+        await self._prefill_historical_data_for_symbols(new_pairs)
+        new_tokens = [t for _, t in new_pairs]
+        handoff_ts = getattr(self, '_last_slab_change_candle_timestamp', None)
+        ts = handoff_ts.replace(second=0, microsecond=0) if handoff_ts else datetime.now().replace(second=0, microsecond=0)
+        await self._calculate_indicators_for_tokens_concurrent(new_tokens, ts)
+        return True
 
     async def _update_symbols_after_slab_change(self):
         """Update entry condition manager and subscriptions after slab change"""
@@ -1929,6 +2110,169 @@ class AsyncLiveTickerHandler:
                         'message': f"historical_data_error: {str(e)}"
                     }, source='websocket_handler')
                 )
+
+    async def _initialize_precomputed_band_from_first_nifty_candle(
+        self, nifty_open: float, nifty_high: float, nifty_low: float, nifty_close: float,
+        completed_candle_timestamp, nifty_token: int,
+    ):
+        """Initialize 23-symbol precomputed band from first NIFTY candle; prefill 22 options, run indicators for all 22."""
+        try:
+            bot = self.trading_bot
+            band_cfg = bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
+            symbol_band = int(band_cfg.get('SYMBOL_BAND', 5))
+            first_price = (band_cfg.get('FIRST_CANDLE_PRICE') or 'ncp').lower()
+            center = ((nifty_open + nifty_high) / 2 + (nifty_low + nifty_close) / 2) / 2 if first_price == 'ncp' else nifty_open
+            strike_difference = int(bot.config.get('STRIKE_DIFFERENCE', 50))
+            strike_type = (bot.config.get('STRIKE_TYPE') or 'ATM').upper()
+            from trading_bot_utils import get_weekly_expiry_date, generate_precomputed_band_symbols_and_tokens
+            expiry_date, is_monthly = get_weekly_expiry_date()
+            file_path = bot.config.get('SUBSCRIBE_TOKENS_FILE_PATH', 'output/subscribe_tokens.json')
+            result = generate_precomputed_band_symbols_and_tokens(
+                bot.kite, center, symbol_band, strike_difference, strike_type,
+                expiry_date, is_monthly, file_path,
+            )
+            if result is None:
+                logger.warning("[PRECOMPUTED_BAND] Band generation failed, falling back to single CE/PE.")
+                await bot._process_nifty_opening_price(center)
+                await bot._initialize_entry_condition_manager()
+                if bot.entry_condition_manager:
+                    bot.event_handlers.entry_condition_manager = bot.entry_condition_manager
+                await self._subscribe_three_symbols_after_first_nifty(nifty_token)
+                return
+            bot.trade_symbols.update(result['trade_symbols'])
+            bot.strikes_derived = True
+            bot.precomputed_band = {
+                'band_ce_symbols': result['band_ce_symbols'],
+                'band_pe_symbols': result['band_pe_symbols'],
+                'center_ce_strike': result['center_ce_strike'],
+                'center_pe_strike': result['center_pe_strike'],
+            }
+            if bot.dynamic_atm_manager:
+                bot.dynamic_atm_manager.current_active_ce = result['center_ce_strike']
+                bot.dynamic_atm_manager.current_active_pe = result['center_pe_strike']
+            await self.update_subscriptions(result['band_symbol_token_map'])
+            self.ce_symbol = result['active_ce_symbol']
+            self.pe_symbol = result['active_pe_symbol']
+            option_pairs = [
+                (s, result['band_symbol_token_map'][s]) for s in result['band_ce_symbols'] + result['band_pe_symbols']
+                if s in result['band_symbol_token_map']
+            ]
+            logger.info(f"[PRECOMPUTED_BAND] Subscribed to 23 symbols. Prefilling 22 options ({len(option_pairs)} pairs)...")
+            await self._prefill_historical_data_for_symbols(option_pairs)
+            # Run indicators for all 22 option tokens concurrently
+            option_tokens = [t for _, t in option_pairs]
+            await self._calculate_indicators_for_tokens_concurrent(option_tokens, completed_candle_timestamp)
+            await bot._initialize_entry_condition_manager()
+            if bot.entry_condition_manager:
+                bot.event_handlers.entry_condition_manager = bot.entry_condition_manager
+            logger.info(f"[OK] Precomputed band initialized. Active CE: {self.ce_symbol}, PE: {self.pe_symbol}")
+        except Exception as e:
+            logger.error(f"[X] Precomputed band init failed: {e}", exc_info=True)
+            bot.strikes_derived = False
+            await self.trading_bot._process_nifty_opening_price(
+                ((nifty_open + nifty_high) / 2 + (nifty_low + nifty_close) / 2) / 2
+            )
+            await self._subscribe_three_symbols_after_first_nifty(nifty_token)
+
+    async def _subscribe_three_symbols_after_first_nifty(self, nifty_token: int):
+        """Subscribe to CE, PE, NIFTY after first NIFTY candle (used when band init fails or band disabled)."""
+        bot = self.trading_bot
+        ce_symbol = bot.trade_symbols.get('ce_symbol')
+        pe_symbol = bot.trade_symbols.get('pe_symbol')
+        if ce_symbol and pe_symbol:
+            new_map = {ce_symbol: bot.trade_symbols['ce_token'], pe_symbol: bot.trade_symbols['pe_token']}
+            if bot.use_dynamic_atm or bot.use_automated_sentiment:
+                new_map['NIFTY 50'] = nifty_token
+            await self.update_subscriptions(new_map)
+            self.ce_symbol = ce_symbol
+            self.pe_symbol = pe_symbol
+
+    async def _calculate_indicators_for_tokens_concurrent(self, tokens: list, timestamp):
+        """Run _calculate_and_dispatch_indicators for multiple tokens concurrently (no terminal log for each)."""
+        async def calc_one(token):
+            await self._calculate_and_dispatch_indicators(token, timestamp, is_new_candle=True, skip_terminal_log=True)
+        await asyncio.gather(*[calc_one(t) for t in tokens])
+
+    async def _maybe_write_precomputed_band_snapshot(self, timestamp: datetime):
+        """If all 22 option symbols have indicator data for this minute, write one snapshot row to logs/ (once per minute)."""
+        minute_ts = timestamp.replace(second=0, microsecond=0)
+        if getattr(self, '_last_snapshot_minute', None) == minute_ts:
+            return
+        band = getattr(self.trading_bot, 'precomputed_band', None)
+        if not band:
+            return
+        option_symbols = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
+        option_tokens = [self.symbol_token_map[s] for s in option_symbols if s in self.symbol_token_map]
+        for t in option_tokens:
+            df = self.indicators_data.get(t)
+            if df is None or (getattr(df, 'empty', True) and df.empty):
+                return
+            try:
+                last_ts = pd.Timestamp(df.index[-1])
+                if last_ts < pd.Timestamp(minute_ts):
+                    return
+            except Exception:
+                return
+        self._last_snapshot_minute = minute_ts
+        await self._write_precomputed_band_snapshot(minute_ts)
+
+    async def _write_precomputed_band_snapshot(self, minute_ts: datetime):
+        """Write NIFTY + 22 symbols (OHLC + indicator columns) to logs/precomputed_band_snapshot_YYYY-MM-DD.csv."""
+        try:
+            band = getattr(self.trading_bot, 'precomputed_band', None)
+            if not band:
+                return
+            band_cfg = self.trading_bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
+            snapshot_dir = band_cfg.get('SNAPSHOT_DIR', 'logs')
+            os.makedirs(snapshot_dir, exist_ok=True)
+            date_str = minute_ts.strftime('%Y-%m-%d')
+            path = os.path.join(snapshot_dir, f'precomputed_band_snapshot_{date_str}.csv')
+            active_ce = self.ce_symbol
+            active_pe = self.pe_symbol
+            option_symbols = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
+            nifty_token = self.symbol_token_map.get('NIFTY 50')
+            rows = []
+            if nifty_token is not None and nifty_token in self.completed_candles_data:
+                candles = self.completed_candles_data[nifty_token]
+                last = next((c for c in reversed(candles) if c.get('timestamp') <= minute_ts), None) or (candles[-1] if candles else None)
+                if last:
+                    rows.append({
+                        'timestamp': minute_ts.isoformat(), 'symbol': 'NIFTY 50',
+                        'open': last.get('open'), 'high': last.get('high'), 'low': last.get('low'), 'close': last.get('close'),
+                        'active_ce': 0, 'active_pe': 0,
+                    })
+            for sym in option_symbols:
+                if sym not in self.symbol_token_map:
+                    continue
+                tok = self.symbol_token_map[sym]
+                df = self.indicators_data.get(tok)
+                if df is None or df.empty:
+                    continue
+                try:
+                    row_ts = df.index[-1]
+                    if hasattr(row_ts, 'to_pydatetime'):
+                        row_ts = row_ts.to_pydatetime()
+                    row = {'timestamp': minute_ts.isoformat(), 'symbol': sym, 'active_ce': 1 if sym == active_ce else 0, 'active_pe': 1 if sym == active_pe else 0}
+                    r = df.iloc[-1]
+                    for k in ['open', 'high', 'low', 'close']:
+                        if k in r:
+                            row[k] = r[k]
+                    for c in df.columns:
+                        if c not in row:
+                            row[c] = r.get(c) if hasattr(r, 'get') else (r[c] if c in r else None)
+                    rows.append(row)
+                except Exception:
+                    continue
+            if not rows:
+                return
+            df_out = pd.DataFrame(rows)
+            write_header = not os.path.exists(path)
+            df_out.to_csv(path, mode='a', header=write_header, index=False)
+        except (PermissionError, OSError) as e:
+            # File may be open in Excel or another app that locks it; skip this minute, bot continues
+            logger.debug(f"Precomputed band snapshot skipped (file busy? close in Excel to allow writes): {e}")
+        except Exception as e:
+            logger.debug(f"Precomputed band snapshot write failed: {e}")
 
     async def _prefill_historical_data_for_symbols(self, symbol_token_pairs: list):
         """

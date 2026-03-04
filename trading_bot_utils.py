@@ -534,6 +534,46 @@ def get_nifty_latest_calculated_price_historical(kite):
         return None
 
 
+def get_nifty_first_candle_calculated_price_from_kite(kite):
+    """
+    Get NIFTY 50 first 1-minute candle's calculated price for today from Kite API.
+    Used when deriving strikes from the first WebSocket NIFTY candle: use exchange OHLC
+    instead of tick-built to avoid first-candle open error (e.g. 7 pts in experiments).
+
+    Formula: ((O+H)/2 + (L+C)/2)/2 (same as slab/derivation).
+
+    Returns:
+        float: Calculated price of the first candle (9:15-9:16), or None if unavailable.
+    """
+    today = datetime.now().date()
+    market_open = datetime.combine(today, datetime.min.time().replace(hour=9, minute=15))
+    # First candle ends at 9:16; request up to 9:17 so we get that candle
+    to_time = datetime.combine(today, datetime.min.time().replace(hour=9, minute=17))
+    try:
+        data = kite.historical_data(
+            instrument_token=256265,
+            from_date=market_open,
+            to_date=to_time,
+            interval="minute",
+        )
+        if not data or len(data) == 0:
+            return None
+        # First candle of the day
+        c = data[0]
+        o, h, lo, cl = c.get("open"), c.get("high"), c.get("low"), c.get("close")
+        if o is None or h is None or lo is None or cl is None:
+            return None
+        calculated = ((o + h) / 2 + (lo + cl) / 2) / 2
+        logging.info(
+            "[OK] NIFTY first candle (Kite) calculated price for strike derivation: %.2f (O=%.2f H=%.2f L=%.2f C=%.2f)",
+            calculated, o, h, lo, cl,
+        )
+        return float(calculated)
+    except Exception as e:
+        logging.warning("Could not get NIFTY first candle from Kite: %s", e)
+        return None
+
+
 def get_nifty_opening_price_historical(kite, max_retries=3, retry_delay=5):
     """
     Get NIFTY 50 opening price for today using historical data API.
@@ -1059,6 +1099,104 @@ def generate_option_tokens_and_update_file(kite, ce_strike, pe_strike, expiry_da
         
     except Exception as e:
         logging.error(f"Error generating option tokens and updating file: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return None
+
+
+def generate_precomputed_band_symbols_and_tokens(
+    kite,
+    center_price,
+    symbol_band,
+    strike_difference,
+    strike_type,
+    expiry_date,
+    is_monthly,
+    file_path,
+):
+    """
+    Generate 11 CE + 11 PE symbols (center ± symbol_band strikes), resolve tokens, update subscribe_tokens.json with active pair.
+    Returns band map (23 symbols) and active CE/PE for entry logic.
+
+    Returns:
+        dict with keys: band_symbol_token_map, band_ce_symbols, band_pe_symbols,
+                        active_ce_symbol, active_pe_symbol, active_ce_token, active_pe_token,
+                        trade_symbols (for bot.trade_symbols), center_ce_strike, center_pe_strike
+        or None if generation fails.
+    """
+    try:
+        center_ce, center_pe = calculate_strikes(center_price, strike_type=strike_type, strike_difference=strike_difference)
+        band_ce_symbols = []
+        band_pe_symbols = []
+        band_symbol_token_map = {"NIFTY 50": 256265}
+
+        for i in range(-symbol_band, symbol_band + 1):
+            ce_strike = center_ce + i * strike_difference
+            pe_strike = center_pe + i * strike_difference
+            ce_sym = format_option_symbol(ce_strike, "CE", expiry_date, is_monthly)
+            pe_sym = format_option_symbol(pe_strike, "PE", expiry_date, is_monthly)
+            ce_tok = get_instrument_token_by_symbol(kite, ce_sym)
+            pe_tok = get_instrument_token_by_symbol(kite, pe_sym)
+            if ce_tok is not None:
+                band_ce_symbols.append(ce_sym)
+                band_symbol_token_map[ce_sym] = ce_tok
+            else:
+                logging.warning("Precomputed band: token not found for CE %s, skipping", ce_sym)
+            if pe_tok is not None:
+                band_pe_symbols.append(pe_sym)
+                band_symbol_token_map[pe_sym] = pe_tok
+            else:
+                logging.warning("Precomputed band: token not found for PE %s, skipping", pe_sym)
+
+        if not band_ce_symbols or not band_pe_symbols:
+            logging.error("Precomputed band: could not resolve enough CE/PE symbols")
+            return None
+
+        # Active pair = center strike (middle of band)
+        active_ce_symbol = format_option_symbol(center_ce, "CE", expiry_date, is_monthly)
+        active_pe_symbol = format_option_symbol(center_pe, "PE", expiry_date, is_monthly)
+        active_ce_token = band_symbol_token_map.get(active_ce_symbol)
+        active_pe_token = band_symbol_token_map.get(active_pe_symbol)
+        if active_ce_token is None or active_pe_token is None:
+            # Fallback to first available in band
+            active_ce_symbol = band_ce_symbols[len(band_ce_symbols) // 2] if band_ce_symbols else band_ce_symbols[0]
+            active_pe_symbol = band_pe_symbols[len(band_pe_symbols) // 2] if band_pe_symbols else band_pe_symbols[0]
+            active_ce_token = band_symbol_token_map.get(active_ce_symbol)
+            active_pe_token = band_symbol_token_map.get(active_pe_symbol)
+
+        trade_symbols = {
+            "underlying_symbol": "NIFTY 50",
+            "underlying_token": 256265,
+            "atm_strike": float(center_price),
+            "ce_symbol": active_ce_symbol,
+            "ce_token": active_ce_token,
+            "pe_symbol": active_pe_symbol,
+            "pe_token": active_pe_token,
+        }
+        with open(file_path, "w") as f:
+            json.dump(trade_symbols, f, indent=4)
+
+        logging.info(
+            "Precomputed band: %d CE + %d PE symbols, active CE=%s PE=%s",
+            len(band_ce_symbols),
+            len(band_pe_symbols),
+            active_ce_symbol,
+            active_pe_symbol,
+        )
+        return {
+            "band_symbol_token_map": band_symbol_token_map,
+            "band_ce_symbols": band_ce_symbols,
+            "band_pe_symbols": band_pe_symbols,
+            "active_ce_symbol": active_ce_symbol,
+            "active_pe_symbol": active_pe_symbol,
+            "active_ce_token": active_ce_token,
+            "active_pe_token": active_pe_token,
+            "trade_symbols": trade_symbols,
+            "center_ce_strike": center_ce,
+            "center_pe_strike": center_pe,
+        }
+    except Exception as e:
+        logging.error("Error generating precomputed band: %s", e)
         import traceback
         logging.error(traceback.format_exc())
         return None

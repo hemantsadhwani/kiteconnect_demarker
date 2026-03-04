@@ -1876,7 +1876,15 @@ class AsyncTradingBot:
                 # The dynamic ATM manager will handle initialization when first NIFTY candle arrives
                 return
             
-            # Process the opening price to derive strikes
+            # When precomputed band is enabled: do NOT derive single CE/PE here; subscribe to NIFTY only
+            # and let the first NIFTY candle completion in the ticker run band init (23 symbols + prefill T-1 + 65).
+            band_cfg = self.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
+            if band_cfg.get('ENABLED', False):
+                logger.info("[PRECOMPUTED_BAND] Will derive 23-symbol band from first NIFTY candle (prefill: T-1 + 65 candles).")
+                self.nifty_opening_price = opening_price
+                return
+            
+            # Process the opening price to derive strikes (single CE/PE path)
             await self._process_nifty_opening_price(opening_price)
             
             # Initialize entry condition manager now that strikes are derived
