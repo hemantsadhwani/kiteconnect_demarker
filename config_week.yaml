@@ -117,7 +117,7 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: false
+    12:00-13:00: true
     13:00-14:00: true
     14:00-15:30: true
 
@@ -142,8 +142,8 @@ INDICATORS:
     MA: sma
     LENGTH: 9
   SLOW_MA:
-    MA: ema
-    LENGTH: 15
+    MA: sma
+    LENGTH: 11
   SWING_LOW_PERIOD: 5
   DEMARKER:
     PERIOD: 14  # Same as backtesting (run_indicators.py / indicators_backtesting.py)
