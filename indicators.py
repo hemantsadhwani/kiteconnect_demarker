@@ -111,6 +111,9 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
             # Avoid division by zero: when range is zero (flat period), W%R is undefined -> NaN
             williams_r = np.where(denom > 0, 100 * (df['close'] - high_max) / denom, np.nan)
             results[f'wpr_{period}'] = williams_r.round(2)
+        # Backtesting uses fast_wpr/slow_wpr; add aliases for parity
+        results['fast_wpr'] = results[f'wpr_{self.config["WPR_FAST_LENGTH"]}']
+        results['slow_wpr'] = results[f'wpr_{self.config["WPR_SLOW_LENGTH"]}']
         return results
     
     def _calculate_rsi(self, df: pd.DataFrame, period: int) -> pd.Series:

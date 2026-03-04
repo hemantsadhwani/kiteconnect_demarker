@@ -476,8 +476,18 @@ class DynamicATMStrikeManager:
             potential_ce, potential_pe = self._calculate_atm_strikes(nifty_price)
             logger.debug(f"Calculated strikes for NIFTY (calculated price)={nifty_price:.2f}: CE={potential_ce}, PE={potential_pe}")
             
-            # Check for slab change
-            slab_changed = (potential_ce != self.current_active_ce or potential_pe != self.current_active_pe)
+            # Cap step to one STRIKE_DIFFERENCE per update so we never jump 100 when config is 50
+            old_ce = self.current_active_ce
+            old_pe = self.current_active_pe
+            step_ce = potential_ce - old_ce if old_ce is not None else 0
+            step_pe = potential_pe - old_pe if old_pe is not None else 0
+            step_ce = max(-self.strike_difference, min(self.strike_difference, step_ce))
+            step_pe = max(-self.strike_difference, min(self.strike_difference, step_pe))
+            new_ce = (old_ce + step_ce) if old_ce is not None else potential_ce
+            new_pe = (old_pe + step_pe) if old_pe is not None else potential_pe
+            
+            # Check for slab change (using capped new strikes)
+            slab_changed = (new_ce != old_ce or new_pe != old_pe)
             if slab_changed:
                 # Check price tolerance: if price is within 5 points of last slab change price and less than 5 minutes have passed, skip
                 if hasattr(self, 'last_slab_change_price') and self.last_slab_change_price is not None:
@@ -492,27 +502,27 @@ class DynamicATMStrikeManager:
                                   f"last_slab_price={self.last_slab_change_price:.2f}, "
                                   f"price_diff={price_diff:.2f} points, "
                                   f"time_since_last={time_since_last:.0f}s (tolerance expires in {tolerance_expiry}s)")
-                        logger.info(f"Would change: CE {self.current_active_ce}->{potential_ce}, PE {self.current_active_pe}->{potential_pe}")
+                        logger.info(f"Would change: CE {self.current_active_ce}->{new_ce}, PE {self.current_active_pe}->{new_pe}")
                         return False
                 
+                # Log labels: ATM uses CE=FLOOR/PE=CEIL; OTM uses CE=CEIL/PE=FLOOR
+                ce_label = "FLOOR" if self.strike_type == "ATM" else "CEIL"
+                pe_label = "CEIL" if self.strike_type == "ATM" else "FLOOR"
                 logger.info(f"Slab Change detected: NIFTY (calculated price)={nifty_price:.2f}")
-                # Log strike calculation with candle timestamp so it's clear price is from completed candle (T-1), not "current" time
-                logger.info(f"NIFTY Price (candle {candle_ts_str}): {nifty_price:.2f}, STRIKE_DIFFERENCE: {self.strike_difference}, STRIKE_TYPE: {self.strike_type}, CE Strike: {potential_ce} (FLOOR), PE Strike: {potential_pe} (CEIL)")
-                logger.debug(f"Old strikes: CE={self.current_active_ce}, PE={self.current_active_pe}")
-                logger.debug(f"New strikes: CE={potential_ce}, PE={potential_pe}")
+                logger.info(f"NIFTY Price (candle {candle_ts_str}): {nifty_price:.2f}, STRIKE_DIFFERENCE: {self.strike_difference}, STRIKE_TYPE: {self.strike_type}, CE Strike: {new_ce} ({ce_label}), PE Strike: {new_pe} ({pe_label})")
+                logger.debug(f"Old strikes: CE={old_ce}, PE={old_pe}")
+                logger.debug(f"New strikes (capped 1 step): CE={new_ce}, PE={new_pe}")
                 
-                # Update state
-                old_ce = self.current_active_ce
-                old_pe = self.current_active_pe
-                self.current_active_ce = potential_ce
-                self.current_active_pe = potential_pe
+                # Update state with capped strikes
+                self.current_active_ce = new_ce
+                self.current_active_pe = new_pe
                 self.current_nifty_price = nifty_price
                 
-                # Get new cluster
-                new_cluster = self._get_7_ticker_cluster(nifty_price)
-                old_cluster = self._get_7_ticker_cluster(
-                    nifty_price - (potential_ce - old_ce) * 0.1  # Approximate old price
-                )
+                # Get clusters for old and new strike pairs (price chosen so floor/ceil yield those strikes)
+                mid_old = (old_ce + old_pe) / 2 if (old_ce is not None and old_pe is not None) else nifty_price
+                mid_new = (new_ce + new_pe) / 2
+                new_cluster = self._get_7_ticker_cluster(mid_new)
+                old_cluster = self._get_7_ticker_cluster(mid_old)
                 
                 # Find tickers to add/remove
                 tickers_to_add = set(new_cluster) - set(old_cluster)
@@ -534,8 +544,8 @@ class DynamicATMStrikeManager:
                     # Integrated mode - subscriptions will be handled by ticker handler
                     logger.debug("Integrated mode: Subscription updates will be handled by ticker handler")
                 
-                # Update control panel file
-                self._update_subscribe_tokens_file(nifty_price)
+                # Update control panel file with capped strikes (mid_new yields new_ce/new_pe from floor/ceil)
+                self._update_subscribe_tokens_file(mid_new)
                 
                 # Update last slab change time and price for debouncing and tolerance
                 from datetime import datetime

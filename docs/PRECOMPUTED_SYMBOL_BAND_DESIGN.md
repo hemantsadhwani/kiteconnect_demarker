@@ -188,6 +188,19 @@ The **only** disk/network cost today is **prefill** (startup and “add symbol w
 
 ---
 
+### Bugs fixed (implementation)
+
+1. **MAX_STRIKES_PER_SIDE cap**  
+   Doc: "E.g. 7 → max 15 CE + 15 PE" (7 per side = 15 total). Code was capping at `max_per_side` (7) total per leg. **Fix:** Cap at `2 * MAX_STRIKES_PER_SIDE + 1` per leg (e.g. 15 when set to 7).
+
+2. **Active pair fallback**  
+   When the center strike’s token was missing, fallback used `band_ce_symbols[len//2]`, which can be wrong if some strikes were skipped and the list has gaps. **Fix:** Prefer the symbol whose strike equals center (if in map); else use middle index, then first.
+
+3. **DYNAMIC_TRAILING_MA config path (non-band)**  
+   `_check_dynamic_trailing_ma_exit` read `TRADE_SETTINGS.FIXED.DYNAMIC_TRAILING_MA`; production config uses `TRADE_SETTINGS.DYNAMIC_TRAILING_MA`. **Fix:** Read from `TRADE_SETTINGS.DYNAMIC_TRAILING_MA` with fallback to `FIXED.DYNAMIC_TRAILING_MA`.
+
+---
+
 ### Recommendation
 
 - **Yes:** Precomputed band (e.g. ±5) from **first candle NCP** (or open) in `config.yaml`.

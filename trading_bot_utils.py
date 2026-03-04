@@ -1152,17 +1152,25 @@ def generate_precomputed_band_symbols_and_tokens(
             logging.error("Precomputed band: could not resolve enough CE/PE symbols")
             return None
 
-        # Active pair = center strike (middle of band)
+        # Active pair = center strike (middle of band); fallback to symbol whose strike equals center
         active_ce_symbol = format_option_symbol(center_ce, "CE", expiry_date, is_monthly)
         active_pe_symbol = format_option_symbol(center_pe, "PE", expiry_date, is_monthly)
         active_ce_token = band_symbol_token_map.get(active_ce_symbol)
         active_pe_token = band_symbol_token_map.get(active_pe_symbol)
         if active_ce_token is None or active_pe_token is None:
-            # Fallback to first available in band
-            active_ce_symbol = band_ce_symbols[len(band_ce_symbols) // 2] if band_ce_symbols else band_ce_symbols[0]
-            active_pe_symbol = band_pe_symbols[len(band_pe_symbols) // 2] if band_pe_symbols else band_pe_symbols[0]
-            active_ce_token = band_symbol_token_map.get(active_ce_symbol)
-            active_pe_token = band_symbol_token_map.get(active_pe_symbol)
+            # Fallback: prefer symbol with strike == center; else middle index (band may have gaps if some tokens missing)
+            def _find_symbol_for_strike(symbols, strike_val, option_type):
+                target_sym = format_option_symbol(strike_val, option_type, expiry_date, is_monthly)
+                if target_sym in band_symbol_token_map:
+                    return target_sym
+                mid = len(symbols) // 2 if symbols else 0
+                return symbols[mid] if symbols else None
+            if active_ce_token is None:
+                active_ce_symbol = _find_symbol_for_strike(band_ce_symbols, center_ce, "CE") or (band_ce_symbols[0] if band_ce_symbols else None)
+                active_ce_token = band_symbol_token_map.get(active_ce_symbol) if active_ce_symbol else None
+            if active_pe_token is None:
+                active_pe_symbol = _find_symbol_for_strike(band_pe_symbols, center_pe, "PE") or (band_pe_symbols[0] if band_pe_symbols else None)
+                active_pe_token = band_symbol_token_map.get(active_pe_symbol) if active_pe_symbol else None
 
         trade_symbols = {
             "underlying_symbol": "NIFTY 50",

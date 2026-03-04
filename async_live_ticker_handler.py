@@ -393,6 +393,9 @@ class AsyncLiveTickerHandler:
                 # 1. StochRSI uses only complete candles (accurate calculation)
                 # 2. W%R can use live candle data when needed (matches Zerodha display)
                 df = pd.DataFrame(candles_data)
+                # Deduplicate by timestamp (keep last) so rolling indicators never see duplicate minutes
+                if 'timestamp' in df.columns and not df.empty:
+                    df = df.drop_duplicates(subset=['timestamp'], keep='last').reset_index(drop=True)
                 
                 # Only include current/live candle for live updates (not on new candle completion)
                 # This prevents StochRSI from using incomplete candle data
@@ -416,6 +419,10 @@ class AsyncLiveTickerHandler:
                 if 'timestamp' in df.columns:
                     df = df.sort_values('timestamp')
                 df.set_index('timestamp', inplace=True)
+                # Ensure OHLC columns are lowercase (indicators use df['high'], df['low'], df['close'])
+                for col in ('open', 'high', 'low', 'close'):
+                    if col.capitalize() in df.columns and col not in df.columns:
+                        df[col] = df[col.capitalize()]
 
                 # Determine token type for logging
                 token_type = None
@@ -566,9 +573,10 @@ class AsyncLiveTickerHandler:
             if not is_entry2_or_manual or not is_ma_trailing_active:
                 return
             
-            # Get config
+            # Get config (TRADE_SETTINGS.DYNAMIC_TRAILING_MA; legacy FIXED subkey also supported)
             config = strategy_executor.config
-            dynamic_trailing_ma = config.get('TRADE_SETTINGS', {}).get('FIXED', {}).get('DYNAMIC_TRAILING_MA', False)
+            ts = config.get('TRADE_SETTINGS', {})
+            dynamic_trailing_ma = ts.get('DYNAMIC_TRAILING_MA', ts.get('FIXED', {}).get('DYNAMIC_TRAILING_MA', False))
             
             if not dynamic_trailing_ma:
                 return
@@ -1352,13 +1360,15 @@ class AsyncLiveTickerHandler:
             band_pe_symbols.sort(key=strike_from_symbol)
         if not new_pairs:
             return False
+        # Cap total symbols per leg at 2*MAX_STRIKES_PER_SIDE+1 (e.g. 7 per side -> 15 CE, 15 PE)
         if max_per_side > 0:
-            while len(band_ce_symbols) > max_per_side:
+            max_total_per_leg = 2 * max_per_side + 1
+            while len(band_ce_symbols) > max_total_per_leg:
                 low_strike = strike_from_symbol(band_ce_symbols[0])
                 high_strike = strike_from_symbol(band_ce_symbols[-1])
                 rem = band_ce_symbols.pop(0) if (center_ce - low_strike) >= (high_strike - center_ce) else band_ce_symbols.pop()
                 self.symbol_token_map.pop(rem, None)
-            while len(band_pe_symbols) > max_per_side:
+            while len(band_pe_symbols) > max_total_per_leg:
                 low_strike = strike_from_symbol(band_pe_symbols[0])
                 high_strike = strike_from_symbol(band_pe_symbols[-1])
                 rem = band_pe_symbols.pop(0) if (center_pe - low_strike) >= (high_strike - center_pe) else band_pe_symbols.pop()
@@ -2194,25 +2204,46 @@ class AsyncLiveTickerHandler:
         await asyncio.gather(*[calc_one(t) for t in tokens])
 
     async def _maybe_write_precomputed_band_snapshot(self, timestamp: datetime):
-        """If all 22 option symbols have indicator data for this minute, write one snapshot row to logs/ (once per minute)."""
+        """Write one snapshot per minute when active CE and active PE have this minute's data.
+
+        Important invariants:
+        - We only move **forward in time**: if we already wrote a snapshot for a later minute,
+          we will NOT write snapshots for earlier minutes (avoids out-of-order rows when
+          backfilling/prefilling indicators).
+        - We do not require all 22 symbols to have this minute—illiquid strikes may not get a tick
+          every minute. Snapshot uses the latest candle **at or before** this minute for each symbol.
+        """
         minute_ts = timestamp.replace(second=0, microsecond=0)
-        if getattr(self, '_last_snapshot_minute', None) == minute_ts:
+        last_minute = getattr(self, '_last_snapshot_minute', None)
+        if last_minute is not None and minute_ts <= last_minute:
+            # Already wrote this minute or a later one; never go backwards
             return
         band = getattr(self.trading_bot, 'precomputed_band', None)
         if not band:
             return
         option_symbols = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
         option_tokens = [self.symbol_token_map[s] for s in option_symbols if s in self.symbol_token_map]
-        for t in option_tokens:
-            df = self.indicators_data.get(t)
-            if df is None or (getattr(df, 'empty', True) and df.empty):
-                return
+        # Require only active CE and active PE to have this minute so we append every minute (illiquid strikes may lag)
+        active_ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+        active_pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+        def _has_minute(df, mt):
+            if df is None or getattr(df, 'empty', True) or df.empty:
+                return False
             try:
                 last_ts = pd.Timestamp(df.index[-1])
-                if last_ts < pd.Timestamp(minute_ts):
-                    return
+                if last_ts.tz is not None:
+                    last_ts = last_ts.tz_localize(None)
+                return last_ts >= pd.Timestamp(mt)
             except Exception:
+                return False
+        for t in (active_ce_tok, active_pe_tok):
+            if t is None:
+                continue
+            df = self.indicators_data.get(t)
+            if not _has_minute(df, minute_ts):
                 return
+
+        # Passed all guards: record and write this minute
         self._last_snapshot_minute = minute_ts
         await self._write_precomputed_band_snapshot(minute_ts)
 
@@ -2249,15 +2280,36 @@ class AsyncLiveTickerHandler:
                 if df is None or df.empty:
                     continue
                 try:
-                    row_ts = df.index[-1]
-                    if hasattr(row_ts, 'to_pydatetime'):
-                        row_ts = row_ts.to_pydatetime()
-                    row = {'timestamp': minute_ts.isoformat(), 'symbol': sym, 'active_ce': 1 if sym == active_ce else 0, 'active_pe': 1 if sym == active_pe else 0}
-                    r = df.iloc[-1]
+                    # Use the latest candle AT OR BEFORE minute_ts for this symbol.
+                    # This avoids using a future candle for an earlier snapshot minute.
+                    series = df
+                    # Normalise index dtype and timezone before comparison
+                    try:
+                        idx = pd.to_datetime(series.index)
+                    except Exception:
+                        idx = series.index
+                    cutoff = pd.Timestamp(minute_ts)
+                    if getattr(cutoff, "tz", None) is not None:
+                        cutoff = cutoff.tz_localize(None)
+                    if hasattr(idx, "tz") and idx.tz is not None:
+                        idx = idx.tz_localize(None)
+                    mask = idx <= cutoff
+                    if not mask.any():
+                        # No candle yet at/before this minute for this symbol; skip it
+                        continue
+                    last_idx_pos = mask.to_numpy().nonzero()[0][-1]
+                    r = series.iloc[last_idx_pos]
+
+                    row = {
+                        'timestamp': minute_ts.isoformat(),
+                        'symbol': sym,
+                        'active_ce': 1 if sym == active_ce else 0,
+                        'active_pe': 1 if sym == active_pe else 0,
+                    }
                     for k in ['open', 'high', 'low', 'close']:
                         if k in r:
                             row[k] = r[k]
-                    for c in df.columns:
+                    for c in series.columns:
                         if c not in row:
                             row[c] = r.get(c) if hasattr(r, 'get') else (r[c] if c in r else None)
                     rows.append(row)
