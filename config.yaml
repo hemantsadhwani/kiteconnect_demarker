@@ -80,7 +80,7 @@ TRADE_SETTINGS:
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 12000  # Starting daily capital (backtest uses 100000)
+  CAPITAL: 20000  # Starting daily capital (backtest uses 100000)
   LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
   PER_DAY: true
   USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
@@ -208,7 +208,7 @@ PRICE_ZONES:
     HIGH_PRICE: 200
   DYNAMIC_OTM:
     LOW_PRICE: 20
-    HIGH_PRICE: 160
+    HIGH_PRICE: 300
   STATIC_ATM:
     LOW_PRICE: 20
     HIGH_PRICE: 250

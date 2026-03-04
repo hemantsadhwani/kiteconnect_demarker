@@ -49,6 +49,7 @@ TARGET_EXPIRY:
   - FEB17
   - FEB24
   - MAR02
+  - MAR10
   TRADING_DAYS:
   # - '2025-11-26'
   # - '2025-11-27'
@@ -93,7 +94,8 @@ TARGET_EXPIRY:
   # - '2026-02-25'
   # - '2026-02-26'
   # - '2026-02-27'
-  - '2026-03-02'
+  # - '2026-03-02'
+  - '2026-03-04'
 PATHS:
   DATA_DIR: data
   LOGS_DIR: logs

@@ -2003,9 +2003,12 @@ class AsyncLiveTickerHandler:
                                 # Found a valid trading day with data
                                 prev_candle_count = len(day_data)
                                 logger.info(f"Found valid trading day {check_date} for {symbol} with {prev_candle_count} candles")
-                                
-                                # Take only the last 'candles_needed' candles from this day
-                                previous_day_data = day_data[-candles_needed:] if prev_candle_count > candles_needed else day_data
+
+                                # Match backtest cold start: use exactly 65 minutes of previous day (last 65).
+                                # Backtest uses 65 prev-day bars (e.g. 14:25-15:29); taking candles_needed
+                                # (e.g. 64 at 9:16) shifted the series by one bar and caused indicator divergence.
+                                prev_cold_start_bars = min(65, prev_candle_count)
+                                previous_day_data = day_data[-prev_cold_start_bars:] if prev_candle_count >= prev_cold_start_bars else day_data
                                 found_valid_day = True
                                 break
                             else:
@@ -2445,9 +2448,12 @@ class AsyncLiveTickerHandler:
                                 # Found a valid trading day with data
                                 prev_candle_count = len(day_data)
                                 logger.info(f"Found valid trading day {check_date} for {symbol} with {prev_candle_count} candles")
-                                
-                                # Take only the last 'candles_needed' candles from this day
-                                previous_day_data = day_data[-candles_needed:] if prev_candle_count > candles_needed else day_data
+
+                                # Match backtest cold start: use exactly 65 minutes of previous day (last 65).
+                                # Backtest uses 65 prev-day bars (e.g. 14:25-15:29); taking candles_needed
+                                # (e.g. 64 at 9:16) shifted the series by one bar and caused indicator divergence.
+                                prev_cold_start_bars = min(65, prev_candle_count)
+                                previous_day_data = day_data[-prev_cold_start_bars:] if prev_candle_count >= prev_cold_start_bars else day_data
                                 found_valid_day = True
                                 break
                             else:
