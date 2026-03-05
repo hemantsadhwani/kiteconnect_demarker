@@ -301,20 +301,10 @@ class AsyncEventHandlers:
                                     if use_dynamic_atm and not nifty_complete:
                                         pending.append('NIFTY')
                                     
-                                    # Determine log level: 
-                                    # - DEBUG for normal async flow (CE/PE arrive asynchronously, Sentiment arrives after)
-                                    # - WARNING only if all three are missing (shouldn't happen in normal operation)
-                                    # Normal flow: At least one of CE/PE should be True during normal operation
-                                    # If all three are False, that's unusual and should be WARNING
-                                    ce_received = updates.get('CE', False)
-                                    pe_received = updates.get('PE', False)
-                                    sentiment_received = updates.get('sentiment', False)
-                                    
-                                    # If at least one indicator is received, we're in normal async flow - use DEBUG
-                                    # Only use WARNING if nothing has been received yet (all three False)
-                                    all_missing = not ce_received and not pe_received and not sentiment_received
-                                    log_level = logger.warning if all_missing else logger.debug
-                                    log_level(f"[ENTRY CHECK] Waiting for updates for timestamp {timestamp_minute.strftime('%H:%M:%S')}: Still pending {', '.join(pending)}. CE={updates.get('CE', False)}, PE={updates.get('PE', False)}, Sentiment={updates.get('sentiment', False)}")
+                                    # Normal async flow: CE/PE/Sentiment arrive over time; DEBUG to avoid log noise at startup
+                                    logger.debug(
+                                        f"[ENTRY CHECK] Waiting for updates for timestamp {timestamp_minute.strftime('%H:%M:%S')}: Still pending {', '.join(pending)}. CE={updates.get('CE', False)}, PE={updates.get('PE', False)}, Sentiment={updates.get('sentiment', False)}"
+                                    )
                                 elif self._last_entry_check_timestamp == timestamp_minute:
                                     logger.warning(f"[ENTRY CHECK] Skipping duplicate entry condition check for timestamp: {timestamp_minute.strftime('%H:%M:%S')} (last_check={self._last_entry_check_timestamp.strftime('%H:%M:%S') if hasattr(self._last_entry_check_timestamp, 'strftime') else self._last_entry_check_timestamp})")
                                 elif self._entry_check_in_progress:
@@ -391,12 +381,13 @@ class AsyncEventHandlers:
                 else:
                     logger.debug(f"Skipping entry condition check - not a CE/PE token (token: {token}, symbol: {symbol})")
             else:
+                # Expected during startup (e.g. prefill of 22 options before entry manager is initialized)
                 if not self.entry_condition_manager:
-                    logger.warning("Entry condition manager not available for indicator update")
+                    logger.debug("Entry condition manager not available for indicator update")
                 if not self.ticker_handler:
-                    logger.warning("Ticker handler not available for indicator update")
+                    logger.debug("Ticker handler not available for indicator update")
                 if not self.state_manager:
-                    logger.warning("State manager not available for indicator update")
+                    logger.debug("State manager not available for indicator update")
 
         except Exception as e:
             logger.error(f"Error handling indicator update: {e}")

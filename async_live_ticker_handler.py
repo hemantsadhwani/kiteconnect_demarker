@@ -11,6 +11,7 @@ import os
 import json
 import yaml
 from datetime import datetime, timedelta, time as dt_time
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 from event_system import Event, EventType, get_event_dispatcher
@@ -19,6 +20,21 @@ from indicators import IndicatorManager
 # Logger: rely on root logger configured in `async_main_workflow.py`
 # This ensures all terminal logs also land in `logs/dynamic_atm_strike.log`.
 logger = logging.getLogger(__name__)
+
+
+def _round_row_decimals(row: dict, decimals: int) -> dict:
+    """Return a copy of row with all numeric values rounded to the given decimals."""
+    out = {}
+    for k, v in row.items():
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            try:
+                out[k] = round(float(v), decimals)
+            except (ValueError, TypeError):
+                out[k] = v
+        else:
+            out[k] = v
+    return out
+
 
 class AsyncLiveTickerHandler:
     """
@@ -1922,14 +1938,23 @@ class AsyncLiveTickerHandler:
         """
         Fetch historical data for each token and calculate initial indicators.
         Implements hybrid approach: fetches current day data + previous day data if needed.
+        Skips symbols that already have enough candles (e.g. after precomputed band init).
         """
         logger.info("Prefilling historical data with hybrid approach...")
 
         # We need at least 65 candles for proper indicator calculation (matches backtesting requirement)
         required_candles = 65
 
-        for symbol, token in self.symbol_token_map.items():
+        for idx, (symbol, token) in enumerate(self.symbol_token_map.items()):
+            if idx > 0:
+                await asyncio.sleep(0.5)  # Rate limit: 0.5 sec between requests to avoid Kite "Too many requests"
             try:
+                # Skip if already prefilled (e.g. 22 options after band init)
+                existing = len(self.completed_candles_data.get(token, []))
+                if existing >= required_candles:
+                    logger.debug(f"Skipping prefill for {symbol}: already have {existing} candles")
+                    continue
+
                 to_date = datetime.now()
                 
                 # Step 1: Try to fetch data from current trading day (from 9:15am to now)
@@ -1961,7 +1986,7 @@ class AsyncLiveTickerHandler:
                 
                 if current_candle_count < required_candles:
                     candles_needed = required_candles - current_candle_count
-                    logger.debug(f"Need {candles_needed} more candles for {symbol}. Searching for previous trading day with data...")
+                    logger.debug(f"Need {candles_needed} more candles for {symbol}. Searching for previous trading day (last 65 min only)...")
                     
                     # Try up to 7 days back to find a valid trading day (handles weekends and bank holidays)
                     previous_day_data = []
@@ -1978,15 +2003,14 @@ class AsyncLiveTickerHandler:
                                 logger.debug(f"Skipping {check_date} (weekend)")
                                 continue
                             
-                            # Fetch data from this day
-                            prev_day_start = datetime.combine(check_date, datetime.min.time()).replace(hour=9, minute=15)
+                            # Fetch only last 65 min of this day (not full 375) to reduce API load and avoid rate limits.
                             prev_day_end = datetime.combine(check_date, datetime.min.time()).replace(hour=15, minute=30)
-                            
-                            logger.debug(f"Checking {days_back} days back ({check_date}) for {symbol}...")
-                            
+                            prev_cold_start_bars = min(65, required_candles)
+                            prev_day_last65_start = prev_day_end - timedelta(minutes=prev_cold_start_bars)
+                            logger.debug(f"Checking {days_back} days back ({check_date}) for {symbol} (last {prev_cold_start_bars} min of day)...")
                             day_data = self.kite.historical_data(
                                 instrument_token=token,
-                                from_date=prev_day_start,
+                                from_date=prev_day_last65_start,
                                 to_date=prev_day_end,
                                 interval='minute'
                             )
@@ -2000,14 +2024,10 @@ class AsyncLiveTickerHandler:
                                     day_data = []
                             
                             if day_data and len(day_data) > 0:
-                                # Found a valid trading day with data
                                 prev_candle_count = len(day_data)
-                                logger.info(f"Found valid trading day {check_date} for {symbol} with {prev_candle_count} candles")
-
-                                # Match backtest cold start: use exactly 65 minutes of previous day (last 65).
-                                # Backtest uses 65 prev-day bars (e.g. 14:25-15:29); taking candles_needed
-                                # (e.g. 64 at 9:16) shifted the series by one bar and caused indicator divergence.
-                                prev_cold_start_bars = min(65, prev_candle_count)
+                                logger.info(
+                                    f"Found valid trading day {check_date} for {symbol} with {prev_candle_count} candles (last {prev_cold_start_bars} min of day; total: {prev_candle_count} prev + {current_candle_count} today)"
+                                )
                                 previous_day_data = day_data[-prev_cold_start_bars:] if prev_candle_count >= prev_cold_start_bars else day_data
                                 found_valid_day = True
                                 break
@@ -2226,28 +2246,47 @@ class AsyncLiveTickerHandler:
             return
         option_symbols = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
         option_tokens = [self.symbol_token_map[s] for s in option_symbols if s in self.symbol_token_map]
+        # Require full band to be subscribed: do not write snapshot when only NIFTY (or 3 symbols) is subscribed
+        if len(option_tokens) < 2:
+            logger.info(
+                "[PRECOMPUTED_BAND] Snapshot skipped: only %d option symbol(s) subscribed (need full band for 22-symbol snapshot)",
+                len(option_tokens),
+            )
+            return
+        if len(option_tokens) < len(option_symbols):
+            logger.warning(
+                "[PRECOMPUTED_BAND] Only %d/%d band symbols subscribed; snapshot will have fewer than 22 option rows.",
+                len(option_tokens),
+                len(option_symbols),
+            )
         # Require only active CE and active PE to have this minute so we append every minute (illiquid strikes may lag)
         active_ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
         active_pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
-        def _has_minute(df, mt):
-            if df is None or getattr(df, 'empty', True) or df.empty:
+        if active_ce_tok is None or active_pe_tok is None:
+            logger.debug("[PRECOMPUTED_BAND] Snapshot skipped: active CE/PE not in subscription map")
+            return
+        # Compare timestamps in naive form to avoid naive vs aware comparison errors
+        minute_ts_naive = pd.Timestamp(minute_ts)
+        if getattr(minute_ts_naive, "tz", None) is not None:
+            minute_ts_naive = pd.Timestamp(minute_ts_naive.to_pydatetime().replace(tzinfo=None))
+        def _has_minute(df, mt_naive):
+            if df is None or getattr(df, "empty", True) or df.empty:
                 return False
             try:
                 last_ts = pd.Timestamp(df.index[-1])
-                if last_ts.tz is not None:
-                    last_ts = last_ts.tz_localize(None)
-                return last_ts >= pd.Timestamp(mt)
+                if getattr(last_ts, "tz", None) is not None:
+                    last_ts = pd.Timestamp(last_ts.to_pydatetime().replace(tzinfo=None))
+                return last_ts >= mt_naive
             except Exception:
                 return False
         for t in (active_ce_tok, active_pe_tok):
-            if t is None:
-                continue
             df = self.indicators_data.get(t)
-            if not _has_minute(df, minute_ts):
+            if not _has_minute(df, minute_ts_naive):
                 return
 
         # Passed all guards: record and write this minute
         self._last_snapshot_minute = minute_ts
+        logger.info("[PRECOMPUTED_BAND] Writing snapshot for minute %s (option_tokens=%d)", minute_ts_naive, len(option_tokens))
         await self._write_precomputed_band_snapshot(minute_ts)
 
     async def _write_precomputed_band_snapshot(self, minute_ts: datetime):
@@ -2258,23 +2297,45 @@ class AsyncLiveTickerHandler:
                 return
             band_cfg = self.trading_bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
             snapshot_dir = band_cfg.get('SNAPSHOT_DIR', 'logs')
+            # Resolve path relative to project root (where this script lives) so file is always in project/logs/
+            if not os.path.isabs(snapshot_dir):
+                _project_root = Path(__file__).resolve().parent
+                snapshot_dir = str(_project_root / snapshot_dir)
+            snapshot_dir = os.path.abspath(snapshot_dir)
             os.makedirs(snapshot_dir, exist_ok=True)
             date_str = minute_ts.strftime('%Y-%m-%d')
             path = os.path.join(snapshot_dir, f'precomputed_band_snapshot_{date_str}.csv')
+            path = os.path.abspath(path)
             active_ce = self.ce_symbol
             active_pe = self.pe_symbol
             option_symbols = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
             nifty_token = self.symbol_token_map.get('NIFTY 50')
             rows = []
+            minute_ts_naive = pd.Timestamp(minute_ts)
+            if getattr(minute_ts_naive, "tz", None) is not None:
+                minute_ts_naive = pd.Timestamp(minute_ts_naive.to_pydatetime().replace(tzinfo=None))
             if nifty_token is not None and nifty_token in self.completed_candles_data:
                 candles = self.completed_candles_data[nifty_token]
-                last = next((c for c in reversed(candles) if c.get('timestamp') <= minute_ts), None) or (candles[-1] if candles else None)
+                def _ts_lte(c_ts):
+                    try:
+                        t = pd.Timestamp(c_ts) if c_ts is not None else None
+                        if t is None:
+                            return False
+                        if getattr(t, "tz", None) is not None:
+                            t = pd.Timestamp(t.to_pydatetime().replace(tzinfo=None))
+                        return t <= minute_ts_naive
+                    except Exception:
+                        return False
+                last = next((c for c in reversed(candles) if _ts_lte(c.get('timestamp'))), None) or (candles[-1] if candles else None)
                 if last:
-                    rows.append({
+                    nifty_row = {
                         'timestamp': minute_ts.isoformat(), 'symbol': 'NIFTY 50',
                         'open': last.get('open'), 'high': last.get('high'), 'low': last.get('low'), 'close': last.get('close'),
                         'active_ce': 0, 'active_pe': 0,
-                    })
+                    }
+                    rows.append(_round_row_decimals(nifty_row, 2))
+            # Columns to omit from snapshot (duplicates: fast_wpr=wpr_9, slow_wpr=wpr_28)
+            _snapshot_skip_columns = {'fast_wpr', 'slow_wpr'}
             for sym in option_symbols:
                 if sym not in self.symbol_token_map:
                     continue
@@ -2284,25 +2345,25 @@ class AsyncLiveTickerHandler:
                     continue
                 try:
                     # Use the latest candle AT OR BEFORE minute_ts for this symbol.
-                    # This avoids using a future candle for an earlier snapshot minute.
-                    series = df
-                    # Normalise index dtype and timezone before comparison
-                    try:
-                        idx = pd.to_datetime(series.index)
-                    except Exception:
-                        idx = series.index
-                    cutoff = pd.Timestamp(minute_ts)
-                    if getattr(cutoff, "tz", None) is not None:
-                        cutoff = cutoff.tz_localize(None)
-                    if hasattr(idx, "tz") and idx.tz is not None:
-                        idx = idx.tz_localize(None)
-                    mask = idx <= cutoff
-                    if not mask.any():
-                        # No candle yet at/before this minute for this symbol; skip it
+                    cutoff_naive = pd.Timestamp(minute_ts)
+                    if getattr(cutoff_naive, "tz", None) is not None:
+                        cutoff_naive = pd.Timestamp(cutoff_naive.to_pydatetime().replace(tzinfo=None))
+                    # Build mask element-wise so timezone/type mismatches don't break the whole loop
+                    last_idx_pos = None
+                    for i in range(len(df) - 1, -1, -1):
+                        try:
+                            t = df.index[i]
+                            ts = pd.Timestamp(t)
+                            if getattr(ts, "tz", None) is not None:
+                                ts = pd.Timestamp(ts.to_pydatetime().replace(tzinfo=None))
+                            if ts <= cutoff_naive:
+                                last_idx_pos = i
+                                break
+                        except Exception:
+                            continue
+                    if last_idx_pos is None:
                         continue
-                    last_idx_pos = mask.to_numpy().nonzero()[0][-1]
-                    r = series.iloc[last_idx_pos]
-
+                    r = df.iloc[last_idx_pos]
                     row = {
                         'timestamp': minute_ts.isoformat(),
                         'symbol': sym,
@@ -2310,24 +2371,48 @@ class AsyncLiveTickerHandler:
                         'active_pe': 1 if sym == active_pe else 0,
                     }
                     for k in ['open', 'high', 'low', 'close']:
-                        if k in r:
+                        if k in r.index:
                             row[k] = r[k]
-                    for c in series.columns:
-                        if c not in row:
-                            row[c] = r.get(c) if hasattr(r, 'get') else (r[c] if c in r else None)
-                    rows.append(row)
-                except Exception:
+                    for c in df.columns:
+                        if c in _snapshot_skip_columns or c in row or c not in r.index:
+                            continue
+                        row[c] = r[c]
+                    rows.append(_round_row_decimals(row, 2))
+                except Exception as e:
+                    logger.debug("[PRECOMPUTED_BAND] Snapshot option row failed for %s: %s", sym, e)
                     continue
             if not rows:
                 return
+            # Do not write NIFTY-only snapshots: require at least one option symbol row
+            option_rows = [r for r in rows if r.get('symbol') != 'NIFTY 50']
+            if not option_rows:
+                # Log first option's state to help debug (e.g. df missing or index/cutoff mismatch)
+                first_sym = (band.get('band_ce_symbols', []) + band.get('band_pe_symbols', []))[:1]
+                first_tok = self.symbol_token_map.get(first_sym[0]) if first_sym else None
+                first_df = self.indicators_data.get(first_tok) if first_tok is not None else None
+                first_state = "None" if first_df is None else ("empty" if first_df.empty else f"len={len(first_df)}, last_ts={str(first_df.index[-1])}")
+                logger.info(
+                    "[PRECOMPUTED_BAND] Snapshot skipped: no option rows (only %d total); would write to %s; first_option df=%s",
+                    len(rows),
+                    path,
+                    first_state,
+                )
+                return
             df_out = pd.DataFrame(rows)
             write_header = not os.path.exists(path)
+            logger.info("[PRECOMPUTED_BAND] Writing snapshot to: %s (header=%s)", path, write_header)
             df_out.to_csv(path, mode='a', header=write_header, index=False)
+            logger.info(
+                "[PRECOMPUTED_BAND] Snapshot written: %s (%d rows: 1 NIFTY + %d options)",
+                path,
+                len(rows),
+                len(option_rows),
+            )
         except (PermissionError, OSError) as e:
             # File may be open in Excel or another app that locks it; skip this minute, bot continues
-            logger.debug(f"Precomputed band snapshot skipped (file busy? close in Excel to allow writes): {e}")
+            logger.warning("[PRECOMPUTED_BAND] Snapshot skipped (file busy?): %s", e)
         except Exception as e:
-            logger.debug(f"Precomputed band snapshot write failed: {e}")
+            logger.warning("[PRECOMPUTED_BAND] Snapshot write failed: %s", e, exc_info=True)
 
     async def _prefill_historical_data_for_symbols(self, symbol_token_pairs: list):
         """
@@ -2337,13 +2422,17 @@ class AsyncLiveTickerHandler:
         Args:
             symbol_token_pairs: List of (symbol, token) tuples to prefill
         """
-        logger.debug(f"Prefilling historical data for {len(symbol_token_pairs)} new symbols...")
+        n_symbols = len(symbol_token_pairs)
+        logger.info(f"Prefilling historical data for {n_symbols} option symbols (65 candles each)...")
         
         # We need at least 65 candles for proper indicator calculation (matches backtesting requirement)
         required_candles = 65
         
-        for symbol, token in symbol_token_pairs:
+        for idx, (symbol, token) in enumerate(symbol_token_pairs):
+            if idx > 0:
+                await asyncio.sleep(0.5)  # Rate limit: 0.5 sec between requests to avoid Kite "Too many requests"
             try:
+                logger.info(f"Prefilling {symbol} ({idx + 1}/{n_symbols})...")
                 to_date = datetime.now()
                 
                 # CRITICAL FIX: Include T-1 candle (slab change candle) in historical prefill
@@ -2406,7 +2495,7 @@ class AsyncLiveTickerHandler:
                 
                 if current_candle_count < required_candles:
                     candles_needed = required_candles - current_candle_count
-                    logger.debug(f"Need {candles_needed} more candles for {symbol}. Searching for previous trading day with data...")
+                    logger.debug(f"Need {candles_needed} more candles for {symbol}. Searching for previous trading day (last 65 min only)...")
                     
                     # Try up to 7 days back to find a valid trading day (handles weekends and bank holidays)
                     previous_day_data = []
@@ -2423,15 +2512,14 @@ class AsyncLiveTickerHandler:
                                 logger.debug(f"Skipping {check_date} (weekend)")
                                 continue
                             
-                            # Fetch data from this day
-                            prev_day_start = datetime.combine(check_date, datetime.min.time()).replace(hour=9, minute=15)
+                            # Fetch only last 65 min of this day (not full 375) to reduce API load and avoid rate limits.
                             prev_day_end = datetime.combine(check_date, datetime.min.time()).replace(hour=15, minute=30)
-                            
-                            logger.debug(f"Checking {days_back} days back ({check_date}) for {symbol}...")
-                            
+                            prev_cold_start_bars = min(65, required_candles)
+                            prev_day_last65_start = prev_day_end - timedelta(minutes=prev_cold_start_bars)
+                            logger.debug(f"Checking {days_back} days back ({check_date}) for {symbol} (last {prev_cold_start_bars} min of day)...")
                             day_data = self.kite.historical_data(
                                 instrument_token=token,
-                                from_date=prev_day_start,
+                                from_date=prev_day_last65_start,
                                 to_date=prev_day_end,
                                 interval='minute'
                             )
@@ -2445,14 +2533,10 @@ class AsyncLiveTickerHandler:
                                     day_data = []
                             
                             if day_data and len(day_data) > 0:
-                                # Found a valid trading day with data
                                 prev_candle_count = len(day_data)
-                                logger.info(f"Found valid trading day {check_date} for {symbol} with {prev_candle_count} candles")
-
-                                # Match backtest cold start: use exactly 65 minutes of previous day (last 65).
-                                # Backtest uses 65 prev-day bars (e.g. 14:25-15:29); taking candles_needed
-                                # (e.g. 64 at 9:16) shifted the series by one bar and caused indicator divergence.
-                                prev_cold_start_bars = min(65, prev_candle_count)
+                                logger.info(
+                                    f"Found valid trading day {check_date} for {symbol} with {prev_candle_count} candles (last {prev_cold_start_bars} min of day; total: {prev_candle_count} prev + {current_candle_count} today)"
+                                )
                                 previous_day_data = day_data[-prev_cold_start_bars:] if prev_candle_count >= prev_cold_start_bars else day_data
                                 found_valid_day = True
                                 break
@@ -2475,7 +2559,9 @@ class AsyncLiveTickerHandler:
                         logger.warning(f"No data received from previous trading days (checked up to 7 days back) for {symbol}")
                         logger.info(f"Continuing with {current_candle_count} candles from current day only")
                 else:
-                    logger.debug(f"[OK] Sufficient data from current day: {current_candle_count} candles (required: {required_candles})")
+                    logger.info(
+                        f"Sufficient data from current day for {symbol}: {current_candle_count} candles (no previous day needed)"
+                    )
 
                 # Step 3: Convert to our candle format
                 candles = []

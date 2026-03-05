@@ -175,23 +175,32 @@ class EntryConditionManager:
 
         # --- Load price zone configuration ---
         price_zones = config.get('PRICE_ZONES', {})
-        dynamic_atm_enabled = config.get('DYNAMIC_ATM', {}).get('ENABLED', False)
-        
-        # Determine which price zone to use based on DYNAMIC_ATM setting
-        if dynamic_atm_enabled:
-            price_zone_config = price_zones.get('DYNAMIC_ATM', {})
-            self.use_dynamic_atm = True
+        dynamic_atm_cfg = config.get('DYNAMIC_ATM', {}) or {}
+        dynamic_price_zone_enabled = dynamic_atm_cfg.get('ENABLED', False)
+
+        # Read STRIKE_TYPE to decide which dynamic band to use (ATM vs OTM)
+        strike_type_raw = (config.get('STRIKE_TYPE') or 'ATM').strip().upper()
+        if strike_type_raw not in ('ATM', 'OTM'):
+            strike_type_raw = 'ATM'
+
+        # Determine which price zone band to use:
+        # - If dynamic_price_zone_enabled: use DYNAMIC_ATM for ATM, DYNAMIC_OTM for OTM
+        # - Else: fall back to STATIC_ATM band
+        if dynamic_price_zone_enabled:
+            self.price_zone_band = 'DYNAMIC_OTM' if strike_type_raw == 'OTM' else 'DYNAMIC_ATM'
         else:
-            price_zone_config = price_zones.get('STATIC_ATM', {})
-            self.use_dynamic_atm = False
-        
+            self.price_zone_band = 'STATIC_ATM'
+
+        price_zone_config = price_zones.get(self.price_zone_band, {})
         self.price_zone_low = price_zone_config.get('LOW_PRICE', None)
         self.price_zone_high = price_zone_config.get('HIGH_PRICE', None)
-        
+
         # Log price zone configuration
         if self.price_zone_low is not None and self.price_zone_high is not None:
-            self.logger.info(f"Price zone filter enabled ({'DYNAMIC_ATM' if self.use_dynamic_atm else 'STATIC_ATM'}): "
-                           f"Entry price must be between {self.price_zone_low} and {self.price_zone_high}")
+            self.logger.info(
+                f"Price zone filter enabled ({self.price_zone_band}): "
+                f"Entry price must be between {self.price_zone_low} and {self.price_zone_high}"
+            )
         else:
             self.logger.info("Price zone filter disabled (no limits configured)")
 

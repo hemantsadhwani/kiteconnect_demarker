@@ -197,17 +197,17 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
             slow_ma_type = 'sma'
             slow_ma_length = indicators_config.get('SMA_LENGTH', 7)
         
-        # Calculate Fast MA
+        # Calculate Fast MA (all indicator display: 2 decimals)
         if fast_ma_type == 'ema':
-            results['fast_ma'] = df['close'].ewm(span=fast_ma_length, adjust=False).mean()
+            results['fast_ma'] = df['close'].ewm(span=fast_ma_length, adjust=False).mean().round(2)
         else:  # sma
-            results['fast_ma'] = df['close'].rolling(window=fast_ma_length).mean()
+            results['fast_ma'] = df['close'].rolling(window=fast_ma_length).mean().round(2)
         
         # Calculate Slow MA
         if slow_ma_type == 'ema':
-            results['slow_ma'] = df['close'].ewm(span=slow_ma_length, adjust=False).mean()
+            results['slow_ma'] = df['close'].ewm(span=slow_ma_length, adjust=False).mean().round(2)
         else:  # sma
-            results['slow_ma'] = df['close'].rolling(window=slow_ma_length).mean()
+            results['slow_ma'] = df['close'].rolling(window=slow_ma_length).mean().round(2)
         
         # For backward compatibility, also create legacy column names
         # This ensures code that still references ema{period}/sma{period} continues to work
@@ -219,9 +219,9 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
         return results
     
     def _calculate_swing_low(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
-        """Calculate swing low over a defined period."""
+        """Calculate swing low over a defined period (2 decimals for display)."""
         return {
-            'swing_low': df['low'].rolling(window=self.config['SWING_LOW_PERIOD']).min()
+            'swing_low': df['low'].rolling(window=self.config['SWING_LOW_PERIOD']).min().round(2)
         }
 
     def _calculate_demarker(self, df: pd.DataFrame) -> Dict[str, pd.Series]:
@@ -238,7 +238,7 @@ class IndicatorManager: # <-- RENAMED FROM OptimizedIndicators
         sum_low = pd.Series(low_diff, index=df.index).rolling(window=period, min_periods=1).sum()
         total = sum_high + sum_low
         dem = np.where(total != 0, sum_high / total, 0.0)
-        return {'demarker': np.round(dem.astype(float), 4)}
+        return {'demarker': np.round(dem.astype(float), 2)}
     
     def calculate_all_concurrent(self, df: pd.DataFrame, token_type: str = None) -> pd.DataFrame:
         """

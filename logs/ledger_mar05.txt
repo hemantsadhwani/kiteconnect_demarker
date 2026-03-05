@@ -1,0 +1,2 @@
+#DATE: 2026-03-05
+symbol,entry_time,entry_price,exit_time,exit_price,pnl_percent,trade_status,exit_reason

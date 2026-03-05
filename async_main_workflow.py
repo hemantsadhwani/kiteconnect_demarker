@@ -1474,6 +1474,25 @@ class AsyncTradingBot:
                     # Wait for WebSocket connection with timeout
                     if await self.ticker_handler.wait_for_connection(timeout_seconds=connection_timeout):
                         logger.info("WebSocket connection established successfully")
+                        # Mid-day instant band init: if market is already open and we have NIFTY price from historical API,
+                        # initialize the 23-symbol band immediately instead of waiting for the first WebSocket candle (~2 min).
+                        band_cfg = self.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
+                        if (not self.strikes_derived
+                            and band_cfg.get('ENABLED', False)
+                            and getattr(self, 'nifty_opening_price', None) is not None
+                            and is_market_open_time()):
+                            try:
+                                today = datetime.now().date()
+                                first_candle_ts = datetime.combine(today, datetime.min.time()).replace(hour=9, minute=15)
+                                price = self.nifty_opening_price
+                                logger.info("[PRECOMPUTED_BAND] Mid-day start: initializing 23-symbol band from historical NIFTY price (no wait for first candle).")
+                                await self.ticker_handler._initialize_precomputed_band_from_first_nifty_candle(
+                                    price, price, price, price,
+                                    first_candle_ts,
+                                    256265,
+                                )
+                            except Exception as e:
+                                logger.warning("[PRECOMPUTED_BAND] Mid-day band init failed: %s. Will derive from first WebSocket candle.", e)
                         break
                     else:
                         error_msg = f"Could not establish WebSocket connection (attempt {attempt}/{max_retries})"
@@ -1505,33 +1524,30 @@ class AsyncTradingBot:
 
             # Update subscriptions based on whether strikes are already derived
             if self.strikes_derived:
-                # Include CE and PE tokens, and NIFTY if automated sentiment or SKIP_FIRST is enabled
-                strike_symbol_token_map = {
-                    self.trade_symbols['ce_symbol']: self.trade_symbols['ce_token'],
-                    self.trade_symbols['pe_symbol']: self.trade_symbols['pe_token']
-                }
-                
-                # Check if SKIP_FIRST is enabled (needs NIFTY for sentiment calculation)
-                skip_first_enabled = False
-                if self.entry_condition_manager:
-                    skip_first_enabled = self.entry_condition_manager.skip_first
-                elif self.config.get('TRADE_SETTINGS', {}).get('SKIP_FIRST', False):
-                    skip_first_enabled = True
-                
-                # Add NIFTY if automated sentiment or SKIP_FIRST is enabled
-                if self.use_automated_sentiment or skip_first_enabled:
-                    nifty_token = 256265
-                    strike_symbol_token_map['NIFTY 50'] = nifty_token
-                    reasons = []
-                    if self.use_automated_sentiment:
-                        reasons.append("automated sentiment")
-                    if skip_first_enabled:
-                        reasons.append("SKIP_FIRST")
-                    logger.info(f"[CHART] Subscribed to CE, PE, and NIFTY 50 tokens ({', '.join(reasons)} enabled)")
-                else:
-                    logger.info("[CHART] Subscribed to CE and PE tokens only (NIFTY excluded - automated sentiment and SKIP_FIRST disabled)")
-                
-                await self.ticker_handler.update_subscriptions(strike_symbol_token_map)
+                # If precomputed band was just initialized (mid-day or first candle), ticker already has 23 symbols; do not overwrite.
+                if not getattr(self, 'precomputed_band', None):
+                    # Single CE/PE path: subscribe to CE, PE, and optionally NIFTY
+                    strike_symbol_token_map = {
+                        self.trade_symbols['ce_symbol']: self.trade_symbols['ce_token'],
+                        self.trade_symbols['pe_symbol']: self.trade_symbols['pe_token']
+                    }
+                    skip_first_enabled = False
+                    if self.entry_condition_manager:
+                        skip_first_enabled = self.entry_condition_manager.skip_first
+                    elif self.config.get('TRADE_SETTINGS', {}).get('SKIP_FIRST', False):
+                        skip_first_enabled = True
+                    if self.use_automated_sentiment or skip_first_enabled:
+                        nifty_token = 256265
+                        strike_symbol_token_map['NIFTY 50'] = nifty_token
+                        reasons = []
+                        if self.use_automated_sentiment:
+                            reasons.append("automated sentiment")
+                        if skip_first_enabled:
+                            reasons.append("SKIP_FIRST")
+                        logger.info(f"[CHART] Subscribed to CE, PE, and NIFTY 50 tokens ({', '.join(reasons)} enabled)")
+                    else:
+                        logger.info("[CHART] Subscribed to CE and PE tokens only (NIFTY excluded - automated sentiment and SKIP_FIRST disabled)")
+                    await self.ticker_handler.update_subscriptions(strike_symbol_token_map)
                 
                 # Ensure entry condition manager is initialized
                 if not self.entry_condition_manager:
