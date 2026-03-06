@@ -38,36 +38,28 @@ class TradeState:
         self.allow_multiple_symbol_positions = allow_multiple_symbol_positions  # If True, allow multiple positions for different symbols
     
     def can_enter_trade(self, symbol, entry_time):
-        """Check if we can enter a new trade"""
-        if self.allow_multiple_symbol_positions:
-            # When multiple positions allowed: Only check if there's an active trade for THIS symbol
-            if symbol in self.active_trades:
-                logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trade for this symbol")
+        """Check if we can enter a new trade.
+        - Same symbol: never allow (one position per symbol).
+        - ALLOW_MULTIPLE_SYMBOL_POSITIONS=True: allow CE and PE to coexist, but never two CEs or two PEs.
+        - ALLOW_MULTIPLE_SYMBOL_POSITIONS=False: only one position total (CE or PE).
+        """
+        if symbol in self.active_trades:
+            logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trade for this symbol")
+            return False
+        new_option_type = 'CE' if symbol.endswith('CE') else 'PE' if symbol.endswith('PE') else None
+        for existing_symbol in self.active_trades.keys():
+            existing_option_type = 'CE' if existing_symbol.endswith('CE') else 'PE' if existing_symbol.endswith('PE') else None
+            # Never allow two positions of the same type (second CE while CE active, or second PE while PE active)
+            if new_option_type and existing_option_type and new_option_type == existing_option_type:
+                logger.warning(f"Cannot enter {symbol} ({new_option_type}) at {entry_time} - same option type position {existing_symbol} already active")
                 return False
+        if self.allow_multiple_symbol_positions:
+            # CE and PE can coexist; same-type check already done above
             return True
         else:
-            # When multiple positions NOT allowed: Block if ANY trade is active (CE or PE)
+            # When multiple positions NOT allowed: block if any trade is active (CE or PE)
             if self.active_trades:
-                # Check if this specific symbol is already active
-                if symbol in self.active_trades:
-                    logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trade for this symbol")
-                    return False
-                
-                # Block if any opposite position is active (CE blocks PE, PE blocks CE)
-                new_option_type = 'CE' if symbol.endswith('CE') else 'PE' if symbol.endswith('PE') else None
-                for existing_symbol in self.active_trades.keys():
-                    existing_option_type = 'CE' if existing_symbol.endswith('CE') else 'PE' if existing_symbol.endswith('PE') else None
-                    # Block if opposite option type is active
-                    if new_option_type and existing_option_type and new_option_type != existing_option_type:
-                        logger.warning(f"Cannot enter {symbol} ({new_option_type}) trade at {entry_time} - opposite position {existing_symbol} ({existing_option_type}) is already active (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false)")
-                        return False
-                    # Also block if same option type (shouldn't happen, but safety check)
-                    elif new_option_type and existing_option_type and new_option_type == existing_option_type:
-                        logger.warning(f"Cannot enter {symbol} ({new_option_type}) trade at {entry_time} - same option type position {existing_symbol} is already active")
-                        return False
-                
-                # If we get here, there are active trades but they're not blocking (shouldn't happen with above logic)
-                logger.warning(f"Cannot enter trade for {symbol} at {entry_time} - already have active trades: {list(self.active_trades.keys())}")
+                logger.warning(f"Cannot enter {symbol} at {entry_time} - active trade(s) exist (ALLOW_MULTIPLE_SYMBOL_POSITIONS=false): {list(self.active_trades.keys())}")
                 return False
         return True
     

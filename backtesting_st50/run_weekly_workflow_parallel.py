@@ -717,10 +717,9 @@ def run_phase_1_parallel(max_workers=None):
     
     if max_workers is None:
         import os
-        max_workers = os.cpu_count() or 4
-    
+        max_workers = min(6, os.cpu_count() or 4)  # Cap to reduce OOM risk in worker processes
     logger.info(f"Processing {len(ohlc_files)} files in parallel using {max_workers} workers...")
-    
+
     total_processed = 0
     total_trades = 0
     total_pnl = 0.0
@@ -728,15 +727,13 @@ def run_phase_1_parallel(max_workers=None):
     total_loss = 0
     failed_files = []
     results = []
-    
+    pool_failed_logged = False  # Log "process pool terminated" only once
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
         future_to_file = {
             executor.submit(process_single_file_worker, csv_file, config_path): csv_file
             for csv_file in ohlc_files
         }
-        
-        # Collect results as they complete
         completed = 0
         for future in as_completed(future_to_file):
             csv_file = future_to_file[future]
@@ -755,11 +752,20 @@ def run_phase_1_parallel(max_workers=None):
                                   f"({total_processed} successful, {total_trades} trades)")
                 else:
                     failed_files.append(result['file'])
-                    if len(failed_files) <= 5:  # Only log first 5 failures
+                    if len(failed_files) <= 5:
                         logger.error(f"Failed: {Path(result['file']).name} - {result.get('error', 'Unknown error')}")
             except Exception as e:
                 failed_files.append(csv_file)
-                logger.error(f"Exception processing {Path(csv_file).name}: {e}")
+                if "terminated abruptly" in str(e) or "BrokenProcessPool" in type(e).__name__:
+                    if not pool_failed_logged:
+                        pool_failed_logged = True
+                        logger.error(
+                            "Process pool failed (a worker was killed, often due to memory). "
+                            "Remaining futures will be marked failed. Consider reducing workload or max_workers."
+                        )
+                        logger.error(f"First failure: {Path(csv_file).name}: {e}")
+                else:
+                    logger.error(f"Exception processing {Path(csv_file).name}: {e}")
     
     phase1_duration = time.time() - phase1_start
     
@@ -1310,41 +1316,22 @@ def run_phase_4_parallel(max_workers=None):
 
 
 def process_single_strategy_file_worker(csv_file_path: str):
-    """Worker function to process a single strategy file (must be at module level for pickling)"""
+    """Worker function to process a single strategy file (must be at module level for pickling).
+    Catches BaseException so the process never crashes and the pool stays healthy."""
     try:
-        # Import here to avoid circular imports
         import sys
         from pathlib import Path
-        import multiprocessing
-        
-        # Reconfigure logging in worker process to avoid console flush errors
         root_logger = logging.getLogger()
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
-        
-        # Don't add file handler in worker processes - strategy_plotter.py handles its own logging
-        # File handles cannot be safely shared across process boundaries on Windows
-        # The strategy_plotter module will configure logging appropriately for worker processes
         root_logger.setLevel(logging.INFO)
-        
-        # Change to backtesting directory
         backtesting_dir = Path(__file__).parent
         sys.path.insert(0, str(backtesting_dir))
-        
-        # Import and process single strategy file
         from strategy_plotter import process_single_strategy_file
-        
         success = process_single_strategy_file(csv_file_path)
-        return {
-            'file': csv_file_path,
-            'success': success
-        }
-    except Exception as e:
-        return {
-            'file': csv_file_path,
-            'success': False,
-            'error': str(e)
-        }
+        return {'file': csv_file_path, 'success': success}
+    except BaseException as e:
+        return {'file': csv_file_path, 'success': False, 'error': str(e)}
 
 
 def run_phase_6_parallel(max_workers=None):
@@ -1394,22 +1381,19 @@ def run_phase_6_parallel(max_workers=None):
     
     if max_workers is None:
         import os
-        max_workers = os.cpu_count() or 4
-    
+        max_workers = min(6, os.cpu_count() or 4)  # Cap to reduce OOM risk
     logger.info(f"Processing {len(strategy_files)} files in parallel using {max_workers} workers...")
-    
+
     successful = 0
     failed = 0
     results = []
-    
+    pool_failed_logged = False
+
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
         future_to_file = {
             executor.submit(process_single_strategy_file_worker, csv_file): csv_file
             for csv_file in strategy_files
         }
-        
-        # Collect results as they complete
         completed = 0
         for future in as_completed(future_to_file):
             csv_file = future_to_file[future]
@@ -1421,15 +1405,23 @@ def run_phase_6_parallel(max_workers=None):
                     successful += 1
                 else:
                     failed += 1
-                    if failed <= 5:  # Only log first 5 failures
+                    if failed <= 5:
                         logger.error(f"Failed: {Path(result['file']).name} - {result.get('error', 'Unknown error')}")
-                
                 if completed % 100 == 0 or completed == len(strategy_files):
                     summary_logger.info(f"[PROGRESS] {completed}/{len(strategy_files)} files processed "
                               f"({successful} successful, {failed} failed)")
             except Exception as e:
                 failed += 1
-                logger.error(f"Exception processing {Path(csv_file).name}: {e}")
+                if "terminated abruptly" in str(e) or "BrokenProcessPool" in type(e).__name__:
+                    if not pool_failed_logged:
+                        pool_failed_logged = True
+                        logger.error(
+                            "Process pool failed (a worker was killed, often due to memory). "
+                            "Remaining futures will be marked failed. Consider reducing max_workers."
+                        )
+                        logger.error(f"First failure: {Path(csv_file).name}: {e}")
+                else:
+                    logger.error(f"Exception processing {Path(csv_file).name}: {e}")
     
     phase6_duration = time.time() - phase6_start
     

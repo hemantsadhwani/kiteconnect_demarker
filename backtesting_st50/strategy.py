@@ -23,28 +23,31 @@ sys.path.append(str(parent_dir))
 logs_dir = Path(__file__).parent / 'logs'
 logs_dir.mkdir(exist_ok=True)
 
-# Clean up log file at start of each run to prevent excessive growth
-log_file = logs_dir / 'strategy_backtest.log'
-if log_file.exists():
-    try:
-        log_file.unlink()
-    except Exception as e:
-        # If cleanup fails, continue anyway - logging will append
-        pass
-
-# Detect if we're in a multiprocessing worker process
-# In worker processes, only use file handlers to avoid console flush errors
 import multiprocessing
 is_worker_process = multiprocessing.current_process().name != 'MainProcess'
 
-# Configure handlers based on process type
-handlers = [logging.FileHandler(logs_dir / 'strategy_backtest.log')]
-# Only add StreamHandler in main process to avoid OSError in Cursor terminal
+# Use per-process log file in workers to avoid PermissionError when multiple processes open the same file (Windows)
+if is_worker_process:
+    _log_path = logs_dir / f'strategy_backtest_{os.getpid()}.log'
+else:
+    log_file = logs_dir / 'strategy_backtest.log'
+    if log_file.exists():
+        try:
+            log_file.unlink()
+        except Exception:
+            pass
+    _log_path = logs_dir / 'strategy_backtest.log'
+
+handlers = []
+try:
+    handlers.append(logging.FileHandler(_log_path))
+except PermissionError:
+    handlers.append(logging.NullHandler())
+
 if not is_worker_process:
     try:
         handlers.append(logging.StreamHandler(sys.stdout))
     except (OSError, ValueError):
-        # If console handler fails, just use file handler
         pass
 
 logging.basicConfig(
@@ -505,8 +508,12 @@ class Entry2BacktestStrategyFixed:
                 self.eod_exit_enabled = False
         
         # Time distribution filter
+        # When APPLY_AT_ENTRY is False: strategy enters in all zones; time filter is applied only in
+        # sentiment filter (Phase 3), so Filtered P&L excludes disabled zones and can improve.
+        # When True: strategy blocks entry in disabled zones (CE/PE files have no those trades).
         time_filter_config = self.config.get('TIME_DISTRIBUTION_FILTER', {})
         self.time_filter_enabled = time_filter_config.get('ENABLED', False)
+        self.time_filter_apply_at_entry = time_filter_config.get('APPLY_AT_ENTRY', False)
         self.time_zones = time_filter_config.get('TIME_ZONES', {})
         
         # Note: INDIAVIX filter is now handled at workflow level (run_weekly_workflow_parallel.py)
@@ -836,10 +843,10 @@ class Entry2BacktestStrategyFixed:
         return start_time <= time_obj <= end_time
     
     def _is_time_zone_enabled(self, timestamp) -> bool:
-        """Check if timestamp falls within an enabled time zone"""
-        if not self.time_filter_enabled:
-            return True  # If filter is disabled, allow all times within trading hours
-        
+        """Check if timestamp falls within an enabled time zone.
+        When time_filter_apply_at_entry is False, always return True here (filter applied only in sentiment stage)."""
+        if not self.time_filter_enabled or not getattr(self, 'time_filter_apply_at_entry', True):
+            return True  # Filter disabled or apply only at summary/sentiment stage
         if pd.isna(timestamp):
             return False
         

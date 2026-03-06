@@ -112,30 +112,25 @@ def clean_strategy_files(data_dir: Path, analysis_config: dict = None):
     logger.info(f"Cleaned {len(strategy_files)} strategy files")
 
 def process_single_file_worker(csv_file_path: str, config_path: str):
-    """Worker function to process a single CSV file (must be at module level for pickling)"""
+    """Worker function to process a single CSV file (must be at module level for pickling).
+    Catches BaseException so the process never crashes and the pool stays healthy."""
     import os
-    worker_id = os.getpid()
     try:
         # Reconfigure logging in worker process to avoid console flush errors
-        # Remove all existing handlers and add only file handler
         root_logger = logging.getLogger()
         for handler in root_logger.handlers[:]:
             root_logger.removeHandler(handler)
-        
-        # Add only file handler for worker processes
         logs_dir = Path(__file__).parent / 'logs'
         logs_dir.mkdir(exist_ok=True)
         file_handler = logging.FileHandler(logs_dir / 'regenerate_strategy.log')
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         root_logger.addHandler(file_handler)
-        root_logger.setLevel(logging.INFO)  # Set to INFO for normal operation
-        
-        # Create strategy instance in worker process
+        root_logger.setLevel(logging.INFO)
+
         strategy = Entry2BacktestStrategyFixed(config_path)
         csv_file = Path(csv_file_path)
-        
         result = strategy.process_single_file(csv_file)
-        
+
         if result and 'total_trades' in result:
             return {
                 'file': str(csv_file),
@@ -145,13 +140,12 @@ def process_single_file_worker(csv_file_path: str, config_path: str):
                 'win_count': result.get('win_count', 0),
                 'loss_count': result.get('loss_count', 0)
             }
-        else:
-            return {
-                'file': str(csv_file),
-                'success': False,
-                'error': 'No trades found'
-            }
-    except Exception as e:
+        return {
+            'file': str(csv_file),
+            'success': False,
+            'error': 'No trades found'
+        }
+    except BaseException as e:
         return {
             'file': csv_file_path,
             'success': False,

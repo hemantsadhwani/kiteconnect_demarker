@@ -236,10 +236,11 @@ def _is_time_zone_enabled(entry_time_dt, time_filter_enabled, time_zones):
 
 def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str, kind: str, entry_type: str = 'Entry2') -> dict:
     """Filter one set (ATM or OTM) and persist outputs. Returns summary metrics dict or None."""
-    # Load config early to check if sentiment filter is enabled
+    # Load config early to check sentiment and time filter
     config = _load_config()
     sentiment_filter_enabled = config.get('sentiment_filter_enabled', True)  # Default to True for backward compatibility
-    
+    time_filter_enabled = config.get('time_filter_enabled', False)
+
     entry_type_lower = entry_type.lower()
     if kind == 'OTM':
         ce_path = base_dir / f'{entry_type_lower}_dynamic_otm_ce_trades.csv'
@@ -250,10 +251,10 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         pe_path = base_dir / f'{entry_type_lower}_dynamic_atm_pe_trades.csv'
         output_file = base_dir / f'{entry_type_lower}_dynamic_atm_mkt_sentiment_trades.csv'
 
-    # When sentiment filter is enabled, always regenerate so current MODE and SENTIMENT_VERSION are applied.
-    # (Reusing a cached file would return results from a previous run's config, e.g. MANUAL vs AUTO v5.)
+    # When sentiment or time filter is enabled, always regenerate so current config is applied.
+    # (Reusing a cached file would return results from a previous run's TIME_ZONES or MODE.)
     should_regenerate = True
-    if not sentiment_filter_enabled and output_file.exists() and ce_path.exists() and pe_path.exists():
+    if not sentiment_filter_enabled and not time_filter_enabled and output_file.exists() and ce_path.exists() and pe_path.exists():
         try:
             # Only consider cache when sentiment filter is disabled
             output_mtime = output_file.stat().st_mtime
@@ -523,6 +524,12 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     # Use config already loaded at function start
     time_filter_enabled = config['time_filter_enabled']
     time_zones = config['time_zones']
+    disabled_zones = [z for z, en in time_zones.items() if not en]
+    enabled_zones = [z for z, en in time_zones.items() if en]
+    if time_filter_enabled:
+        logger.info(f"TIME_DISTRIBUTION_FILTER: ENABLED - allowed zones: {enabled_zones}, excluded zones: {disabled_zones}")
+    else:
+        logger.info("TIME_DISTRIBUTION_FILTER: DISABLED - all time zones allowed")
     sentiment_mode = str(config.get('sentiment_mode', 'AUTO')).strip().upper()
     raw_version = config.get('sentiment_version', 'v2')
     # Normalize version: v5, V5, 5 (int) -> 'v5'
