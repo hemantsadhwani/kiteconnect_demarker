@@ -2,7 +2,7 @@
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
-  CAPITAL: 12000 # Max capital to use per trade
+  CAPITAL: 20000 # Max capital to use per trade
   PRODUCT: "NRML" # NRML is required for GTT orders
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
@@ -205,7 +205,7 @@ PRECOMPUTED_SYMBOL_BAND:
 PRICE_ZONES:
   DYNAMIC_ATM:
     LOW_PRICE: 40
-    HIGH_PRICE: 200
+    HIGH_PRICE: 300
   DYNAMIC_OTM:
     LOW_PRICE: 20
     HIGH_PRICE: 300

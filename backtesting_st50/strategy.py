@@ -26,9 +26,11 @@ logs_dir.mkdir(exist_ok=True)
 import multiprocessing
 is_worker_process = multiprocessing.current_process().name != 'MainProcess'
 
-# Use per-process log file in workers to avoid PermissionError when multiple processes open the same file (Windows)
+# In workers: no file handler (avoids PermissionError and avoids creating many strategy_backtest_*.log files).
+# Main process: use single strategy_backtest.log.
+handlers = []
 if is_worker_process:
-    _log_path = logs_dir / f'strategy_backtest_{os.getpid()}.log'
+    handlers.append(logging.NullHandler())
 else:
     log_file = logs_dir / 'strategy_backtest.log'
     if log_file.exists():
@@ -36,13 +38,10 @@ else:
             log_file.unlink()
         except Exception:
             pass
-    _log_path = logs_dir / 'strategy_backtest.log'
-
-handlers = []
-try:
-    handlers.append(logging.FileHandler(_log_path))
-except PermissionError:
-    handlers.append(logging.NullHandler())
+    try:
+        handlers.append(logging.FileHandler(log_file))
+    except PermissionError:
+        handlers.append(logging.NullHandler())
 
 if not is_worker_process:
     try:

@@ -146,6 +146,9 @@ market_sentiment/output/
 backtesting/data/
 backtesting/logs/
 *.csv
+# Allow CSV in logs/ for snapshots and comparison (e.g. precomputed_band_snapshot_*.csv, NIFTY*_prod.csv)
+!logs/*.csv
+!logs/**/*.csv
 *.parquet
 *.feather
 *.hdf5

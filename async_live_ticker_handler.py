@@ -36,6 +36,24 @@ def _round_row_decimals(row: dict, decimals: int) -> dict:
     return out
 
 
+def _ensure_candle_ohlc_valid(candle: dict) -> None:
+    """Ensure completed candle has valid close and low for W%R/indicators.
+    If close or low is None, 0, or invalid (e.g. open/high are valid but close is 0), fix from other OHLC.
+    Modifies candle in place.
+    """
+    o = candle.get('open')
+    h = candle.get('high')
+    l = candle.get('low')
+    c = candle.get('close')
+    valid = [x for x in (o, h, l, c) if x is not None and isinstance(x, (int, float)) and x > 0]
+    if not valid:
+        return
+    if c is None or (isinstance(c, (int, float)) and c <= 0):
+        candle['close'] = h if (h is not None and isinstance(h, (int, float)) and h > 0) else (max(valid) if valid else c)
+    if l is None or (isinstance(l, (int, float)) and l <= 0):
+        candle['low'] = min(valid)
+
+
 class AsyncLiveTickerHandler:
     """
     Async version of LiveTickerHandler that dispatches events immediately
@@ -279,6 +297,9 @@ class AsyncLiveTickerHandler:
                                         candle_already_exists = True
                                         break
                         
+                        # Ensure completed candle has valid close/low (W%R and indicators depend on them)
+                        _ensure_candle_ohlc_valid(completed_candle)
+
                         # Append the live tick-built candle (more accurate than historical)
                         self.completed_candles_data[instrument_token].append(completed_candle)
 
@@ -439,6 +460,15 @@ class AsyncLiveTickerHandler:
                 for col in ('open', 'high', 'low', 'close'):
                     if col.capitalize() in df.columns and col not in df.columns:
                         df[col] = df[col.capitalize()]
+
+                # Fix invalid close/low (0 or NaN) so W%R and indicators get valid OHLC
+                if all(c in df.columns for c in ('open', 'high', 'low', 'close')):
+                    mask_invalid_close = (df['close'].isna()) | (df['close'] <= 0)
+                    mask_valid_high = (df['high'].notna()) & (df['high'] > 0)
+                    df.loc[mask_invalid_close & mask_valid_high, 'close'] = df.loc[mask_invalid_close & mask_valid_high, 'high']
+                    mask_invalid_low = (df['low'].isna()) | (df['low'] <= 0)
+                    min_ohlc = df[['open', 'high', 'close']].min(axis=1)
+                    df.loc[mask_invalid_low & (min_ohlc > 0), 'low'] = min_ohlc[mask_invalid_low & (min_ohlc > 0)]
 
                 # Determine token type for logging
                 token_type = None
@@ -1669,21 +1699,28 @@ class AsyncLiveTickerHandler:
             logger.error(f"Error printing indicator data: {e}")
 
     def _start_new_candle(self, token: int, timestamp: datetime, price: float):
-        """A helper method to initialize a new 1-minute candle."""
+        """A helper method to initialize a new 1-minute candle.
+        If price is None or <= 0, use 0.0 so candle is still created (will be fixed when we get valid ticks).
+        """
         # Normalize the timestamp to the beginning of the minute
         normalized_timestamp = timestamp.replace(second=0, microsecond=0)
+        valid_price = price if (price is not None and (not isinstance(price, (int, float)) or price > 0)) else 0.0
 
         self.current_candles[token] = {
             "instrument_token": token,
             "timestamp": normalized_timestamp,
-            "open": price,
-            "high": price,
-            "low": price,
-            "close": price
+            "open": valid_price,
+            "high": valid_price,
+            "low": valid_price,
+            "close": valid_price
         }
 
     def _update_candle(self, token: int, price: float):
-        """A helper method to update the high, low, and close of the current candle."""
+        """A helper method to update the high, low, and close of the current candle.
+        Only updates with valid price (not None and > 0) so we never store 0/None as close/low.
+        """
+        if price is None or (isinstance(price, (int, float)) and price <= 0):
+            return
         candle = self.current_candles[token]
         candle['high'] = max(candle['high'], price)
         candle['low'] = min(candle['low'], price)
