@@ -38,7 +38,8 @@ def _round_row_decimals(row: dict, decimals: int) -> dict:
 
 def _ensure_candle_ohlc_valid(candle: dict) -> None:
     """Ensure completed candle has valid close and low for W%R/indicators.
-    If close or low is None, 0, or invalid (e.g. open/high are valid but close is 0), fix from other OHLC.
+    If close or low is None, 0, or invalid, fix from other OHLC. Use open as close fallback
+    (more neutral than high for W%R). Enforce OHLC sanity: high >= close >= low.
     Modifies candle in place.
     """
     o = candle.get('open')
@@ -48,10 +49,16 @@ def _ensure_candle_ohlc_valid(candle: dict) -> None:
     valid = [x for x in (o, h, l, c) if x is not None and isinstance(x, (int, float)) and x > 0]
     if not valid:
         return
+    # Use open as close fallback (more neutral than high for W%R)
     if c is None or (isinstance(c, (int, float)) and c <= 0):
-        candle['close'] = h if (h is not None and isinstance(h, (int, float)) and h > 0) else (max(valid) if valid else c)
+        candle['close'] = o if (o is not None and isinstance(o, (int, float)) and o > 0) else valid[0]
     if l is None or (isinstance(l, (int, float)) and l <= 0):
         candle['low'] = min(valid)
+    # OHLC sanity: high >= close >= low
+    if candle.get('high') is not None and candle.get('close') is not None and candle['high'] < candle['close']:
+        candle['high'] = candle['close']
+    if candle.get('low') is not None and candle.get('close') is not None and candle['low'] > candle['close']:
+        candle['low'] = candle['close']
 
 
 class AsyncLiveTickerHandler:
@@ -87,6 +94,8 @@ class AsyncLiveTickerHandler:
         # --- State Management for Real-time Candle Construction ---
         # Dictionary to hold the current, incomplete 1-minute candle for each instrument
         self.current_candles: Dict[int, Dict] = {}
+        # Last valid LTP per token (used as close when finalizing candle to handle minute-boundary race)
+        self._last_valid_price: Dict[int, float] = {}
         # Dict to store the finalized, completed candles as lists per token
         self.completed_candles_data: Dict[int, list] = {token: [] for token in self.instrument_tokens}
         # Note: NIFTY token (256265) will be added to completed_candles_data when dynamic ATM is enabled
@@ -178,16 +187,22 @@ class AsyncLiveTickerHandler:
                 async with self.candle_lock:
                     # --- Real-Time Candle Construction Logic ---
                     
-                    # CRITICAL: Check if this token belongs to an old symbol that was replaced by slab change
-                    # If slab change occurred, skip processing old symbols' candles to avoid logging wrong symbols
+                    # When precomputed_band is enabled: build candles for ALL band symbols so snapshot has fresh OHLC every minute.
+                    # When disabled: only build for current CE/PE; skip old symbols after slab change.
                     symbol_for_token = next((s for s, t in self.symbol_token_map.items() if t == instrument_token), None)
                     if symbol_for_token:
-                        # Check if this symbol is still active (not replaced by slab change)
-                        is_active_symbol = (symbol_for_token == self.ce_symbol or symbol_for_token == self.pe_symbol)
-                        if not is_active_symbol:
-                            # This is an old symbol - skip processing its candles after slab change
-                            logger.debug(f"Skipping candle processing for old symbol {symbol_for_token} (token {instrument_token}) - slab change occurred, active symbols are CE={self.ce_symbol}, PE={self.pe_symbol}")
-                            continue
+                        is_active_ce_pe = (symbol_for_token == self.ce_symbol or symbol_for_token == self.pe_symbol)
+                        if not is_active_ce_pe:
+                            band = getattr(self.trading_bot, 'precomputed_band', None)
+                            if band:
+                                band_symbols = (band.get('band_ce_symbols', []) or []) + (band.get('band_pe_symbols', []) or [])
+                                if symbol_for_token in band_symbols:
+                                    pass  # Build candle for this band symbol (so snapshot gets per-minute OHLC)
+                                else:
+                                    continue
+                            else:
+                                logger.debug(f"Skipping candle processing for old symbol {symbol_for_token} (token {instrument_token}) - slab change occurred, active symbols are CE={self.ce_symbol}, PE={self.pe_symbol}")
+                                continue
 
                     # Check if we have an ongoing candle for this specific instrument
                     if instrument_token not in self.current_candles:
@@ -218,7 +233,7 @@ class AsyncLiveTickerHandler:
                         if not candle_already_exists:
                             # This is the very first tick we've seen for this instrument for this minute.
                             # We start building its first 1-minute candle.
-                            self._start_new_candle(instrument_token, tick_time, ltp)
+                            self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
                         continue
 
                     # Get the minute of the candle we are currently building
@@ -269,6 +284,9 @@ class AsyncLiveTickerHandler:
 
                         # 1. Finalize and store the completed candle
                         completed_candle = self.current_candles[instrument_token]
+                        # Use last valid LTP as close to handle minute-boundary race (last tick of minute N may arrive after first tick of N+1)
+                        if instrument_token in self._last_valid_price:
+                            completed_candle['close'] = self._last_valid_price[instrument_token]
                         
                         # CRITICAL FIX: Check if this minute's candle already exists in completed_candles_data
                         # This can happen if historical data was prefilled and included this minute's candle
@@ -348,10 +366,18 @@ class AsyncLiveTickerHandler:
                             await self._calculate_and_dispatch_indicators(instrument_token, completed_candle_timestamp, is_new_candle=True, skip_terminal_log=skip_terminal_log)
 
                         # 5. Start a new candle for the new minute with the current tick's data
-                        self._start_new_candle(instrument_token, tick_time, ltp)
+                        self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
                     else:
-                        # The minute is the same, so we just update the high, low, and close
-                        # of the candle we are currently building.
+                        # During 9:15 minute: refresh open from tick ohlc when available (day open from Kite)
+                        candle = self.current_candles[instrument_token]
+                        if candle['timestamp'].hour == 9 and candle['timestamp'].minute == 15:
+                            ohlc = tick.get('ohlc') or {}
+                            tick_open = ohlc.get('open')
+                            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
+                                candle['open'] = tick_open
+                                candle['high'] = max(candle['high'], tick_open)
+                                candle['low'] = min(candle['low'], tick_open)
+                        # Update the high, low, and close of the candle we are currently building
                         self._update_candle(instrument_token, ltp)
 
                 # NOTE: TICK_UPDATE events disabled to prevent queue overflow
@@ -1101,7 +1127,7 @@ class AsyncLiveTickerHandler:
                 # Build NIFTY candle similar to other instruments
                 if nifty_token not in self.current_candles:
                     logger.debug(f"Starting new NIFTY candle at {tick_time.strftime('%H:%M:%S')} with price {nifty_price}")
-                    self._start_new_candle(nifty_token, tick_time, nifty_price)
+                    self._start_new_candle(nifty_token, tick_time, nifty_price, tick=tick)
                     return
                 
                 candle_minute = self.current_candles[nifty_token]['timestamp'].minute
@@ -1110,6 +1136,9 @@ class AsyncLiveTickerHandler:
                 if current_minute != candle_minute:
                     # New candle formed - process for both slab change and sentiment (once per candle)
                     completed_candle = self.current_candles[nifty_token]
+                    if nifty_token in self._last_valid_price:
+                        completed_candle['close'] = self._last_valid_price[nifty_token]
+                    _ensure_candle_ohlc_valid(completed_candle)
                     completed_candle_timestamp = completed_candle.get('timestamp')
                     # Dedup: process each completed candle only once (avoid repeated slab check / logs on every tick)
                     try:
@@ -1117,9 +1146,32 @@ class AsyncLiveTickerHandler:
                     except Exception:
                         candle_key = completed_candle_timestamp
                     if getattr(self, '_last_nifty_completed_candle_ts', None) == candle_key:
-                        self._start_new_candle(nifty_token, tick_time, nifty_price)
+                        self._start_new_candle(nifty_token, tick_time, nifty_price, tick=tick)
                         return
                     self._last_nifty_completed_candle_ts = candle_key
+
+                    # Persist completed NIFTY candle to completed_candles_data so snapshots use the latest real NIFTY candle.
+                    # NOTE: NIFTY candle build is handled in this function (Pass 1a), so we must append here
+                    # (Pass 2 skips instrument_token == nifty_token).
+                    try:
+                        completed_timestamp = completed_candle.get('timestamp')
+                        if completed_timestamp is not None:
+                            completed_minute = completed_timestamp.replace(second=0, microsecond=0) if hasattr(completed_timestamp, 'replace') else pd.to_datetime(completed_timestamp).replace(second=0, microsecond=0)
+                            # Remove any historical/prefilled candle for the same minute so live tick-built candle wins
+                            for existing_candle in list(self.completed_candles_data.get(nifty_token, [])):
+                                existing_ts = existing_candle.get('timestamp')
+                                if existing_ts is None:
+                                    continue
+                                existing_minute = existing_ts.replace(second=0, microsecond=0) if hasattr(existing_ts, 'replace') else pd.to_datetime(existing_ts).replace(second=0, microsecond=0)
+                                if existing_minute == completed_minute:
+                                    self.completed_candles_data[nifty_token].remove(existing_candle)
+                                    break
+                            self.completed_candles_data[nifty_token].append(completed_candle)
+                            # Keep NIFTY indicators up to date (used by some components and helpful for debugging)
+                            if len(self.completed_candles_data[nifty_token]) >= 35:
+                                await self._calculate_and_dispatch_indicators(nifty_token, completed_timestamp, is_new_candle=True, skip_terminal_log=True)
+                    except Exception as e:
+                        logger.debug("[NIFTY] Failed to persist completed candle: %s", e)
 
                     nifty_close = completed_candle.get('close', nifty_price)
                     nifty_open = completed_candle.get('open', nifty_price)
@@ -1248,8 +1300,18 @@ class AsyncLiveTickerHandler:
                     # Signal that NIFTY candle (and slab decision) is done so entry check runs once with correct symbols
                     self._dispatch_nifty_candle_complete(candle_key)
                     # Start new candle
-                    self._start_new_candle(nifty_token, tick_time, nifty_price)
+                    self._start_new_candle(nifty_token, tick_time, nifty_price, tick=tick)
                 else:
+                    # During 9:15 minute: refresh open from tick ohlc when available (day open from Kite)
+                    if nifty_token in self.current_candles:
+                        candle = self.current_candles[nifty_token]
+                        if candle['timestamp'].hour == 9 and candle['timestamp'].minute == 15:
+                            ohlc = tick.get('ohlc') or {}
+                            tick_open = ohlc.get('open')
+                            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
+                                candle['open'] = tick_open
+                                candle['high'] = max(candle['high'], tick_open)
+                                candle['low'] = min(candle['low'], tick_open)
                     # Update current candle
                     self._update_candle(nifty_token, nifty_price)
                     
@@ -1698,29 +1760,39 @@ class AsyncLiveTickerHandler:
         except Exception as e:
             logger.error(f"Error printing indicator data: {e}")
 
-    def _start_new_candle(self, token: int, timestamp: datetime, price: float):
+    def _start_new_candle(self, token: int, timestamp: datetime, price: float, tick: Optional[Dict[str, Any]] = None):
         """A helper method to initialize a new 1-minute candle.
         If price is None or <= 0, use 0.0 so candle is still created (will be fixed when we get valid ticks).
+        For the 9:15 (day open) candle only, use tick['ohlc']['open'] from MODE_FULL if available for better alignment with Kite API.
         """
         # Normalize the timestamp to the beginning of the minute
         normalized_timestamp = timestamp.replace(second=0, microsecond=0)
         valid_price = price if (price is not None and (not isinstance(price, (int, float)) or price > 0)) else 0.0
+        open_price = valid_price
+        # Use day open from tick's embedded OHLC only for 9:15 candle (Kite MODE_FULL provides ohlc)
+        if tick and normalized_timestamp.hour == 9 and normalized_timestamp.minute == 15:
+            ohlc = tick.get('ohlc') or {}
+            tick_open = ohlc.get('open')
+            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
+                open_price = tick_open
 
         self.current_candles[token] = {
             "instrument_token": token,
             "timestamp": normalized_timestamp,
-            "open": valid_price,
-            "high": valid_price,
-            "low": valid_price,
-            "close": valid_price
+            "open": open_price,
+            "high": open_price,
+            "low": open_price,
+            "close": open_price
         }
 
     def _update_candle(self, token: int, price: float):
         """A helper method to update the high, low, and close of the current candle.
         Only updates with valid price (not None and > 0) so we never store 0/None as close/low.
+        Tracks last valid price per token for use as close when finalizing (minute-boundary race).
         """
         if price is None or (isinstance(price, (int, float)) and price <= 0):
             return
+        self._last_valid_price[token] = price
         candle = self.current_candles[token]
         candle['high'] = max(candle['high'], price)
         candle['low'] = min(candle['low'], price)
@@ -2321,10 +2393,19 @@ class AsyncLiveTickerHandler:
             if not _has_minute(df, minute_ts_naive):
                 return
 
-        # Passed all guards: record and write this minute
+        # Passed all guards: schedule snapshot write without blocking tick handler.
+        # Do NOT synthesize missing option candles; if an option doesn't tick, we keep the last known candle
+        # and expose the actual candle timestamp via `candle_time` in the snapshot.
         self._last_snapshot_minute = minute_ts
-        logger.info("[PRECOMPUTED_BAND] Writing snapshot for minute %s (option_tokens=%d)", minute_ts_naive, len(option_tokens))
-        await self._write_precomputed_band_snapshot(minute_ts)
+        logger.info("[PRECOMPUTED_BAND] Scheduling snapshot for minute %s (option_tokens=%d)", minute_ts_naive, len(option_tokens))
+
+        async def _write_snapshot_task():
+            try:
+                await self._write_precomputed_band_snapshot(minute_ts)
+            except Exception as e:
+                logger.exception("[PRECOMPUTED_BAND] Snapshot task failed for minute %s: %s", minute_ts_naive, e)
+
+        asyncio.create_task(_write_snapshot_task())
 
     async def _write_precomputed_band_snapshot(self, minute_ts: datetime):
         """Write NIFTY + 22 symbols (OHLC + indicator columns) to logs/precomputed_band_snapshot_YYYY-MM-DD.csv."""
@@ -2365,8 +2446,16 @@ class AsyncLiveTickerHandler:
                         return False
                 last = next((c for c in reversed(candles) if _ts_lte(c.get('timestamp'))), None) or (candles[-1] if candles else None)
                 if last:
+                    candle_ts = last.get('timestamp')
+                    candle_time_str = pd.Timestamp(candle_ts).isoformat() if candle_ts is not None else ''
+                    age_min = None
+                    try:
+                        if candle_ts is not None:
+                            age_min = (pd.Timestamp(minute_ts_naive) - pd.Timestamp(candle_ts)).total_seconds() / 60.0
+                    except Exception:
+                        age_min = None
                     nifty_row = {
-                        'timestamp': minute_ts.isoformat(), 'symbol': 'NIFTY 50',
+                        'timestamp': minute_ts.isoformat(), 'candle_time': candle_time_str, 'age_min': age_min, 'symbol': 'NIFTY 50',
                         'open': last.get('open'), 'high': last.get('high'), 'low': last.get('low'), 'close': last.get('close'),
                         'active_ce': 0, 'active_pe': 0,
                     }
@@ -2401,8 +2490,18 @@ class AsyncLiveTickerHandler:
                     if last_idx_pos is None:
                         continue
                     r = df.iloc[last_idx_pos]
+                    candle_ts = df.index[last_idx_pos]
+                    candle_time_str = pd.Timestamp(candle_ts).isoformat() if candle_ts is not None else ''
+                    age_min = None
+                    try:
+                        if candle_ts is not None:
+                            age_min = (pd.Timestamp(minute_ts_naive) - pd.Timestamp(candle_ts)).total_seconds() / 60.0
+                    except Exception:
+                        age_min = None
                     row = {
                         'timestamp': minute_ts.isoformat(),
+                        'candle_time': candle_time_str,
+                        'age_min': age_min,
                         'symbol': sym,
                         'active_ce': 1 if sym == active_ce else 0,
                         'active_pe': 1 if sym == active_pe else 0,

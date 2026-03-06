@@ -10,7 +10,7 @@ Revisit this doc when validating the OHLC/indicator fix or if discrepancies pers
 
 - **Candle building** (`async_live_ticker_handler.py`):
   - `_update_candle`: only updates when LTP is valid (not `None`, not `<= 0`).
-  - Before appending completed candle: `_ensure_candle_ohlc_valid(completed_candle)` so `close`/`low` are never left 0 or invalid (fallback: close ← high, low ← min(open, high, close)).
+  - Before appending completed candle: `_ensure_candle_ohlc_valid(completed_candle)` so `close`/`low` are never left 0 or invalid (fallback: close ← open, low ← min(valid); OHLC sanity: high >= close >= low).
 - **Indicator DataFrame**: after building `df` from `completed_candles_data`, invalid `close`/`low` (NaN or ≤ 0) are corrected so W%R gets valid OHLC.
 
 **Why this is the right approach**

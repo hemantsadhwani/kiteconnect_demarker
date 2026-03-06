@@ -234,81 +234,85 @@ class AsyncEventHandlers:
                                     self._indicator_updates_received[timestamp_minute]['PE'] = True
                                     logger.debug(f"PE indicator update received for timestamp: {timestamp_minute.strftime('%H:%M:%S')} from current symbol: {symbol}")
                                 elif (is_ce or is_pe) and not is_current_symbol:
-                                    # Log that we're ignoring old symbol data after slab change
-                                    logger.debug(f"Ignoring indicator update for {symbol} (not current symbol) at timestamp: {timestamp_minute.strftime('%H:%M:%S')}. Current symbols: CE={getattr(self.ticker_handler, 'ce_symbol', 'N/A') if self.ticker_handler else 'N/A'}, PE={getattr(self.ticker_handler, 'pe_symbol', 'N/A') if self.ticker_handler else 'N/A'}")
+                                    # Not current CE/PE (e.g. other band symbols). Skip trigger/duplicate logic to avoid
+                                    # spamming "Skipping duplicate" when precomputed band snapshot triggers INDICATOR_UPDATE for 20 other symbols.
+                                    pass
                                 
-                                # Check if both CE and PE updates have been received AND sentiment has been updated
-                                updates = self._indicator_updates_received[timestamp_minute]
-                                both_indicators_received = updates['CE'] and updates['PE']
-                                sentiment_updated = updates.get('sentiment', False)
-                                
-                                # Check if automated sentiment is enabled (if disabled, don't wait for sentiment update)
-                                use_automated_sentiment = False
-                                use_dynamic_atm = False
-                                if hasattr(self, 'ticker_handler') and self.ticker_handler and hasattr(self.ticker_handler, 'trading_bot'):
-                                    use_automated_sentiment = getattr(self.ticker_handler.trading_bot, 'use_automated_sentiment', False)
-                                    use_dynamic_atm = getattr(self.ticker_handler.trading_bot, 'use_dynamic_atm', False)
-                                nifty_complete = updates.get('NIFTY', False)
-                                # When dynamic ATM is enabled: wait for NIFTY candle (and slab decision) so entry check runs once with correct symbols
-                                if use_automated_sentiment:
-                                    all_ready = both_indicators_received and sentiment_updated and (nifty_complete if use_dynamic_atm else True)
-                                else:
-                                    all_ready = both_indicators_received and (nifty_complete if use_dynamic_atm else True)
-                                
-                                # Clean up old timestamps (keep only last 5 minutes)
-                                current_time = datetime.now().replace(second=0, microsecond=0)
-                                timestamps_to_remove = [ts for ts in self._indicator_updates_received.keys() 
-                                                        if hasattr(ts, 'replace') and (current_time - ts).total_seconds() > 300]
-                                for ts in timestamps_to_remove:
-                                    del self._indicator_updates_received[ts]
-                                
-                                # Only proceed if all updates received AND not already checked AND not in progress
-                                # (all_ready already requires sentiment_updated when use_automated_sentiment, so no stale sentiment)
-                                if all_ready and self._last_entry_check_timestamp != timestamp_minute and not self._entry_check_in_progress:
-                                    # Set both flags BEFORE creating task to prevent race condition
-                                    self._last_entry_check_timestamp = timestamp_minute
-                                    self._entry_check_in_progress = True
-                                    # Log the exact time when entry condition check is triggered
-                                    check_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
-                                    sentiment_status = "✓" if (not use_automated_sentiment or sentiment_updated) else "✗"
-                                    nifty_status = "✓" if (not use_dynamic_atm or nifty_complete) else "✗"
-                                    logger.info(f"[TIMING] New candle completed at {timestamp_minute.strftime('%H:%M:%S')} - All updates received (CE: ✓, PE: ✓, Sentiment: {sentiment_status}, NIFTY: {nifty_status}). Triggering entry condition check at {check_time} for sentiment: {sentiment}")
-                                    # Create a task to check entry conditions (single normal check: T vs T-1)
-                                    # Use create_task without awaiting to avoid blocking the event loop
-                                    # CRITICAL: Sentiment has been updated by NIFTY candle processing and synchronized with indicator updates
-                                    # This ensures entry conditions use the latest sentiment, not stale sentiment
-                                    # CRITICAL: Schedule with high priority to ensure immediate execution
-                                    task = asyncio.create_task(
-                                        self._check_entry_conditions_async(sentiment)
-                                    )
-                                    # Add callback to log when task actually starts executing
-                                    def log_task_start(t):
-                                        try:
-                                            start_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                                            logger.debug(f"[TIMING] Entry condition check task started executing at {start_time}")
-                                        except:
-                                            pass
-                                    task.add_done_callback(log_task_start)
-                                elif not all_ready:
-                                    # Log which updates are still pending
-                                    pending = []
-                                    if not updates['CE']:
-                                        pending.append('CE')
-                                    if not updates['PE']:
-                                        pending.append('PE')
-                                    if use_automated_sentiment and not sentiment_updated:
-                                        pending.append('Sentiment')
-                                    if use_dynamic_atm and not nifty_complete:
-                                        pending.append('NIFTY')
+                                # Only evaluate all_ready / trigger / duplicate when this update is from current CE or PE.
+                                # Otherwise we'd run this block on every INDICATOR_UPDATE from non-active band symbols and log duplicate WARNING each time.
+                                if is_current_symbol:
+                                    # Check if both CE and PE updates have been received AND sentiment has been updated
+                                    updates = self._indicator_updates_received[timestamp_minute]
+                                    both_indicators_received = updates['CE'] and updates['PE']
+                                    sentiment_updated = updates.get('sentiment', False)
                                     
-                                    # Normal async flow: CE/PE/Sentiment arrive over time; DEBUG to avoid log noise at startup
-                                    logger.debug(
-                                        f"[ENTRY CHECK] Waiting for updates for timestamp {timestamp_minute.strftime('%H:%M:%S')}: Still pending {', '.join(pending)}. CE={updates.get('CE', False)}, PE={updates.get('PE', False)}, Sentiment={updates.get('sentiment', False)}"
-                                    )
-                                elif self._last_entry_check_timestamp == timestamp_minute:
-                                    logger.warning(f"[ENTRY CHECK] Skipping duplicate entry condition check for timestamp: {timestamp_minute.strftime('%H:%M:%S')} (last_check={self._last_entry_check_timestamp.strftime('%H:%M:%S') if hasattr(self._last_entry_check_timestamp, 'strftime') else self._last_entry_check_timestamp})")
-                                elif self._entry_check_in_progress:
-                                    logger.warning(f"[ENTRY CHECK] Skipping entry condition check - check already in progress for timestamp: {timestamp_minute.strftime('%H:%M:%S')}")
+                                    # Check if automated sentiment is enabled (if disabled, don't wait for sentiment update)
+                                    use_automated_sentiment = False
+                                    use_dynamic_atm = False
+                                    if hasattr(self, 'ticker_handler') and self.ticker_handler and hasattr(self.ticker_handler, 'trading_bot'):
+                                        use_automated_sentiment = getattr(self.ticker_handler.trading_bot, 'use_automated_sentiment', False)
+                                        use_dynamic_atm = getattr(self.ticker_handler.trading_bot, 'use_dynamic_atm', False)
+                                    nifty_complete = updates.get('NIFTY', False)
+                                    # When dynamic ATM is enabled: wait for NIFTY candle (and slab decision) so entry check runs once with correct symbols
+                                    if use_automated_sentiment:
+                                        all_ready = both_indicators_received and sentiment_updated and (nifty_complete if use_dynamic_atm else True)
+                                    else:
+                                        all_ready = both_indicators_received and (nifty_complete if use_dynamic_atm else True)
+                                    
+                                    # Clean up old timestamps (keep only last 5 minutes)
+                                    current_time = datetime.now().replace(second=0, microsecond=0)
+                                    timestamps_to_remove = [ts for ts in self._indicator_updates_received.keys() 
+                                                            if hasattr(ts, 'replace') and (current_time - ts).total_seconds() > 300]
+                                    for ts in timestamps_to_remove:
+                                        del self._indicator_updates_received[ts]
+                                    
+                                    # Only proceed if all updates received AND not already checked AND not in progress
+                                    # (all_ready already requires sentiment_updated when use_automated_sentiment, so no stale sentiment)
+                                    if all_ready and self._last_entry_check_timestamp != timestamp_minute and not self._entry_check_in_progress:
+                                        # Set both flags BEFORE creating task to prevent race condition
+                                        self._last_entry_check_timestamp = timestamp_minute
+                                        self._entry_check_in_progress = True
+                                        # Log the exact time when entry condition check is triggered
+                                        check_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
+                                        sentiment_status = "✓" if (not use_automated_sentiment or sentiment_updated) else "✗"
+                                        nifty_status = "✓" if (not use_dynamic_atm or nifty_complete) else "✗"
+                                        logger.info(f"[TIMING] New candle completed at {timestamp_minute.strftime('%H:%M:%S')} - All updates received (CE: ✓, PE: ✓, Sentiment: {sentiment_status}, NIFTY: {nifty_status}). Triggering entry condition check at {check_time} for sentiment: {sentiment}")
+                                        # Create a task to check entry conditions (single normal check: T vs T-1)
+                                        # Use create_task without awaiting to avoid blocking the event loop
+                                        # CRITICAL: Sentiment has been updated by NIFTY candle processing and synchronized with indicator updates
+                                        # This ensures entry conditions use the latest sentiment, not stale sentiment
+                                        # CRITICAL: Schedule with high priority to ensure immediate execution
+                                        task = asyncio.create_task(
+                                            self._check_entry_conditions_async(sentiment)
+                                        )
+                                        # Add callback to log when task actually starts executing
+                                        def log_task_start(t):
+                                            try:
+                                                start_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                                                logger.debug(f"[TIMING] Entry condition check task started executing at {start_time}")
+                                            except:
+                                                pass
+                                        task.add_done_callback(log_task_start)
+                                    elif not all_ready:
+                                        # Log which updates are still pending
+                                        pending = []
+                                        if not updates['CE']:
+                                            pending.append('CE')
+                                        if not updates['PE']:
+                                            pending.append('PE')
+                                        if use_automated_sentiment and not sentiment_updated:
+                                            pending.append('Sentiment')
+                                        if use_dynamic_atm and not nifty_complete:
+                                            pending.append('NIFTY')
+                                        
+                                        # Normal async flow: CE/PE/Sentiment arrive over time; DEBUG to avoid log noise at startup
+                                        logger.debug(
+                                            f"[ENTRY CHECK] Waiting for updates for timestamp {timestamp_minute.strftime('%H:%M:%S')}: Still pending {', '.join(pending)}. CE={updates.get('CE', False)}, PE={updates.get('PE', False)}, Sentiment={updates.get('sentiment', False)}"
+                                        )
+                                    elif self._last_entry_check_timestamp == timestamp_minute:
+                                        logger.warning(f"[ENTRY CHECK] Skipping duplicate entry condition check for timestamp: {timestamp_minute.strftime('%H:%M:%S')} (last_check={self._last_entry_check_timestamp.strftime('%H:%M:%S') if hasattr(self._last_entry_check_timestamp, 'strftime') else self._last_entry_check_timestamp})")
+                                    elif self._entry_check_in_progress:
+                                        logger.warning(f"[ENTRY CHECK] Skipping entry condition check - check already in progress for timestamp: {timestamp_minute.strftime('%H:%M:%S')}")
                         elif not is_new_candle:
                             # Even if not a new candle, re-check entry conditions if they're waiting for confirmations
                             # OR if Entry2 might be waiting for a trigger (to catch stale W%R, SuperTrend values)
