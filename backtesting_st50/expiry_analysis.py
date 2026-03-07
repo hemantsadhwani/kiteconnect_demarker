@@ -266,17 +266,19 @@ class EnhancedExpiryAnalysis:
         static_dir_with_suffix = self.data_dir / expiry_week if expiry_week.endswith('_STATIC') else None
         static_dir_base = self.data_dir / f"{base_expiry}_STATIC"
         
+        # When BACKTESTING_DAYS is set, discover all day dirs from disk and filter by it (so MAR04/MAR05
+        # appear when in BACKTESTING_DAYS even if DATE_MAPPINGS only lists MAR06). Otherwise use expected_days.
+        use_backtesting_days_for_discovery = bool(backtesting_days)
         for static_dir in [static_dir_with_suffix, static_dir_base]:
             if static_dir and static_dir.exists():
                 for item in static_dir.iterdir():
                     if item.is_dir():
-                        if expected_days:
-                            # Check if it's one of the expected days from config
+                        if use_backtesting_days_for_discovery:
+                            trading_days.add(item.name)
+                        elif expected_days:
                             if item.name in expected_days:
                                 trading_days.add(item.name)
                         else:
-                            # Add all directories - we'll filter by BACKTESTING_DAYS later
-                            # This allows days from different months (e.g., NOV26 in DEC02 expiry)
                             trading_days.add(item.name)
         
         # Check dynamic directories (both with and without suffix)
@@ -287,13 +289,12 @@ class EnhancedExpiryAnalysis:
             if dynamic_dir and dynamic_dir.exists():
                 for item in dynamic_dir.iterdir():
                     if item.is_dir():
-                        if expected_days:
-                            # Check if it's one of the expected days from config
+                        if use_backtesting_days_for_discovery:
+                            trading_days.add(item.name)
+                        elif expected_days:
                             if item.name in expected_days:
                                 trading_days.add(item.name)
                         else:
-                            # Add all directories - we'll filter by BACKTESTING_DAYS later
-                            # This allows days from different months (e.g., NOV26 in DEC02 expiry)
                             trading_days.add(item.name)
         
         # Filter by BACKTESTING_DAYS if configured
@@ -609,13 +610,9 @@ class EnhancedExpiryAnalysis:
             }
         
         # Extract P&L values (handle different column names)
-        # Check for P&L columns in order of preference:
-        # 1. realized_pnl_pct (current standard - percentage P&L)
-        # 2. sentiment_pnl (from trailing stop - percentage P&L, renamed from pnl)
-        # 3. pnl (original column name for backward compatibility)
-        # 4. Other variations
+        # Prefer sentiment_pnl (same as *_mkt_sentiment_trades.csv), then realized_pnl_pct, then pnl
         # Note: realized_pnl is monetary value, not percentage, so not used here
-        pnl_columns = ['realized_pnl_pct', 'sentiment_pnl', 'pnl', 'P&L', 'pnl_percent', 'P&L %']
+        pnl_columns = ['sentiment_pnl', 'realized_pnl_pct', 'pnl', 'P&L', 'pnl_percent', 'P&L %']
         pnl_col = None
         for col in pnl_columns:
             if col in df.columns:
@@ -637,16 +634,21 @@ class EnhancedExpiryAnalysis:
                 'profit_factor': 0
             }
         
-        # Convert P&L to numeric, handling percentage signs
+        # Convert P&L to numeric, handling percentage signs and NaN
         pnl_values = []
         for val in df[pnl_col]:
             try:
+                if pd.isna(val) or val is None or val == '':
+                    pnl_values.append(0.0)
+                    continue
                 if isinstance(val, str):
-                    val = val.replace('%', '').replace(',', '')
+                    val = val.replace('%', '').replace(',', '').strip()
+                    if val == '' or val.lower() == 'nan':
+                        pnl_values.append(0.0)
+                        continue
                 pnl_values.append(float(val))
             except (ValueError, TypeError):
-                pnl_values.append(0)
-        
+                pnl_values.append(0.0)
         pnl_values = np.array(pnl_values)
         
         winning_trades = pnl_values[pnl_values > 0]
@@ -855,6 +857,18 @@ class EnhancedExpiryAnalysis:
             df = pd.read_csv(csv_file)
             results = {}
             
+            def _parse_pct(val, default=0):
+                """Parse percentage value (may be float or string like '0.00%') to float."""
+                if pd.isna(val) or val is None or val == '':
+                    return default
+                s = str(val).replace('%', '').strip()
+                if not s or s.lower() == 'nan':
+                    return default
+                try:
+                    return float(s)
+                except (ValueError, TypeError):
+                    return default
+
             # Find DYNAMIC_ATM row
             atm_rows = df[df['Strike Type'].str.contains('DYNAMIC_ATM', case=False, na=False)]
             if not atm_rows.empty:
@@ -863,10 +877,10 @@ class EnhancedExpiryAnalysis:
                     'Strike Type': str(row.get('Strike Type', 'DYNAMIC_ATM')),
                     'Total Trades': int(row.get('Total Trades', 0)),
                     'Filtered Trades': int(row.get('Filtered Trades', 0)),
-                    'Filtering Efficiency': float(row.get('Filtering Efficiency', 0)),
-                    'Un-Filtered P&L': float(row.get('Un-Filtered P&L', 0)),
-                    'Filtered P&L': float(row.get('Filtered P&L', 0)),
-                    'Win Rate': float(row.get('Win Rate', 0))
+                    'Filtering Efficiency': _parse_pct(row.get('Filtering Efficiency', 0)),
+                    'Un-Filtered P&L': _parse_pct(row.get('Un-Filtered P&L', 0)),
+                    'Filtered P&L': _parse_pct(row.get('Filtered P&L', 0)),
+                    'Win Rate': _parse_pct(row.get('Win Rate', 0))
                 }
                 logger.debug(f"Successfully loaded DYNAMIC_ATM summary from CSV: {results['DYNAMIC_ATM']}")
             
@@ -878,10 +892,10 @@ class EnhancedExpiryAnalysis:
                     'Strike Type': str(row.get('Strike Type', 'DYNAMIC_OTM')),
                     'Total Trades': int(row.get('Total Trades', 0)),
                     'Filtered Trades': int(row.get('Filtered Trades', 0)),
-                    'Filtering Efficiency': float(row.get('Filtering Efficiency', 0)),
-                    'Un-Filtered P&L': float(row.get('Un-Filtered P&L', 0)),
-                    'Filtered P&L': float(row.get('Filtered P&L', 0)),
-                    'Win Rate': float(row.get('Win Rate', 0))
+                    'Filtering Efficiency': _parse_pct(row.get('Filtering Efficiency', 0)),
+                    'Un-Filtered P&L': _parse_pct(row.get('Un-Filtered P&L', 0)),
+                    'Filtered P&L': _parse_pct(row.get('Filtered P&L', 0)),
+                    'Win Rate': _parse_pct(row.get('Win Rate', 0))
                 }
                 logger.debug(f"Successfully loaded DYNAMIC_OTM summary from CSV: {results['DYNAMIC_OTM']}")
             

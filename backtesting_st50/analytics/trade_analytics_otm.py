@@ -226,15 +226,14 @@ def get_price_slab(entry_price):
         return None
 
 def get_pnl_column_name(df):
-    """Get the PnL column name - handles 'realized_pnl_pct', 'sentiment_pnl', and 'pnl' (in order of preference)"""
+    """Get the PnL column name - prefer sentiment_pnl (same as *_mkt_sentiment_trades), then realized_pnl_pct, then pnl"""
+    if 'sentiment_pnl' in df.columns:
+        return 'sentiment_pnl'
     if 'realized_pnl_pct' in df.columns:
         return 'realized_pnl_pct'
-    elif 'sentiment_pnl' in df.columns:
-        return 'sentiment_pnl'
-    elif 'pnl' in df.columns:
+    if 'pnl' in df.columns:
         return 'pnl'
-    else:
-        return None
+    return None
 
 def calculate_pnl_ranges(df):
     """Calculate PnL distribution by ranges"""

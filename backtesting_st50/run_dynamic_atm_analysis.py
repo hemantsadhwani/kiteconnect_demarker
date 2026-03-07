@@ -13,7 +13,7 @@ import sys
 import math
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from kiteconnect import KiteConnect
 import numpy as np
 
@@ -872,7 +872,6 @@ class ConsolidatedDynamicATMAnalysis:
                 logger.info(f"Processing trade {trade_idx+1}/{len(trades_data)}: {symbol} from {entry_time} to {exit_time}")
                 
                 # Extract strike from symbol (using same logic as _process_trades_for_entry_type)
-                import re
                 strike_str = None
                 if symbol.endswith('PE'):
                     if 'O2025' in symbol:
@@ -2172,8 +2171,8 @@ class ConsolidatedDynamicATMAnalysis:
                 )
                 
                 # CRITICAL FIX: Find the period that matches BOTH time AND strike using BASE slabs (nifty_dynamic_atm_slabs.csv).
-                # Using base_periods (not blocked all_periods) ensures output symbol matches the slabs file (same as OTM).
-                # In ATM, only ONE period should be active at any given time.
+                # Slab is frozen from confirm candle until trade is invalidated/closed: also match period containing
+                # confirm time (signal - 1 min) so we do not allow slab change in the middle of an active trade.
                 def _parse_period_time(s):
                     """Parse period time string to time object; accepts HH:MM:SS or HH:MM."""
                     if not s:
@@ -2187,6 +2186,20 @@ class ConsolidatedDynamicATMAnalysis:
                             continue
                     return None
 
+                # Confirm candle = 1 minute before signal (slab frozen from confirm until exit).
+                # Use module-level datetime (later in this function we have "from datetime import datetime" which shadows it).
+                from datetime import datetime as _dt_combine
+                _dummy_dt = _dt_combine.combine(date.today(), time_for_period_match)
+                time_for_confirm = (_dummy_dt - timedelta(minutes=1)).time()
+
+                def _period_contains(start_time, end_time, t):
+                    """True if period contains time t (inclusive of end minute)."""
+                    m_min, m_hr = t.minute, t.hour
+                    e_min, e_hr = end_time.minute, end_time.hour
+                    if m_min == e_min and m_hr == e_hr:
+                        return start_time <= t
+                    return start_time <= t < end_time
+
                 matching_period = None
                 for period in base_periods:
                     from datetime import datetime as dt
@@ -2196,18 +2209,10 @@ class ConsolidatedDynamicATMAnalysis:
                         logger.debug(f"Skipping period with unparseable start/end: {period.get('start')}-{period.get('end')}")
                         continue
                     
-                    # Match period by SIGNAL CANDLE time (when the signal fired); slab at that time has the correct ATM strike.
-                    match_minute = time_for_period_match.minute
-                    match_hour = time_for_period_match.hour
-                    end_minute = end_time.minute
-                    end_hour = end_time.hour
-                    period_matches_time = False
-                    if match_minute == end_minute and match_hour == end_hour:
-                        # Signal is in same minute AND hour as period end - include it
-                        period_matches_time = start_time <= time_for_period_match
-                    else:
-                        # Use standard range: start <= signal_time < end
-                        period_matches_time = start_time <= time_for_period_match < end_time
+                    # Match period by SIGNAL CANDLE time or CONFIRM CANDLE time (signal - 1 min); slab at that time.
+                    period_matches_signal = _period_contains(start_time, end_time, time_for_period_match)
+                    period_matches_confirm = _period_contains(start_time, end_time, time_for_confirm)
+                    period_matches_time = period_matches_signal or period_matches_confirm
                     
                     if period_matches_time:
                         # CRITICAL: Only match if BOTH time AND strike match exactly
@@ -2240,7 +2245,12 @@ class ConsolidatedDynamicATMAnalysis:
                                 )
                             matching_period = period
                             entry_period = f"{period['start']}-{period['end']}"
-                            logger.info(f"Period match: {symbol} at execution {entry_time_obj} -> period {entry_period} ({symbol[-2:]} strike {nifty_price_level_int})")
+                            via_confirm = period_matches_confirm and not period_matches_signal
+                            logger.info(
+                                f"Period match: {symbol} at execution {entry_time_obj} -> period {entry_period} "
+                                f"({symbol[-2:]} strike {nifty_price_level_int})"
+                                + (" (via confirm candle)" if via_confirm else "")
+                            )
                             logger.debug(f"Found matching period for {symbol} at execution time {entry_time_obj}: {entry_period} ({symbol[-2:]} strike {nifty_price_level_int}, period {symbol[-2:].lower()}_strike {expected_strike})")
                             break
                         else:

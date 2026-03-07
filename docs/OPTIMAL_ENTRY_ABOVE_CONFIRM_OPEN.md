@@ -12,7 +12,7 @@ When **OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN** is **true**, we do **not** enter on th
 
 Optional:
 
-- **OPTIMAL_ENTRY_WPR_INVALIDATE:** `true` | `false` — also invalidate the **pending optimal entry** (while waiting for open > confirm_high) when both W%R(9) and W%R(28) go below oversold. Default `false`.
+- **OPTIMAL_ENTRY_WPR_INVALIDATE:** `true` | `false` — also invalidate the **pending optimal entry** (while waiting for open ≥ confirm_high) when both W%R(9) and W%R(28) go below oversold. Default `false`.
 
 ---
 
@@ -49,7 +49,7 @@ Optional:
 
 ## Why it’s “optimised”
 
-We only take the trade when price has already traded above the confirmation candle’s high (open above that high), which filters weak follow-through and can improve entry quality versus entering on the next bar blindly. The skip of the first candle and the invalidation rule reduce the chance of entering just before a move that would hit the stop.
+We only take the trade when a candle **opens** at or above the confirmation candle’s high, which filters weak follow-through and can improve entry quality. Because we use **open** (not close), we can enter on that same candle as soon as it qualifies — no extra delay. The invalidation rule (low ≤ sl_price) cancels the pending entry if price breaches the stop before we enter.
 
 ---
 

@@ -147,18 +147,24 @@ def _ensure_nifty_time_column(nifty_df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _nifty_price_at_entry(nifty_df: pd.DataFrame, entry_time_dt) -> float:
-    """Get Nifty close at entry time (minute match). Returns None if not found."""
+    """Get Nifty price at entry time (minute match). Uses OPEN of the entry-minute candle
+    so we align with production (current price when check runs ≈ open of that minute).
+    Previously used close of entry-minute candle (which is next minute's close) and could
+    mis-classify zone. Returns None if not found."""
     if nifty_df is None or nifty_df.empty or entry_time_dt is None:
         return None
     df = _ensure_nifty_time_column(nifty_df)
-    if 'time' not in df.columns or 'close' not in df.columns:
+    if 'time' not in df.columns:
+        return None
+    price_col = 'open' if 'open' in df.columns else 'close'
+    if price_col not in df.columns:
         return None
     t = entry_time_dt.time() if hasattr(entry_time_dt, 'time') else entry_time_dt
     from datetime import time as dt_time
     t_candle = dt_time(t.hour, t.minute, 0)
     row = df[df['time'] == t_candle]
     if not row.empty:
-        return float(row.iloc[0]['close'])
+        return float(row.iloc[0][price_col])
     # Nearest minute within 2 minutes
     work = df.copy()
     work['_secs'] = work['time'].apply(lambda x: x.hour * 3600 + x.minute * 60 + (getattr(x, 'second', 0) or 0))
@@ -168,7 +174,7 @@ def _nifty_price_at_entry(nifty_df: pd.DataFrame, entry_time_dt) -> float:
     if work.empty:
         return None
     nearest = work.loc[work['_diff'].idxmin()]
-    return float(nearest['close'])
+    return float(nearest[price_col])
 
 
 def _load_cpr_r1_s1_for_date(trade_date: str) -> tuple:
@@ -262,8 +268,8 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
             pe_mtime = pe_path.stat().st_mtime
             if ce_mtime < output_mtime and pe_mtime < output_mtime:
                 filtered_df_existing = pd.read_csv(output_file)
-                # Check for realized_pnl_pct, sentiment_pnl, or pnl column (in order of preference)
-                pnl_col = 'realized_pnl_pct' if 'realized_pnl_pct' in filtered_df_existing.columns else ('sentiment_pnl' if 'sentiment_pnl' in filtered_df_existing.columns else 'pnl')
+                # Prefer sentiment_pnl for Filtered P&L (same as in mkt_sentiment_trades file)
+                pnl_col = 'sentiment_pnl' if 'sentiment_pnl' in filtered_df_existing.columns else ('realized_pnl_pct' if 'realized_pnl_pct' in filtered_df_existing.columns else 'pnl')
                 if not filtered_df_existing.empty and pnl_col in filtered_df_existing.columns:
                     logger.info(f"Using existing filtered trades file: {output_file.name} (source files unchanged)")
                     should_regenerate = False
@@ -279,9 +285,10 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     # NOTE: CE/PE files remain as original total trades (not regenerated)
                     # Only the sentiment output file contains filtered trades
                     
-                    # Calculate summary from executed trades only
-                    total_pnl = executed_df[pnl_col].sum()
-                    wins = (executed_df[pnl_col] > 0).sum()
+                    # Calculate summary from executed trades only (coerce to numeric)
+                    pnl_series = pd.to_numeric(executed_df[pnl_col], errors='coerce').fillna(0)
+                    total_pnl = pnl_series.sum()
+                    wins = (pnl_series > 0).sum()
                     win_rate = (wins / len(executed_df) * 100) if len(executed_df) > 0 else 0
                     
                     # Get total trades from source files for comparison
@@ -511,13 +518,13 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         else:
             sentiment_df['date'] = sent_dates.dt.tz_convert('Asia/Kolkata')
 
-    # Check for realized_pnl_pct, sentiment_pnl, or pnl column (in order of preference)
-    pnl_col_all = 'realized_pnl_pct' if 'realized_pnl_pct' in all_trades.columns else ('sentiment_pnl' if 'sentiment_pnl' in all_trades.columns else 'pnl')
+    # Prefer sentiment_pnl for P&L (same as filtered file); fallback realized_pnl_pct then pnl
+    pnl_col_all = 'sentiment_pnl' if 'sentiment_pnl' in all_trades.columns else ('realized_pnl_pct' if 'realized_pnl_pct' in all_trades.columns else 'pnl')
     if pnl_col_all not in all_trades.columns:
-        logger.error(f"Neither 'realized_pnl_pct', 'sentiment_pnl', nor 'pnl' column found in all_trades. Available columns: {list(all_trades.columns)}")
-        raise KeyError(f"Neither 'realized_pnl_pct', 'sentiment_pnl', nor 'pnl' column found in trade data")
+        logger.error(f"Neither 'sentiment_pnl', 'realized_pnl_pct', nor 'pnl' column found in all_trades. Available columns: {list(all_trades.columns)}")
+        raise KeyError(f"Neither 'sentiment_pnl', 'realized_pnl_pct', nor 'pnl' column found in trade data")
     
-    unfiltered_pnl = all_trades[pnl_col_all].sum()
+    unfiltered_pnl = pd.to_numeric(all_trades[pnl_col_all], errors='coerce').fillna(0).sum()
     filtered = []
     excluded = []  # Track excluded trades for audit
     
@@ -848,12 +855,24 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     if 'trade_status_reason' not in filtered_df.columns:
         filtered_df['trade_status_reason'] = ''
     
-    # Log excluded trades for debugging
+    # Log excluded trades and optionally write to CSV for audit (so user can see which trades were filtered by sentiment)
     if excluded:
         excluded_df = pd.DataFrame(excluded)
         logger.info(f"Excluded {len(excluded_df)} trades: {excluded_df['filter_status'].value_counts().to_dict()}")
+        # Write excluded trades to *_mkt_sentiment_excluded.csv for visibility (symbol, entry_time, option_type, market_sentiment, filter_status)
+        try:
+            excluded_out = output_file.parent / (output_file.stem + '_excluded.csv')
+            if 'entry_time_dt' in excluded_df.columns:
+                excluded_df = excluded_df.drop(columns=['entry_time_dt'])
+            audit_cols = ['symbol', 'option_type', 'entry_time', 'exit_time', 'trade_status', 'market_sentiment', 'filter_status']
+            audit_cols = [c for c in audit_cols if c in excluded_df.columns]
+            excluded_df[audit_cols].to_csv(excluded_out, index=False)
+            logger.info(f"Saved {len(excluded_df)} excluded trades to {excluded_out.name} (sentiment filter audit)")
+        except Exception as e:
+            logger.debug(f"Could not write excluded trades CSV: {e}")
     
-    # Apply PRICE_ZONES: keep in-zone trades as-is; include out-of-zone trades with SKIPPED (OUTSIDE_PRICE_BAND) so they appear in CSV with reason
+    # Apply PRICE_ZONES: mark out-of-zone trades as SKIPPED (OUTSIDE_PRICE_BAND), then exclude them from the CSV
+    # so the saved file only contains trades within the configured band (e.g. DYNAMIC_OTM 20-120).
     price_zones_config = _load_price_zones_config()
     strike_type_key = f'DYNAMIC_{kind}'
     price_zone_low, price_zone_high = price_zones_config.get(strike_type_key, (None, None))
@@ -862,19 +881,20 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     if price_zone_low is not None and price_zone_high is not None and len(filtered_df) > 0:
         entry_prices = pd.to_numeric(filtered_df['entry_price'], errors='coerce')
         # Only mark OUTSIDE_PRICE_BAND when entry_price is a valid number outside the band.
-        # Missing/NaN entry_price must not be treated as outside band (would wrongly skip e.g. ~100 premium).
         in_zone_mask = (entry_prices >= price_zone_low) & (entry_prices <= price_zone_high)
         out_zone_mask = entry_prices.notna() & ~in_zone_mask
         out_zone_count = out_zone_mask.sum()
         if out_zone_count > 0:
-            logger.info(f"PRICE_ZONES [{price_zone_low}, {price_zone_high}]: {out_zone_count} trades outside zone will appear as SKIPPED (OUTSIDE_PRICE_BAND)")
+            logger.info(f"PRICE_ZONES [{price_zone_low}, {price_zone_high}]: {out_zone_count} trades outside zone marked SKIPPED and excluded from CSV")
             filtered_df = filtered_df.copy()
             filtered_df.loc[out_zone_mask, 'trade_status'] = 'SKIPPED (OUTSIDE_PRICE_BAND)'
             filtered_df.loc[out_zone_mask, 'trade_status_reason'] = f'Entry price outside PRICE_ZONES ({price_zone_low}-{price_zone_high})'
             if 'filter_status' in filtered_df.columns:
                 filtered_df.loc[out_zone_mask, 'filter_status'] = filtered_df.loc[out_zone_mask, 'filter_status'].astype(str) + '; SKIPPED (OUTSIDE_PRICE_BAND)'
-            if in_zone_mask.sum() == 0:
-                logger.warning(f"All {len(filtered_df)} sentiment-filtered trades are outside price zone (included in output with SKIPPED (OUTSIDE_PRICE_BAND))")
+            # Exclude out-of-zone rows from the written CSV so file only shows trades within band
+            filtered_df = filtered_df.loc[in_zone_mask].reset_index(drop=True)
+            if len(filtered_df) == 0:
+                logger.warning(f"All sentiment-filtered trades were outside price zone; CSV will be empty")
     
     # Apply CPR_TRADING_RANGE: mark trades where Nifty at entry is outside CPR band as SKIPPED (OUTSIDE_CPR_BAND) so Filtered Trades excludes them
     if config.get('cpr_trading_range_enabled') and len(filtered_df) > 0:
@@ -1057,16 +1077,26 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
         executed_df = filtered_df
         logger.info(f"No trailing stop applied - using all {len(executed_df)} filtered trades")
 
-    # Check for realized_pnl_pct, sentiment_pnl, or pnl column (in order of preference)
-    pnl_col = 'realized_pnl_pct' if 'realized_pnl_pct' in filtered_df.columns else ('sentiment_pnl' if 'sentiment_pnl' in filtered_df.columns else 'pnl')
+    # Prefer sentiment_pnl for Filtered P&L (same as in *_mkt_sentiment_trades.csv); fallback to realized_pnl_pct then pnl
+    pnl_col = 'sentiment_pnl' if 'sentiment_pnl' in filtered_df.columns else ('realized_pnl_pct' if 'realized_pnl_pct' in filtered_df.columns else 'pnl')
+    if pnl_col not in executed_df.columns:
+        pnl_col = next((c for c in ['sentiment_pnl', 'realized_pnl_pct', 'pnl'] if c in executed_df.columns), None)
     
-    # Calculate P&L from executed trades only
-    total_pnl = executed_df[pnl_col].sum() if len(executed_df) > 0 else 0
-    wins = (executed_df[pnl_col] > 0).sum() if len(executed_df) > 0 else 0
-    win_rate = (wins / len(executed_df) * 100) if len(executed_df) > 0 else 0
+    # Calculate P&L from executed trades only (coerce to numeric in case of strings or empty)
+    if len(executed_df) > 0 and pnl_col:
+        total_pnl = pd.to_numeric(executed_df[pnl_col], errors='coerce').fillna(0).sum()
+    else:
+        total_pnl = 0
+    if len(executed_df) > 0 and pnl_col:
+        pnl_series = pd.to_numeric(executed_df[pnl_col], errors='coerce').fillna(0)
+        wins = (pnl_series > 0).sum()
+        win_rate = (wins / len(executed_df) * 100)
+    else:
+        wins = 0
+        win_rate = 0
 
-    # Calculate unfiltered P&L using the detected column
-    unfiltered_pnl_value = all_trades[pnl_col_all].sum() if pnl_col_all in all_trades.columns else 0
+    # Calculate unfiltered P&L using the detected column (coerce to numeric)
+    unfiltered_pnl_value = pd.to_numeric(all_trades[pnl_col_all], errors='coerce').fillna(0).sum() if pnl_col_all in all_trades.columns else 0
     
     return {
         'Strike Type': f'DYNAMIC_{kind}',

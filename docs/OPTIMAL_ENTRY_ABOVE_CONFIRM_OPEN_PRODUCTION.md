@@ -1,27 +1,16 @@
 # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN — Production Implementation Plan
 
-## What the feature does (backtesting)
+## What the feature does (backtesting and production)
 
-From `backtesting_st50/backtesting_config.yaml` (lines 216–217):
+From `backtesting_st50/backtesting_config.yaml` and `config.yaml`:
 
-- **Optimal entry**: Do **not** enter on the next candle after confirmation. Instead:
-  1. **Skip** the immediate next candle (only check invalidation).
-  2. **Enter** when a **subsequent** candle opens **above** the confirmation candle’s **high**.
-  3. **Invalidate** if the “would‑be” stop level (SL from the would‑be next‑candle entry) is breached (i.e. any candle’s **low** ≤ that SL price) while waiting.
-  4. Optional: **OPTIMAL_ENTRY_WPR_INVALIDATE** — also invalidate when both WPR9 and WPR28 fall below oversold (backtesting keeps this `false`).
+- **OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: false** — Enter on the **next** candle after confirmation (immediate execution at next evaluation).
+- **OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: true** — Do **not** enter on the confirmation candle. From the **first** candle after confirmation (T+1), **enter on that same candle** when its **open** is **at or above** the confirmation candle’s **high** (open ≥ confirm_high). Because we use **open**, we enter as soon as that candle qualifies — no extra delay. Invalidate if any candle’s **low** ≤ sl_price (or optional WPR invalidation).
 
 Backtesting flow (from `backtesting_st50/strategy.py`):
 
-- When Entry2 **confirms** (all conditions met at `signal_bar_index`):
-  - Store **pending**: `confirm_bar`, `confirm_high` = high of confirmation bar, `sl_price` = next bar’s open × (1 − SL% / 100).
-- Each bar:
-  - If **pending** exists: run `_check_pending_optimal_entry`:
-    - Invalidate if `low ≤ sl_price` (or optional WPR invalidation).
-    - If bar index ≤ `confirm_bar + 1` → **wait** (no entry).
-    - If bar index ≥ `confirm_bar + 2` and **open > confirm_high** → **enter** at this bar’s open and clear pending.
-    - Else → **wait**.
-
-So: **confirmation bar T** → skip bar T+1 → from bar T+2 onward, enter when **open > confirm_high**, or invalidate if **low ≤ sl_price**.
+- When Entry2 **confirms**: store **pending** with `confirm_high`, `sl_price`.
+- Each bar after confirmation: invalidate if `low ≤ sl_price` (or WPR); if **open ≥ confirm_high** → **enter** at this bar’s open and clear pending. So the **first** bar after confirm (T+1) can be the entry bar when its open ≥ confirm_high.
 
 ---
 
@@ -89,19 +78,16 @@ So: **confirmation bar T** → skip bar T+1 → from bar T+2 onward, enter when 
     `current_ts = df_with_indicators.index[-1]`, `current_open = df.iloc[-1]['open']`, `current_low = df.iloc[-1]['low']`.
   - Optional (if **OPTIMAL_ENTRY_WPR_INVALIDATE**): get `wpr_9`, `wpr_28` from last row and oversold thresholds; if both below oversold → **invalidate**: clear `pending_optimal_entry[symbol]`, and do **not** return 2.
   - **Invalidate** if `current_low <= sl_price` → clear pending, log “Entry2 optimal entry: INVALIDATE (SL would have been breached)”, then continue (no return 2).
-  - **Skip candle**: If current candle is the **first** after confirmation (e.g. `current_ts == confirm_candle_timestamp + 1 minute`), do **not** enter this candle; only invalidation was checked. Continue to normal Entry2 logic without returning 2.
-  - **Eligible to enter**: If current candle is **confirm_ts + 2 minutes or later** (or equivalent “we’re past the skip candle” rule):
-    - If **current_open > confirm_high** → **enter**:
+  - **Enter on first candle after confirmation**: If current candle is **after** the confirmation candle (e.g. `current_ts_normalized > confirm_ts_normalized`):
+    - If **current_open ≥ confirm_high** → **enter** on this same candle (we use open, so no delay):
       - Clear `pending_optimal_entry[symbol]`.
       - Return **2** (so `check_all_entry_conditions` will run time/CPR/price validation and call `execute_trade_entry(symbol, option_type, …)`).
     - Else → keep waiting; do not return 2.
+  - There is **no skip candle**: we enter as soon as the first candle after confirmation has open ≥ confirm_high.
 
 **2.6 Time comparison**
 
-- Use **minute-level** comparison for “first candle after confirmation” and “2+ candles after”:
-  - Normalize timestamps to minute (e.g. `replace(second=0, microsecond=0)`).
-  - “Skip” candle: `current_ts_normalized == confirm_ts_normalized + timedelta(minutes=1)`.
-  - “Eligible” candle: `current_ts_normalized >= confirm_ts_normalized + timedelta(minutes=2)`.
+- Use **minute-level** comparison: normalize timestamps to minute (e.g. `replace(second=0, microsecond=0)`). We are “past confirmation” when `current_ts_normalized > confirm_ts_normalized`. The first such candle (T+1) is eligible for entry when its open ≥ confirm_high.
 
 **2.7 Where to run the pending check**
 
@@ -146,8 +132,8 @@ So: **confirmation bar T** → skip bar T+1 → from bar T+2 onward, enter when 
 | Load & log | `entry_conditions.py` __init__ | Read both flags; log at startup. |
 | Pending state | `entry_conditions.py` | Add `pending_optimal_entry = {}` and per-symbol dict (confirm_candle_timestamp, confirm_high, sl_price, option_type). |
 | Set pending | `entry_conditions.py` | When Entry2 confirms and risk OK and flag True: set pending (with sl_price from confirmation close + strategy_executor._determine_stop_loss_percent), reset state machine, do not return 2. |
-| Pending check | `entry_conditions.py` | Before Entry2 for symbol: if pending, get current candle open/low/ts; invalidate if low≤sl_price (and optional WPR); if skip-candle wait; if eligible and open>confirm_high → clear pending, return 2. |
-| Time rule | `entry_conditions.py` | Skip candle = confirm_ts + 1 min; eligible = confirm_ts + 2 min or later (minute-normalized). |
+| Pending check | `entry_conditions.py` | Before Entry2 for symbol: if pending, get current candle open/low/ts; invalidate if low≤sl_price (and optional WPR); if current_ts > confirm_ts and open≥confirm_high → clear pending, return 2. No skip: enter on first candle after confirm when open qualifies. |
+| Time rule | `entry_conditions.py` | Past confirmation = current_ts_normalized > confirm_ts_normalized. First candle after confirm (T+1) is eligible when its open ≥ confirm_high. |
 | Clear on slab / EOD | `entry_conditions.py` (and any slab/EOD hooks) | Clear `pending_optimal_entry` on symbol change and session end. |
 | strategy_executor | — | No change. |
 | async flow | — | No change. |

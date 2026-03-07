@@ -13,7 +13,7 @@ import sys
 import math
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from kiteconnect import KiteConnect
 import numpy as np
 
@@ -74,8 +74,11 @@ class TradeState:
             return True
         return False
     
-    def exit_trade(self, symbol, exit_time, exit_data):
-        """Exit a trade and mark it as completed"""
+    def exit_trade(self, symbol, exit_time, exit_data, is_roll=False):
+        """Exit a trade and mark it as completed.
+        If is_roll=True, remove from active_trades but do NOT add to completed_trades
+        (roll exit is not shown as a separate row; only the new-strike trade is recorded).
+        """
         if symbol in self.active_trades:
             trade_info = self.active_trades[symbol]
             entry_data = trade_info['entry_data']
@@ -136,23 +139,24 @@ class TradeState:
                 if pnl is None:
                     pnl = 0.0
             
-            self.completed_trades.append({
-                'symbol': symbol,
-                'option_type': option_type,
-                'entry_time': entry_time_str,
-                'exit_time': exit_time_str,
-                'entry_price': entry_price,
-                'exit_price': exit_price,
-                'pnl': pnl,
-                'exit_reason': exit_reason,
-                'realized_pnl': None,  # Will be set by trailing stop if enabled
-                'running_capital': None,  # Will be set by trailing stop if enabled
-                'high_water_mark': None,  # Will be set by trailing stop if enabled
-                'drawdown_limit': None,  # Will be set by trailing stop if enabled
-                'trade_status': 'EXECUTED'  # Default, may be updated if stop triggered
-            })
+            if not is_roll:
+                self.completed_trades.append({
+                    'symbol': symbol,
+                    'option_type': option_type,
+                    'entry_time': entry_time_str,
+                    'exit_time': exit_time_str,
+                    'entry_price': entry_price,
+                    'exit_price': exit_price,
+                    'pnl': pnl,
+                    'exit_reason': exit_reason,
+                    'realized_pnl': None,  # Will be set by trailing stop if enabled
+                    'running_capital': None,  # Will be set by trailing stop if enabled
+                    'high_water_mark': None,  # Will be set by trailing stop if enabled
+                    'drawdown_limit': None,  # Will be set by trailing stop if enabled
+                    'trade_status': 'EXECUTED'  # Default, may be updated if stop triggered
+                })
             del self.active_trades[symbol]
-            logger.info(f"Exited trade for {symbol} at {exit_time}")
+            logger.info(f"Exited trade for {symbol} at {exit_time}" + (" (roll, not recorded as row)" if is_roll else ""))
             return True
         else:
             logger.warning(f"Tried to exit trade for {symbol} but no active trade found")
@@ -2149,11 +2153,16 @@ class ConsolidatedDynamicOTMAnalysis:
                 # Normalize to naive time so comparison with period start/end (naive) works (same as ATM).
                 if hasattr(time_for_period_match, 'tzinfo') and time_for_period_match.tzinfo is not None:
                     time_for_period_match = time_for_period_match.replace(tzinfo=None)
+                # Normalize to minute (drop seconds/microseconds) so 13:25:00.000 matches slab period 13:23-13:31
+                if hasattr(time_for_period_match, 'replace'):
+                    time_for_period_match = time_for_period_match.replace(second=0, microsecond=0)
                 entry_time_obj = entry_time.time()
                 if hasattr(entry_time_obj, 'tzinfo') and entry_time_obj.tzinfo is not None:
                     entry_time_obj = entry_time_obj.replace(tzinfo=None)
                 entry_period = None
-                
+                entry_period_pe = None  # slab PE strike for matched period (for roll-on-slab-change)
+                entry_period_ce = None  # slab CE strike for matched period
+
                 # Extract strike from symbol - handle multiple formats
                 # Formats: NIFTY25O2025 (weekly OCT), NIFTY25OCT (monthly), NIFTY25NOV (NOV04/NOV11), NIFTY25N11 (NOV11 weekly)
                 strike_str = None
@@ -2292,35 +2301,54 @@ class ConsolidatedDynamicOTMAnalysis:
                 nifty_price_level = option_strike
                 logger.debug(f"  Using strike as-is (full strike): {nifty_price_level}")
                 
-                # Match period by SIGNAL CANDLE time using BASE slabs (nifty_dynamic_otm_slabs.csv) so output symbol matches slab.
-                # Using blocked all_periods would allow a different strike (e.g. 25700) at 14:52 and show wrong symbol in CSV.
+                # Match period by SIGNAL CANDLE time and CONFIRM CANDLE time (signal - 1 min).
+                # Slab is frozen from confirm candle until trade is invalidated/closed: we do not allow slab change
+                # while an active trade (from confirm) is on. So we use BASE slabs and accept the strike if it
+                # matches the slab at either signal time or confirm time (T-1).
                 logger.debug(f"  Looking for matching period at signal_time={time_for_period_match} (execution={entry_time_obj}) with strike {nifty_price_level}")
+                def _parse_period_time(s):
+                    try:
+                        return datetime.strptime(s, '%H:%M:%S').time()
+                    except ValueError:
+                        return datetime.strptime(s, '%H:%M').time()
+
+                # Confirm candle = 1 minute before signal (slab frozen from confirm until exit).
+                _dummy_dt = datetime.combine(date.today(), time_for_period_match)
+                _confirm_dt = _dummy_dt - timedelta(minutes=1)
+                time_for_confirm = _confirm_dt.time()
+
                 for period in base_periods:
-                    start_time = datetime.strptime(period['start'], '%H:%M:%S').time()
-                    end_time = datetime.strptime(period['end'], '%H:%M:%S').time()
-                    
-                    # Period matching: use signal candle time so we match the slab active at signal minute (like ATM).
-                    match_minute = time_for_period_match.minute
-                    match_hour = time_for_period_match.hour
-                    end_minute = end_time.minute
-                    end_hour = end_time.hour
-                    period_matches = False
-                    if match_minute == end_minute and match_hour == end_hour:
-                        period_matches = start_time <= time_for_period_match
-                    else:
-                        period_matches = start_time <= time_for_period_match < end_time
+                    start_time = _parse_period_time(period['start'])
+                    end_time = _parse_period_time(period['end'])
+
+                    def _period_contains(t):
+                        """True if period (start_time, end_time) contains time t (inclusive of end minute)."""
+                        m_min, m_hr = t.minute, t.hour
+                        e_min, e_hr = end_time.minute, end_time.hour
+                        if m_min == e_min and m_hr == e_hr:
+                            return start_time <= t
+                        return start_time <= t < end_time
+
+                    # Period matches if it contains signal time OR confirm candle time (slab freeze from confirm).
+                    period_matches_signal = _period_contains(time_for_period_match)
+                    period_matches_confirm = _period_contains(time_for_confirm)
+                    period_matches = period_matches_signal or period_matches_confirm
                     
                     if period_matches:
                         period_pe = int(period['pe_strike']) if period.get('pe_strike') is not None else None
                         period_ce = int(period['ce_strike']) if period.get('ce_strike') is not None else None
                         nifty_level_int = int(nifty_price_level) if nifty_price_level is not None else None
-                        logger.debug(f"  Checking period {period['start']}-{period['end']}: PE={period_pe}, CE={period_ce}")
+                        logger.debug(f"  Checking period {period['start']}-{period['end']}: PE={period_pe}, CE={period_ce} (signal_match={period_matches_signal}, confirm_match={period_matches_confirm})")
                         if symbol.endswith('PE') and period_pe is not None and period_pe == nifty_level_int:
                             entry_period = f"{period['start']}-{period['end']}"
+                            entry_period_pe = period_pe
+                            entry_period_ce = period_ce
                             logger.info(f"  ✓ FOUND MATCHING PERIOD for {symbol}: {entry_period} (PE strike {period_pe} == {nifty_level_int})")
                             break
                         elif symbol.endswith('CE') and period_ce is not None and period_ce == nifty_level_int:
                             entry_period = f"{period['start']}-{period['end']}"
+                            entry_period_pe = period_pe
+                            entry_period_ce = period_ce
                             logger.info(f"  ✓ FOUND MATCHING PERIOD for {symbol}: {entry_period} (CE strike {period_ce} == {nifty_level_int})")
                             break
                         else:
@@ -2328,47 +2356,115 @@ class ConsolidatedDynamicOTMAnalysis:
                 
                 # Only process signals that match a slab period (one active PE and one active CE per time).
                 # If no period matches, this symbol is not the current OTM strike at this time - skip it.
+                # (Strategy files have Entry2 for every strike; consolidation only records trades for the
+                # strike that is "in slab" at signal time, so post-12pm PE signals on 24650/24600 often
+                # don't appear in entry2_dynamic_otm_pe_trades when the slab had a different PE, e.g. 24550.)
                 if not entry_period:
-                    logger.debug(f"No matching period found for {symbol} at signal_time {time_for_period_match} - symbol is not active OTM strike at this time, skipping")
+                    slab_pe = slab_ce = None
+                    for p in base_periods:
+                        start_time = _parse_period_time(p['start'])
+                        end_time = _parse_period_time(p['end'])
+                        match_minute = time_for_period_match.minute
+                        match_hour = time_for_period_match.hour
+                        end_minute = end_time.minute
+                        end_hour = end_time.hour
+                        if match_minute == end_minute and match_hour == end_hour:
+                            pm = start_time <= time_for_period_match
+                        else:
+                            pm = start_time <= time_for_period_match < end_time
+                        if pm:
+                            slab_pe = int(p['pe_strike']) if p.get('pe_strike') is not None else None
+                            slab_ce = int(p['ce_strike']) if p.get('ce_strike') is not None else None
+                            break
+                    logger.info(
+                        f"Skip {symbol} Entry2 at {time_for_period_match.strftime('%H:%M')} - not in slab at this time "
+                        f"(slab PE={slab_pe}, CE={slab_ce}; symbol strike={nifty_price_level})"
+                    )
                     continue
                 
                 # Check TradeState AFTER period matching
                 if not trade_state.can_enter_trade(symbol, entry_time):
-                    # Track as skipped trade - this signal matched a period but was blocked by active trades
-                    active_symbols = list(trade_state.active_trades.keys())
-                    active_details = []
-                    for active_symbol in active_symbols:
-                        active_trade_info = trade_state.active_trades[active_symbol]
-                        active_entry_time = active_trade_info.get('entry_time', 'N/A')
-                        active_entry_str = active_entry_time.strftime('%H:%M:%S') if hasattr(active_entry_time, 'strftime') else str(active_entry_time)
-                        active_details.append(f"{active_symbol} (entered {active_entry_str})")
-                    
-                    # Determine option type for logging
+                    # Roll on slab change: if new signal is for current slab strike but we have active position in old strike, exit old and enter new
                     option_type = 'CE' if symbol.endswith('CE') else 'PE'
-                    logger.warning(f"Cannot enter {option_type} trade for {symbol} at {entry_time} - active trades: {', '.join(active_details)}")
-                    # Track as skipped trade
-                    skipped_trades.append({
-                        'symbol': symbol,
-                        'option_type': option_type,
-                        'entry_time': entry_time.strftime('%H:%M:%S') if hasattr(entry_time, 'strftime') else str(entry_time),
-                        'exit_time': None,
-                        'entry_price': None,
-                        'exit_price': None,
-                        'pnl': None,
-                        'exit_reason': '',
-                        'realized_pnl': None,
-                        'running_capital': None,
-                        'high_water_mark': None,
-                        'drawdown_limit': None,
-                        'trade_status': 'SKIPPED (ACTIVE_TRADE_EXISTS)'
-                    })
-                    continue
+                    new_strike = int(nifty_price_level) if nifty_price_level is not None else None
+                    slab_strike = entry_period_pe if option_type == 'PE' else entry_period_ce
+                    active_same_type = [s for s in trade_state.active_trades if (s.endswith('PE') if option_type == 'PE' else s.endswith('CE'))]
+                    rolled = False
+                    if new_strike is not None and slab_strike is not None and new_strike == slab_strike and len(active_same_type) == 1:
+                        active_symbol = active_same_type[0]
+                        # Extract strike from active symbol (e.g. NIFTY2631024550PE -> 24550)
+                        try:
+                            import re
+                            if active_symbol.endswith('PE'):
+                                m = re.search(r'NIFTY26\d{3}(\d{5})PE$', active_symbol) or re.search(r'(\d{4,5})PE$', active_symbol)
+                            else:
+                                m = re.search(r'NIFTY26\d{3}(\d{5})CE$', active_symbol) or re.search(r'(\d{4,5})CE$', active_symbol)
+                            active_strike = int(m.group(1)) if m else None
+                        except Exception:
+                            active_strike = None
+                        if active_strike is not None and active_strike != slab_strike:
+                            # Build synthetic exit at signal candle time for the active trade
+                            roll_exit_time = signal_candle_time if hasattr(signal_candle_time, 'time') else pd.Timestamp(signal_candle_time)
+                            if hasattr(roll_exit_time, 'tz_localize') and roll_exit_time.tz is None:
+                                roll_exit_time = roll_exit_time.tz_localize('Asia/Kolkata')
+                            # Ensure roll exit time is not before the active trade's entry (for consistency)
+                            active_entry = trade_state.active_trades[active_symbol].get('entry_time')
+                            if active_entry is not None:
+                                active_ts = pd.Timestamp(active_entry) if not hasattr(active_entry, 'tzinfo') else active_entry
+                                if hasattr(active_ts, 'tz_localize') and getattr(active_ts, 'tz', None) is None:
+                                    active_ts = active_ts.tz_localize('Asia/Kolkata')
+                                roll_ts = roll_exit_time if hasattr(roll_exit_time, 'tz_localize') else pd.Timestamp(roll_exit_time)
+                                if roll_ts < active_ts:
+                                    roll_exit_time = active_ts
+                            strategy_file_old = source_dir / f"{active_symbol}_strategy.csv"
+                            exit_price = None
+                            if strategy_file_old.exists():
+                                try:
+                                    df_old = pd.read_csv(strategy_file_old)
+                                    df_old['date'] = pd.to_datetime(df_old['date'])
+                                    mask = (df_old['date'].dt.hour == roll_exit_time.hour) & (df_old['date'].dt.minute == roll_exit_time.minute)
+                                    if mask.any():
+                                        row = df_old.loc[mask].iloc[0]
+                                        exit_price = float(row.get('close', row.get('open', 0)) or 0)
+                                except Exception:
+                                    pass
+                            if exit_price is None or exit_price <= 0:
+                                exit_price = 0.0
+                            synthetic_exit = {
+                                'date': roll_exit_time,
+                                'close': exit_price,
+                                'entry2_exit_price': exit_price,
+                                'entry2_exit_reason': f'Slab roll ({option_type} strike change {active_strike}->{slab_strike})',
+                                'entry2_pnl': 0.0
+                            }
+                            if trade_state.exit_trade(active_symbol, roll_exit_time, synthetic_exit, is_roll=True):
+                                logger.info(f"Roll: exited {active_symbol} (strike {active_strike}) at {roll_exit_time} to enter {symbol} (slab {option_type}={slab_strike})")
+                                rolled = True
+                    if not rolled:
+                        active_symbols = list(trade_state.active_trades.keys())
+                        active_details = [f"{s} (entered {trade_state.active_trades[s].get('entry_time', 'N/A')})" for s in active_symbols]
+                        logger.warning(f"Cannot enter {option_type} trade for {symbol} at {entry_time} - active trades: {', '.join(active_details)}")
+                        skipped_trades.append({
+                            'symbol': symbol,
+                            'option_type': option_type,
+                            'entry_time': entry_time.strftime('%H:%M:%S') if hasattr(entry_time, 'strftime') else str(entry_time),
+                            'exit_time': None,
+                            'entry_price': None,
+                            'exit_price': None,
+                            'pnl': None,
+                            'exit_reason': '',
+                            'realized_pnl': None,
+                            'running_capital': None,
+                            'high_water_mark': None,
+                            'drawdown_limit': None,
+                            'trade_status': 'SKIPPED (ACTIVE_TRADE_EXISTS)'
+                        })
+                        continue
                 
                 # If we get here, period matches and trade state allows entry
-                if not exits_after.empty:
-                    exit_trade = exits_after.iloc[0]
-                    
-                    # Enter the trade
+                exit_trade = exits_after.iloc[0] if not exits_after.empty else None
+                if exit_trade is not None:
+                    # Enter the trade (we have an exit in strategy file)
                     entry_data = entry_signal.copy()
                     entry_data['entry_period'] = entry_period
                     
@@ -2474,7 +2570,37 @@ class ConsolidatedDynamicOTMAnalysis:
                     else:
                         logger.warning(f"Failed to enter trade for {symbol} at {entry_time}")
                 else:
-                    logger.warning(f"No exit found for entry signal at {entry_time} for {symbol}")
+                    # Period matched and can enter, but no exit row in strategy after this signal (e.g. trade still open at EOD).
+                    # Enter anyway so EOD exit will close it and the trade appears in entry2_dynamic_otm_pe/ce_trades.csv.
+                    entry_data = entry_signal.copy()
+                    entry_data['entry_period'] = entry_period
+                    strategy_file = source_dir / f"{symbol}_strategy.csv"
+                    execution_price = None
+                    if strategy_file.exists():
+                        try:
+                            df_symbol_full = pd.read_csv(strategy_file)
+                            df_symbol_full['date'] = pd.to_datetime(df_symbol_full['date'])
+                            df_symbol_full = df_symbol_full.sort_values('date')
+                            execution_minute = entry_time.replace(second=0, microsecond=0)
+                            exec_ts = pd.Timestamp(execution_minute)
+                            exec_naive = exec_ts.tz_localize(None) if exec_ts.tz is not None else exec_ts
+                            dates = df_symbol_full['date']
+                            dates_naive = dates.dt.tz_localize(None) if hasattr(dates.dtype, 'tz') and dates.dtype.tz is not None else dates
+                            matching_rows = df_symbol_full[dates_naive == exec_naive]
+                            if not matching_rows.empty:
+                                execution_price = float(matching_rows.iloc[0].get('open', 0) or 0)
+                            elif not df_symbol_full[dates_naive <= exec_naive].empty:
+                                execution_price = float(df_symbol_full[dates_naive <= exec_naive].iloc[-1].get('open', 0) or 0)
+                        except Exception:
+                            pass
+                    if execution_price is None or execution_price <= 0:
+                        execution_price = float(entry_signal.get('open', 0) or 0)
+                    if execution_price and execution_price > 0:
+                        entry_data['open'] = entry_data['entry_price'] = execution_price
+                    if trade_state.enter_trade(symbol, entry_time, entry_data):
+                        logger.info(f"Entered trade for {symbol} at {entry_time} in period {entry_period} (no exit in strategy, will use EOD exit)")
+                    else:
+                        logger.warning(f"Failed to enter trade for {symbol} at {entry_time}")
             
             elif signal['type'] == 'exit':
                 exit_trade = signal['data']

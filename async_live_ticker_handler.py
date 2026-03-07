@@ -315,10 +315,7 @@ class AsyncLiveTickerHandler:
                                         candle_already_exists = True
                                         break
                         
-                        # Ensure completed candle has valid close/low (W%R and indicators depend on them)
-                        _ensure_candle_ohlc_valid(completed_candle)
-
-                        # Append the live tick-built candle (more accurate than historical)
+                        completed_candle = self.finalize_candle(completed_candle, instrument_token, tick)
                         self.completed_candles_data[instrument_token].append(completed_candle)
 
                         # 2. Process NIFTY candle for automated market sentiment (if enabled)
@@ -368,17 +365,8 @@ class AsyncLiveTickerHandler:
                         # 5. Start a new candle for the new minute with the current tick's data
                         self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
                     else:
-                        # During 9:15 minute: refresh open from tick ohlc when available (day open from Kite)
-                        candle = self.current_candles[instrument_token]
-                        if candle['timestamp'].hour == 9 and candle['timestamp'].minute == 15:
-                            ohlc = tick.get('ohlc') or {}
-                            tick_open = ohlc.get('open')
-                            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
-                                candle['open'] = tick_open
-                                candle['high'] = max(candle['high'], tick_open)
-                                candle['low'] = min(candle['low'], tick_open)
-                        # Update the high, low, and close of the candle we are currently building
-                        self._update_candle(instrument_token, ltp)
+                        # Update high/low/close from LTP; correct open/high/low from tick.ohlc when available
+                        self._update_candle(instrument_token, ltp, tick)
 
                 # NOTE: TICK_UPDATE events disabled to prevent queue overflow
                 # Ticks arrive every second and would overwhelm the event queue
@@ -1138,7 +1126,7 @@ class AsyncLiveTickerHandler:
                     completed_candle = self.current_candles[nifty_token]
                     if nifty_token in self._last_valid_price:
                         completed_candle['close'] = self._last_valid_price[nifty_token]
-                    _ensure_candle_ohlc_valid(completed_candle)
+                    completed_candle = self.finalize_candle(completed_candle, nifty_token, tick)
                     completed_candle_timestamp = completed_candle.get('timestamp')
                     # Dedup: process each completed candle only once (avoid repeated slab check / logs on every tick)
                     try:
@@ -1302,18 +1290,8 @@ class AsyncLiveTickerHandler:
                     # Start new candle
                     self._start_new_candle(nifty_token, tick_time, nifty_price, tick=tick)
                 else:
-                    # During 9:15 minute: refresh open from tick ohlc when available (day open from Kite)
-                    if nifty_token in self.current_candles:
-                        candle = self.current_candles[nifty_token]
-                        if candle['timestamp'].hour == 9 and candle['timestamp'].minute == 15:
-                            ohlc = tick.get('ohlc') or {}
-                            tick_open = ohlc.get('open')
-                            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
-                                candle['open'] = tick_open
-                                candle['high'] = max(candle['high'], tick_open)
-                                candle['low'] = min(candle['low'], tick_open)
-                    # Update current candle
-                    self._update_candle(nifty_token, nifty_price)
+                    # Update high/low/close from LTP; correct open/high/low from tick.ohlc when available
+                    self._update_candle(nifty_token, nifty_price, tick)
                     
         except Exception as e:
             logger.error(f"Error processing NIFTY candle for dynamic ATM: {e}", exc_info=True)
@@ -1761,19 +1739,16 @@ class AsyncLiveTickerHandler:
             logger.error(f"Error printing indicator data: {e}")
 
     def _start_new_candle(self, token: int, timestamp: datetime, price: float, tick: Optional[Dict[str, Any]] = None):
-        """A helper method to initialize a new 1-minute candle.
-        If price is None or <= 0, use 0.0 so candle is still created (will be fixed when we get valid ticks).
-        For the 9:15 (day open) candle only, use tick['ohlc']['open'] from MODE_FULL if available for better alignment with Kite API.
+        """Initialize a new 1-minute candle.
+        Always use tick['ohlc']['open'] from MODE_FULL when available (exchange session open); fallback to LTP.
+        This fixes open mismatch vs Kite historical (ticker often misses the true first tick of each minute).
         """
-        # Normalize the timestamp to the beginning of the minute
         normalized_timestamp = timestamp.replace(second=0, microsecond=0)
-        valid_price = price if (price is not None and (not isinstance(price, (int, float)) or price > 0)) else 0.0
+        valid_price = price if (price is not None and (isinstance(price, (int, float)) and price > 0)) else 0.0
         open_price = valid_price
-        # Use day open from tick's embedded OHLC only for 9:15 candle (Kite MODE_FULL provides ohlc)
-        if tick and normalized_timestamp.hour == 9 and normalized_timestamp.minute == 15:
-            ohlc = tick.get('ohlc') or {}
-            tick_open = ohlc.get('open')
-            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
+        if tick and isinstance(tick.get('ohlc'), dict):
+            tick_open = tick['ohlc'].get('open')
+            if isinstance(tick_open, (int, float)) and tick_open > 0:
                 open_price = tick_open
 
         self.current_candles[token] = {
@@ -1785,10 +1760,10 @@ class AsyncLiveTickerHandler:
             "close": open_price
         }
 
-    def _update_candle(self, token: int, price: float):
-        """A helper method to update the high, low, and close of the current candle.
-        Only updates with valid price (not None and > 0) so we never store 0/None as close/low.
-        Tracks last valid price per token for use as close when finalizing (minute-boundary race).
+    def _update_candle(self, token: int, price: float, tick: Optional[Dict[str, Any]] = None):
+        """Update high, low, close from LTP; correct open/high/low from tick.ohlc when available (exchange snapshot).
+        Tracks last valid price per token for close when finalizing (minute-boundary race). Keeps LTP as primary;
+        tick.ohlc refines open and extends high/low when exchange snapshot has better values.
         """
         if price is None or (isinstance(price, (int, float)) and price <= 0):
             return
@@ -1797,6 +1772,32 @@ class AsyncLiveTickerHandler:
         candle['high'] = max(candle['high'], price)
         candle['low'] = min(candle['low'], price)
         candle['close'] = price
+        ohlc = tick.get('ohlc') if isinstance(tick, dict) else None
+        if isinstance(ohlc, dict):
+            o = ohlc.get('open')
+            if isinstance(o, (int, float)) and o > 0:
+                candle['open'] = o
+            h = ohlc.get('high')
+            if isinstance(h, (int, float)) and h > candle['high']:
+                candle['high'] = h
+            l = ohlc.get('low')
+            if isinstance(l, (int, float)) and l < candle['low']:
+                candle['low'] = l
+
+    def finalize_candle(self, candle: dict, token: int, final_tick: Optional[Dict] = None) -> dict:
+        """Final OHLC sanity + volume and exchange OHLC from last tick before appending to completed_candles_data."""
+        _ensure_candle_ohlc_valid(candle)
+        if isinstance(final_tick, dict):
+            vol = final_tick.get('volume')
+            if isinstance(vol, (int, float)):
+                candle['volume'] = vol
+            ohlc = final_tick.get('ohlc')
+            if isinstance(ohlc, dict):
+                for field in ('open', 'high', 'low'):
+                    val = ohlc.get(field)
+                    if isinstance(val, (int, float)) and val > 0:
+                        candle[field] = val
+        return candle
 
     # --- Thread-safe Wrappers for KiteTicker Callbacks ---
     def _on_ticks_wrapper(self, ws, ticks):
@@ -2192,7 +2193,6 @@ class AsyncLiveTickerHandler:
                         continue
 
                 self.completed_candles_data[token] = candles
-                
                 logger.info(f"[CHART] Final candle count for {symbol}: {len(candles)} candles")
 
                 # Determine token type for logging and indicator calculation

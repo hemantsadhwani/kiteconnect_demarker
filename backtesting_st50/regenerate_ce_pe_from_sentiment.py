@@ -146,9 +146,55 @@ def regenerate_ce_pe_files(sentiment_file: Path):
     ce_file = base_dir / f"{entry_type}_dynamic_{kind}_ce_trades.csv"
     pe_file = base_dir / f"{entry_type}_dynamic_{kind}_pe_trades.csv"
     
-    # Split into CE and PE
-    ce_trades = df[df['option_type'] == 'CE'].copy()
-    pe_trades = df[df['option_type'] == 'PE'].copy()
+    # Preserve all trades from Phase 2: merge sentiment file (filtered subset) with existing CE/PE files
+    # so we don't drop trades that were excluded by sentiment filter (e.g. post-12pm roll trades).
+    def merge_with_original(original_file: Path, sentiment_subset: pd.DataFrame, option_type: str):
+        if not original_file.exists():
+            return sentiment_subset.copy()
+        try:
+            orig = pd.read_csv(original_file)
+            if orig.empty:
+                return sentiment_subset.copy()
+            # Keep only rows of this option_type (CE or PE)
+            orig = orig[orig['option_type'] == option_type].copy()
+            if orig.empty:
+                return sentiment_subset.copy()
+            # Match by (entry_time, entry_price) for stability (avoids hyperlink/symbol differences)
+            def row_key(r):
+                et = str(r.get('entry_time', ''))
+                ep = r.get('entry_price')
+                ep = float(ep) if ep is not None and pd.notna(ep) and str(ep).strip() else 0.0
+                return (et, ep)
+            sentiment_subset = sentiment_subset.copy()
+            sentiment_keys = set(row_key(sentiment_subset.loc[i]) for i in sentiment_subset.index)
+            orig['_key'] = orig.apply(row_key, axis=1)
+            extra = orig[~orig['_key'].apply(lambda k: k in sentiment_keys)].drop(columns=['_key'])
+            if extra.empty:
+                return sentiment_subset
+            logger.info(f"Keeping {len(extra)} {option_type} trades from Phase 2 not in sentiment file (preserving all trades)")
+            # Align columns: add missing columns to extra with None
+            for c in sentiment_subset.columns:
+                if c not in extra.columns and c not in ('market_sentiment', 'filter_status'):
+                    extra[c] = None
+            for c in extra.columns:
+                if c not in sentiment_subset.columns:
+                    sentiment_subset[c] = None
+            common_cols = [c for c in sentiment_subset.columns if c in extra.columns and c not in ('market_sentiment', 'filter_status')]
+            extra = extra[[c for c in common_cols if c in extra.columns]]
+            sentiment_subset = sentiment_subset[[c for c in common_cols if c in sentiment_subset.columns]]
+            merged = pd.concat([sentiment_subset, extra], ignore_index=True)
+            return merged
+        except Exception as e:
+            logger.warning(f"Could not merge with original {original_file.name}: {e}, using sentiment subset only")
+            return sentiment_subset.copy()
+    
+    # Split sentiment file into CE and PE
+    ce_from_sentiment = df[df['option_type'] == 'CE'].copy()
+    pe_from_sentiment = df[df['option_type'] == 'PE'].copy()
+    
+    # Merge with existing CE/PE files so we keep all Phase 2 trades (sentiment file may have fewer)
+    ce_trades = merge_with_original(ce_file, ce_from_sentiment, 'CE')
+    pe_trades = merge_with_original(pe_file, pe_from_sentiment, 'PE')
     
     # Remove sentiment-specific columns that shouldn't be in CE/PE files
     columns_to_remove = ['market_sentiment', 'filter_status']

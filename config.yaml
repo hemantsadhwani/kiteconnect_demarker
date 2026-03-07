@@ -103,7 +103,7 @@ MARKET_CLOSE:
 CPR_TRADING_RANGE:
   ENABLED: true
   CPR_UPPER: "R2"   # column name: "R2" (pivot) or "band_R2_upper" (band)
-  CPR_LOWER: "S3"   # column name: "S3" (pivot) or "band_S2_lower" (band)
+  CPR_LOWER: "S2"   # column name: "S3" (pivot) or "band_S2_lower" (band)
 
 CPR_WIDTH_FILTER:
   ENABLED: false
@@ -228,7 +228,7 @@ MARKET_SENTIMENT:
   MANUAL_SENTIMENT: NEUTRAL  # BULLISH | BEARISH | NEUTRAL | DISABLE
 
   # Position rule (all modes)
-  ALLOW_MULTIPLE_SYMBOL_POSITIONS: true
+  ALLOW_MULTIPLE_SYMBOL_POSITIONS: false
 
 # Real-Time Position Management Configuration
 # Replaces GTT-based SL/TP with real-time tick monitoring and immediate market order execution

@@ -143,7 +143,7 @@ class EntryConditionManager:
         else:
             self.logger.info("WPR_INVALIDATION is disabled - both-W%%R-below-oversold invalidation off")
         
-        # Optimal entry: defer Entry2; enter when a subsequent candle opens above confirmation high; invalidate if SL breached (aligned with backtesting_st50).
+        # Optimal entry: defer Entry2; enter on first candle after confirm when its open >= confirm_high; invalidate if SL breached (aligned with backtesting_st50).
         self.optimal_entry_above_confirm_open = strategy_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
         self.optimal_entry_wpr_invalidate = strategy_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
         self.logger.info(f"OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: {self.optimal_entry_above_confirm_open}, OPTIMAL_ENTRY_WPR_INVALIDATE: {self.optimal_entry_wpr_invalidate}")
@@ -170,7 +170,7 @@ class EntryConditionManager:
         
         # Initialize Entry2 state machine (per symbol)
         self.entry2_state_machine = {}
-        # Pending optimal entry (per symbol): when OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN, defer execution until a later candle opens above confirm_high
+        # Pending optimal entry (per symbol): when OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN, defer until next candle; enter on that candle if its open >= confirm_high
         self.pending_optimal_entry = {}
 
         # --- Load price zone configuration ---
@@ -915,7 +915,7 @@ class EntryConditionManager:
                     self._reset_entry2_state_machine(symbol)
                     self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
                     return False
-                # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter when a later candle opens above confirm_high; invalidate if SL breached
+                # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter on first candle after confirm when its open >= confirm_high; invalidate if SL breached
                 if getattr(self, 'optimal_entry_above_confirm_open', False):
                     confirm_high = float(df_with_indicators.iloc[-1]['high'])
                     confirm_close = float(df_with_indicators.iloc[-1]['close'])
@@ -944,7 +944,7 @@ class EntryConditionManager:
                     self._reset_entry2_state_machine(symbol)
                     self.logger.info(
                         f"Entry2 optimal entry: Pending for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
-                        "will enter when a later candle opens above confirm_high"
+                        "will enter when next candle's open is at or above confirm_high"
                     )
                     return False
                 price_str = self._log_entry_confirmation_prices(symbol)
@@ -1075,7 +1075,7 @@ class EntryConditionManager:
                             self._reset_entry2_state_machine(symbol)
                             self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
                             return False
-                        # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter when a later candle opens above confirm_high; invalidate if SL breached (same as confirmation-window path)
+                        # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter on first candle after confirm when its open >= confirm_high; invalidate if SL breached (same as confirmation-window path)
                         if getattr(self, 'optimal_entry_above_confirm_open', False):
                             confirm_high = float(df_with_indicators.iloc[-1]['high'])
                             confirm_close = float(df_with_indicators.iloc[-1]['close'])
@@ -1104,7 +1104,7 @@ class EntryConditionManager:
                             self._reset_entry2_state_machine(symbol)
                             self.logger.info(
                                 f"Entry2 optimal entry: Pending for {symbol} (same-candle signal, confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
-                                "will enter when a later candle opens above confirm_high"
+                                "will enter when next candle's open is at or above confirm_high"
                             )
                             return False
                         price_str = self._log_entry_confirmation_prices(symbol)
@@ -1285,7 +1285,7 @@ class EntryConditionManager:
                     self._reset_entry2_state_machine(symbol)
                     self.logger.info(f"Entry2: Signal generated for {symbol} but in position - invalidated (no deferred entry)")
                     return False
-                # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter when a later candle opens above confirm_high; invalidate if SL breached
+                # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: defer execution; enter on first candle after confirm when its open >= confirm_high; invalidate if SL breached
                 if getattr(self, 'optimal_entry_above_confirm_open', False):
                     confirm_high = float(df_with_indicators.iloc[-1]['high'])
                     confirm_close = float(df_with_indicators.iloc[-1]['close'])
@@ -1314,7 +1314,7 @@ class EntryConditionManager:
                     self._reset_entry2_state_machine(symbol)
                     self.logger.info(
                         f"Entry2 optimal entry: Pending for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
-                        "will enter when a later candle opens above confirm_high"
+                        "will enter when next candle's open is at or above confirm_high"
                     )
                     return False
                 price_str = self._log_entry_confirmation_prices(symbol)
@@ -1357,7 +1357,8 @@ class EntryConditionManager:
 
     def _check_pending_optimal_entry_production(self, df_with_indicators, symbol: str) -> str:
         """
-        Optimal entry (production): wait for first candle (after skip) where open > confirm_high; invalidate if low <= sl_price.
+        Optimal entry (production): enter on the first candle after confirmation whose open is at or above confirm_high
+        (no delay — we use open so we can enter on that same candle). Invalidate if low <= sl_price.
         Returns: 'enter' | 'invalidate' | 'wait'
         """
         pending = getattr(self, 'pending_optimal_entry', {}).get(symbol)
@@ -1392,21 +1393,18 @@ class EntryConditionManager:
                     pd.notna(wpr_slow) and float(wpr_slow) <= self.wpr_28_oversold):
                 self.logger.info(f"Entry2 optimal entry: INVALIDATE for {symbol} (both W%%R below oversold)")
                 return 'invalidate'
-        # Minute-normalized timestamps for skip/eligible
+        # We are past the confirmation candle when current_ts > confirm_ts (minute-normalized)
         try:
             confirm_normalized = confirm_ts.replace(second=0, microsecond=0) if hasattr(confirm_ts, 'replace') else confirm_ts
             current_normalized = current_ts.replace(second=0, microsecond=0) if hasattr(current_ts, 'replace') else current_ts
         except Exception:
             return 'wait'
-        skip_candle_ts = confirm_normalized + timedelta(minutes=1)
-        eligible_from_ts = confirm_normalized + timedelta(minutes=2)
-        is_skip_candle = current_normalized == skip_candle_ts
-        is_eligible = current_normalized >= eligible_from_ts
-        if is_skip_candle:
+        if current_normalized <= confirm_normalized:
             return 'wait'
-        if is_eligible and pd.notna(open_price) and open_price > confirm_high:
+        # Enter on this candle if its open is at or above confirm_high (no skip — enter as soon as open qualifies)
+        if pd.notna(open_price) and open_price >= confirm_high:
             self.logger.info(
-                f"Entry2 optimal entry: ENTER for {symbol} (open={open_price:.2f} > confirm_high={confirm_high:.2f})"
+                f"Entry2 optimal entry: ENTER for {symbol} (open={open_price:.2f} >= confirm_high={confirm_high:.2f})"
             )
             return 'enter'
         return 'wait'
@@ -3423,7 +3421,7 @@ class EntryConditionManager:
         if entry2_enabled:
             self.logger.info(f"Reached Entry2 code section for {symbol} - about to check Entry2 conditions")
         if entry2_enabled:
-            # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: check pending deferred entry first (enter when a later candle opens above confirm_high)
+            # OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: check pending deferred entry first (enter when current candle's open >= confirm_high)
             if symbol in getattr(self, 'pending_optimal_entry', {}):
                 result = self._check_pending_optimal_entry_production(df_with_indicators, symbol)
                 if result == 'enter':

@@ -12,21 +12,59 @@ from pathlib import Path
 
 
 def load_prod(path: Path):
-    """Load production CSV: date, time, open, high, low, close, supertrend_dir, supertrend_value, wpr_9, wpr_28, stoch_k, stoch_d"""
+    """Load production CSV. Supports:
+    (1) Snapshot format: candle_time, open, high, low, close, supertrend, supertrend_dir, wpr_9, wpr_28, stoch_k, stoch_d; prefer age_min=0.
+    (2) Legacy: date, time, open, high, low, close, supertrend_dir, supertrend_value, wpr_9, wpr_28, stoch_k, stoch_d
+    """
     rows = []
     with open(path, "r", encoding="utf-8") as f:
         r = csv.DictReader(f)
-        for row in r:
-            key = row["time"].strip()  # 11:25:00
+        raw = list(r)
+    if not raw:
+        return {}
+    first = raw[0]
+    snapshot = "candle_time" in first
+    seen = {}
+    for row in raw:
+        if snapshot:
+            ct = row.get("candle_time", "").strip()
+            if "T" in ct:
+                time_key = ct.split("T")[1][:8]
+            else:
+                time_key = ct
+            age = _float(row.get("age_min"))
+            if time_key in seen and age is not None and age != 0:
+                continue
+            seen[time_key] = True
+            st_val = _float(row.get("supertrend") or row.get("supertrend_value"))
+            rows.append({
+                "time_key": time_key,
+                "date": ct.split("T")[0] if "T" in ct else "",
+                "time": time_key,
+                "open": _float(row.get("open")),
+                "high": _float(row.get("high")),
+                "low": _float(row.get("low")),
+                "close": _float(row.get("close")),
+                "supertrend_dir": (row.get("supertrend_dir") or "").strip(),
+                "supertrend_value": st_val,
+                "wpr_9": _float(row.get("wpr_9")),
+                "wpr_28": _float(row.get("wpr_28")),
+                "stoch_k": _float(row.get("stoch_k")),
+                "stoch_d": _float(row.get("stoch_d")),
+            })
+        else:
+            key = (row.get("time") or "").strip()
+            if not key:
+                continue
             rows.append({
                 "time_key": key,
-                "date": row["date"],
-                "time": row["time"],
-                "open": _float(row["open"]),
-                "high": _float(row["high"]),
-                "low": _float(row["low"]),
-                "close": _float(row["close"]),
-                "supertrend_dir": row.get("supertrend_dir", "").strip(),
+                "date": row.get("date", ""),
+                "time": row.get("time", ""),
+                "open": _float(row.get("open")),
+                "high": _float(row.get("high")),
+                "low": _float(row.get("low")),
+                "close": _float(row.get("close")),
+                "supertrend_dir": (row.get("supertrend_dir") or "").strip(),
                 "supertrend_value": _float(row.get("supertrend_value")),
                 "wpr_9": _float(row.get("wpr_9")),
                 "wpr_28": _float(row.get("wpr_28")),

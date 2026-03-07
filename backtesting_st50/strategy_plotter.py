@@ -72,8 +72,9 @@ def convert_datetime_to_unix(date_str):
         date_str = date_str.replace('+05:30', '').strip()
     
     formats_to_try = [
-        '%Y-%m-%d %H:%M:%S',        # Format in strategy CSV
-        '%d/%m/%Y %I:%M:%S %p'       # Possible format in trades csv
+        '%Y-%m-%d %H:%M:%S',        # Format in strategy CSV (combined date + time)
+        '%Y-%m-%d',                 # Date only (e.g. when date/time are separate columns)
+        '%d/%m/%Y %I:%M:%S %p'      # Possible format in trades csv
     ]
     
     dt_naive = None
@@ -107,22 +108,30 @@ def process_strategy_csv_data(csv_file_path):
     df = pd.read_csv(csv_file_path, header=0)
     logger.info(f"Loaded CSV with {len(df)} rows")
     
+    # Build combined datetime string when date and time are separate columns
+    if 'time' in df.columns and 'date' in df.columns:
+        df['_datetime_str'] = df['date'].astype(str).str.strip() + ' ' + df['time'].astype(str).str.strip()
+    else:
+        df['_datetime_str'] = df['date'].astype(str).str.strip()
+
     # Find the first 9:15 AM timestamp to start plotting from there
     start_index = None
     for index, row in df.iterrows():
-        if '09:15:00' in str(row['date']):
+        cell = str(row.get('_datetime_str', row.get('date', '')))
+        if '09:15:00' in cell or (cell.strip().endswith('09:15') and ':' in cell):
             start_index = index
             break
-    
+
     if start_index is None:
         logger.warning("Could not find 9:15 AM timestamp, using all data")
         start_index = 0
     else:
         logger.info(f"Found 9:15 AM at index {start_index}, starting from there")
-    
+
     # Use data from start_index onwards
     df = df.iloc[start_index:].reset_index(drop=True)
-    df['time'] = df['date'].apply(convert_datetime_to_unix)
+    df['time'] = df['_datetime_str'].apply(convert_datetime_to_unix)
+    df = df.drop(columns=['_datetime_str'], errors='ignore')
     
     # Process OHLC data
     ohlc_data = []
@@ -137,7 +146,13 @@ def process_strategy_csv_data(csv_file_path):
     demarker_data = []
     
     for _, row in df.iterrows():
-        time_val = int(row['time'])
+        t = row['time']
+        if t is None or (pd.isna(t) if hasattr(pd, 'isna') else (t != t)):
+            continue
+        try:
+            time_val = int(t)
+        except (TypeError, ValueError):
+            continue
         
         # OHLC data
         ohlc_data.append({
@@ -270,6 +285,13 @@ def process_strategy_csv_data(csv_file_path):
         }
     
     for index, row in df.iterrows():
+        # Skip rows with invalid time (e.g. failed date parse)
+        if row['time'] is None or pd.isna(row['time']):
+            continue
+        try:
+            _ = int(row['time'])
+        except (TypeError, ValueError):
+            continue
         # Entry2 signal bar (when OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: confirmation bar, before execution bar)
         if 'entry2_signal_bar' in df.columns and pd.notna(row.get('entry2_signal_bar')) and row.get('entry2_signal_bar') != '' and row.get('entry2_signal_bar') != 0:
             processed_trades.append({
