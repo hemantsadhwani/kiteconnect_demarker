@@ -553,7 +553,7 @@ class AsyncLiveTickerHandler:
                 if not skip_terminal_log and is_new_candle and not df_with_indicators.empty:
                     await self._manage_trailing_sl_for_entry_trades(token, df_with_indicators)
 
-                # Precomputed band: write 23-symbol snapshot once all 22 option indicators are updated for this minute
+                # Precomputed band: write snapshot once option indicators are updated for this minute
                 if getattr(self.trading_bot, 'precomputed_band', None) and is_new_candle:
                     await self._maybe_write_precomputed_band_snapshot(timestamp)
 
@@ -1468,21 +1468,35 @@ class AsyncLiveTickerHandler:
             band_pe_symbols.sort(key=strike_from_symbol)
         if not new_pairs:
             return False
-        # Cap total symbols per leg at 2*MAX_STRIKES_PER_SIDE+1 (e.g. 7 per side -> 15 CE, 15 PE)
+        # Cap total symbols per leg at 2*MAX_STRIKES_PER_SIDE+1 (rolling band: keep active ± max_per_side).
+        # Trim pivot is the new ACTIVE strike (potential_ce/pe), NOT the original center_ce/pe.
+        # This ensures the trimmed band is always [active-N…active…active+N] after rolling.
         if max_per_side > 0:
             max_total_per_leg = 2 * max_per_side + 1
             while len(band_ce_symbols) > max_total_per_leg:
                 low_strike = strike_from_symbol(band_ce_symbols[0])
                 high_strike = strike_from_symbol(band_ce_symbols[-1])
-                rem = band_ce_symbols.pop(0) if (center_ce - low_strike) >= (high_strike - center_ce) else band_ce_symbols.pop()
+                dist_low = potential_ce - low_strike
+                dist_high = high_strike - potential_ce
+                rem = band_ce_symbols.pop(0) if dist_low >= dist_high else band_ce_symbols.pop()
                 self.symbol_token_map.pop(rem, None)
             while len(band_pe_symbols) > max_total_per_leg:
                 low_strike = strike_from_symbol(band_pe_symbols[0])
                 high_strike = strike_from_symbol(band_pe_symbols[-1])
-                rem = band_pe_symbols.pop(0) if (center_pe - low_strike) >= (high_strike - center_pe) else band_pe_symbols.pop()
+                dist_low = potential_pe - low_strike
+                dist_high = high_strike - potential_pe
+                rem = band_pe_symbols.pop(0) if dist_low >= dist_high else band_pe_symbols.pop()
                 self.symbol_token_map.pop(rem, None)
         bot.precomputed_band['band_ce_symbols'] = band_ce_symbols
         bot.precomputed_band['band_pe_symbols'] = band_pe_symbols
+        # After rolling, update center references to the mid-point of the trimmed band.
+        # _update_symbols_pointer_only uses center_ce_strike for index calculation;
+        # stale center after a roll causes idx to go out-of-range prematurely.
+        if max_per_side > 0:
+            if band_ce_symbols:
+                bot.precomputed_band['center_ce_strike'] = strike_from_symbol(band_ce_symbols[len(band_ce_symbols) // 2])
+            if band_pe_symbols:
+                bot.precomputed_band['center_pe_strike'] = strike_from_symbol(band_pe_symbols[len(band_pe_symbols) // 2])
         await self.update_subscriptions(dict(self.symbol_token_map))
         logger.info("[PRECOMPUTED_BAND] Out-of-band: added %d symbol(s), prefilling...", len(new_pairs))
         await self._prefill_historical_data_for_symbols(new_pairs)
@@ -1762,34 +1776,20 @@ class AsyncLiveTickerHandler:
 
     def _start_new_candle(self, token: int, timestamp: datetime, price: float, tick: Optional[Dict[str, Any]] = None):
         """Initialize a new 1-minute candle.
-        ONLY use tick['ohlc']['open'] for the exact 9:15 AM candle (day open). All other minutes: open from LTP.
-        Deferred open locking: do not lock open until a real trade in this minute (prevents stale quote from previous minute).
+        Open = first tick LTP for every minute (immediately locked).
+        Exception: exact 9:15 AM candle uses tick['ohlc']['open'] (day open from exchange).
+        tick['ohlc'] is the DAY-level OHLC — never used for minute-level H/L/C.
         """
         normalized_timestamp = timestamp.replace(second=0, microsecond=0)
         valid_price = price if (price is not None and (isinstance(price, (int, float)) and price > 0)) else 0.0
         open_price = valid_price
 
-        # ONLY use tick['ohlc']['open'] for the exact 9:15 AM candle (Day Open)
+        # ONLY use tick['ohlc']['open'] for the exact 9:15 AM candle (Day Open from exchange)
         if tick and normalized_timestamp.hour == 9 and normalized_timestamp.minute == 15:
             ohlc = tick.get('ohlc') or {}
             tick_open = ohlc.get('open')
             if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
                 open_price = tick_open
-
-        # Track starting volume to detect when a real trade happens
-        vol_start = 0
-        if tick and 'volume_traded' in tick:
-            vol_start = tick['volume_traded']
-            self._last_volume[token] = vol_start
-        else:
-            vol_start = self._last_volume.get(token, 0)
-
-        # Deferred open lock: only lock open when we have a real trade in this minute
-        is_real_trade = False
-        if tick:
-            exch_ts = tick.get('exchange_timestamp')
-            if exch_ts is not None and exch_ts >= normalized_timestamp:
-                is_real_trade = True
 
         self.current_candles[token] = {
             "instrument_token": token,
@@ -1798,14 +1798,13 @@ class AsyncLiveTickerHandler:
             "high": open_price,
             "low": open_price,
             "close": open_price,
-            "is_open_locked": is_real_trade,
-            "volume_traded_start": vol_start,
+            "is_open_locked": True,  # always locked from first tick; first tick LTP IS the open
         }
         self._last_valid_price[token] = valid_price
 
     def _update_candle(self, token: int, price: float, tick: Optional[Dict[str, Any]] = None):
         """Update high, low, close strictly from LTP. Never use tick['ohlc'] for 1-min candle (it is day OHLC).
-        Deferred open locking: lock open only on first real trade of the minute to avoid stale quote from previous minute.
+        Open is always locked from the first tick in _start_new_candle — never overwritten here.
         """
         if price is None or (isinstance(price, (int, float)) and price <= 0):
             return
@@ -1816,26 +1815,6 @@ class AsyncLiveTickerHandler:
             self._last_volume[token] = tick['volume_traded']
 
         candle = self.current_candles[token]
-
-        # If open isn't locked yet, lock it on first real trade of this minute
-        if not candle.get('is_open_locked', True) and tick:
-            is_real_trade = False
-            # 1. Most reliable: Did volume increase?
-            current_vol = tick.get('volume_traded', 0)
-            start_vol = candle.get('volume_traded_start', 0)
-            if current_vol > start_vol:
-                is_real_trade = True
-            else:
-                # 2. Fallback: Is exchange timestamp inside this minute?
-                exch_ts = tick.get('exchange_timestamp')
-                if exch_ts is not None and exch_ts >= candle['timestamp']:
-                    is_real_trade = True
-            if is_real_trade:
-                candle['open'] = price
-                if candle['high'] == candle['low'] == candle['close']:
-                    candle['high'] = price
-                    candle['low'] = price
-                candle['is_open_locked'] = True
 
         # Update high, low, close strictly from LTP
         candle['high'] = max(candle['high'], price)
@@ -2309,7 +2288,7 @@ class AsyncLiveTickerHandler:
         self, nifty_open: float, nifty_high: float, nifty_low: float, nifty_close: float,
         completed_candle_timestamp, nifty_token: int,
     ):
-        """Initialize 23-symbol precomputed band from first NIFTY candle; prefill 22 options, run indicators for all 22."""
+        """Initialize precomputed band from first NIFTY candle; prefill all option symbols, run indicators for all."""
         try:
             bot = self.trading_bot
             band_cfg = bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
@@ -2351,9 +2330,11 @@ class AsyncLiveTickerHandler:
                 (s, result['band_symbol_token_map'][s]) for s in result['band_ce_symbols'] + result['band_pe_symbols']
                 if s in result['band_symbol_token_map']
             ]
-            logger.info(f"[PRECOMPUTED_BAND] Subscribed to 23 symbols. Prefilling 22 options ({len(option_pairs)} pairs)...")
+            n_options = len(option_pairs)
+            n_total = n_options + 1  # options + NIFTY
+            logger.info(f"[PRECOMPUTED_BAND] Subscribed to {n_total} symbols. Prefilling {n_options} options ({n_options} pairs)...")
             await self._prefill_historical_data_for_symbols(option_pairs)
-            # Run indicators for all 22 option tokens concurrently
+            # Run indicators for all option tokens concurrently
             option_tokens = [t for _, t in option_pairs]
             await self._calculate_indicators_for_tokens_concurrent(option_tokens, completed_candle_timestamp)
             await bot._initialize_entry_condition_manager()
@@ -2394,7 +2375,7 @@ class AsyncLiveTickerHandler:
         - We only move **forward in time**: if we already wrote a snapshot for a later minute,
           we will NOT write snapshots for earlier minutes (avoids out-of-order rows when
           backfilling/prefilling indicators).
-        - We do not require all 22 symbols to have this minute—illiquid strikes may not get a tick
+        - We do not require all band symbols to have this minute—illiquid strikes may not get a tick
           every minute. Snapshot uses the latest candle **at or before** this minute for each symbol.
         """
         minute_ts = timestamp.replace(second=0, microsecond=0)
@@ -2410,13 +2391,13 @@ class AsyncLiveTickerHandler:
         # Require full band to be subscribed: do not write snapshot when only NIFTY (or 3 symbols) is subscribed
         if len(option_tokens) < 2:
             logger.info(
-                "[PRECOMPUTED_BAND] Snapshot skipped: only %d option symbol(s) subscribed (need full band for 22-symbol snapshot)",
+                "[PRECOMPUTED_BAND] Snapshot skipped: only %d option symbol(s) subscribed (need full band)",
                 len(option_tokens),
             )
             return
         if len(option_tokens) < len(option_symbols):
             logger.warning(
-                "[PRECOMPUTED_BAND] Only %d/%d band symbols subscribed; snapshot will have fewer than 22 option rows.",
+                "[PRECOMPUTED_BAND] Only %d/%d band symbols subscribed; snapshot will have fewer option rows.",
                 len(option_tokens),
                 len(option_symbols),
             )
@@ -2460,7 +2441,7 @@ class AsyncLiveTickerHandler:
         asyncio.create_task(_write_snapshot_task())
 
     async def _write_precomputed_band_snapshot(self, minute_ts: datetime):
-        """Write NIFTY + 22 symbols (OHLC + indicator columns) to logs/precomputed_band_snapshot_YYYY-MM-DD.csv."""
+        """Write NIFTY + all band option symbols (OHLC + indicator columns) to logs/precomputed_band_snapshot_YYYY-MM-DD.csv."""
         try:
             band = getattr(self.trading_bot, 'precomputed_band', None)
             if not band:
