@@ -90,11 +90,11 @@ TRADING_HOURS:
   START_HOUR: 9
   START_MINUTE: 15
   END_HOUR: 15
-  END_MINUTE: 30
+  END_MINUTE: 14
 
 MARKET_CLOSE:
   HOUR: 15
-  MINUTE: 30
+  MINUTE: 14
 
 # CPR-derived trading range: entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 # Aligned with backtesting_st50/backtesting_config.yaml.

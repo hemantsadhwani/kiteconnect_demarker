@@ -90,9 +90,10 @@ class RealTimePositionManager:
         if not self.is_running:
             self.is_running = True
             self.periodic_check_task = asyncio.create_task(self._periodic_check_loop())
-            # Register handler for CANDLE_FORMED events to check MA trailing exit
+            # Register handler for CANDLE_FORMED (SuperTrend SL, etc.) and INDICATOR_UPDATE (MA trailing exit with correct data)
             self.event_dispatcher.register_handler(EventType.CANDLE_FORMED, self.handle_candle_formed)
-            logger.info("[OK] RealTimePositionManager started (CANDLE_FORMED handler registered for MA trailing)")
+            self.event_dispatcher.register_handler(EventType.INDICATOR_UPDATE, self.handle_indicator_update_ma_exit)
+            logger.info("[OK] RealTimePositionManager started (CANDLE_FORMED + INDICATOR_UPDATE for MA trailing)")
     
     async def stop(self):
         """Stop periodic position monitoring"""
@@ -144,10 +145,12 @@ class RealTimePositionManager:
             candle_data = event.data or {}
             token = candle_data.get('token')
             symbol = self.token_symbol_map.get(token) if token else None
-            
+            # CANDLE_FORMED payload is { 'token', 'candle': { open, high, low, close, ... } }
+            candle = candle_data.get('candle') or {}
+
             if not symbol or symbol not in self.active_positions:
                 return
-            
+
             position = self.active_positions[symbol]
             
             # CRITICAL: Check if SuperTrend SL should be activated (if not already active)
@@ -196,8 +199,8 @@ class RealTimePositionManager:
                                 
                                 # If previous candle was bullish, check if price crossed below it
                                 if prev_supertrend_dir == 1 and pd.notna(prev_supertrend_value):
-                                    candle_low = candle_data.get('low')
-                                    if candle_low and candle_low <= prev_supertrend_value:
+                                    candle_low = candle.get('low')
+                                    if candle_low is not None and candle_low <= prev_supertrend_value:
                                         # Price crossed below last bullish SuperTrend - trigger exit
                                         logger.warning(f"[STOP] SuperTrend FLIP-BACK EXIT: {symbol} - Price {candle_low:.2f} crossed below last bullish SuperTrend {prev_supertrend_value:.2f}")
                                         # Mark exit signal as dispatched
@@ -232,8 +235,8 @@ class RealTimePositionManager:
                         
                         # CRITICAL: Also check candle low for SuperTrend SL (not just LTP)
                         # This ensures we catch price movements that happen during candle formation
-                        candle_low = candle_data.get('low')
-                        if candle_low and supertrend_dir == 1:
+                        candle_low = candle.get('low')
+                        if candle_low is not None and supertrend_dir == 1:
                             current_sl = position.fixed_sl_price or supertrend_value
                             if candle_low <= current_sl:
                                 # Price went below SuperTrend SL during candle - trigger exit
@@ -256,20 +259,36 @@ class RealTimePositionManager:
                                     )
                                     return  # Exit early - position already handled
             
-            # CRITICAL: Check MA trailing exit if it's active (AFTER SuperTrend SL updates)
-            # Dynamic MA trailing exit is ONLY checked at END OF CANDLE (CANDLE_FORMED events)
-            # This requires completed candle data (prev and current candle MA values for crossunder detection)
-            # Unlike Fixed SL and Trailing SL which are checked on every tick (mid-candle)
-            if position.ma_trailing_active:
-                # Get LTP for exit price
-                ltp = self.latest_ltp.get(symbol)
-                if ltp:
-                    # Check MA trailing exit - if it triggers, it will dispatch exit signal and return True
-                    if await self._check_trailing_exit(symbol, ltp, position):
-                        return  # MA trailing exit triggered - stop processing
+            # MA trailing exit (fast_ma cross under slow_ma) is checked in handle_indicator_update_ma_exit,
+            # after indicators are updated, so we have the correct current vs prev candle MA values.
         except Exception as e:
             logger.error(f"Error in handle_candle_formed: {e}", exc_info=True)
-    
+
+    async def handle_indicator_update_ma_exit(self, event: Event):
+        """
+        Handle INDICATOR_UPDATE events to check MA trailing exit (fast_ma cross under slow_ma).
+        Must run AFTER indicators are updated so df_indicators has the just-closed candle;
+        CANDLE_FORMED fires before indicators are updated, so MA check would be one candle late.
+        """
+        try:
+            data = event.data or {}
+            token = data.get('token')
+            is_new_candle = data.get('is_new_candle', False)
+            if not is_new_candle or not token:
+                return
+            symbol = self.token_symbol_map.get(token)
+            if not symbol or symbol not in self.active_positions:
+                return
+            position = self.active_positions[symbol]
+            if not position.ma_trailing_active:
+                return
+            ltp = self.latest_ltp.get(symbol)
+            if ltp:
+                if await self._check_trailing_exit(symbol, ltp, position):
+                    pass  # Exit signal already dispatched
+        except Exception as e:
+            logger.error(f"Error in handle_indicator_update_ma_exit: {e}", exc_info=True)
+
     async def handle_tick_update(self, event: Event):
         """
         Update latest LTP and check for immediate triggers (gaps).
@@ -474,7 +493,7 @@ class RealTimePositionManager:
                 if await self._check_take_profit(symbol, ltp, position):
                     return
             
-                # 3. MA Trailing Exit is NOT checked here - it's ONLY checked on CANDLE_FORMED events (end of candle)
+                # 3. MA Trailing Exit is checked on INDICATOR_UPDATE (handle_indicator_update_ma_exit), not here
                 # Dynamic MA trailing exit requires completed candle data (prev and current candle MA values)
                 # This ensures we only check MA crossunder on completed candles, not mid-candle
                 # See handle_candle_formed() method for MA trailing exit check
@@ -588,8 +607,9 @@ class RealTimePositionManager:
     
     async def _check_trailing_exit(self, symbol: str, ltp: float, position: PositionInfo) -> bool:
         """
-        Check for trailing exit conditions (MA crossunder).
-        This is ONLY called on CANDLE_FORMED events, ensuring we check completed candle data.
+        Check for trailing exit conditions (fast_ma cross under slow_ma).
+        Called from INDICATOR_UPDATE (is_new_candle=True) so df_indicators includes the
+        just-closed candle; avoids one-candle lag that would occur if run on CANDLE_FORMED.
         """
         try:
             # CRITICAL: Validate LTP is available before checking trailing exit

@@ -96,6 +96,8 @@ class AsyncLiveTickerHandler:
         self.current_candles: Dict[int, Dict] = {}
         # Last valid LTP per token (used as close when finalizing candle to handle minute-boundary race)
         self._last_valid_price: Dict[int, float] = {}
+        # Track cumulative volume to detect real trades accurately
+        self._last_volume: Dict[int, int] = {}
         # Dict to store the finalized, completed candles as lists per token
         self.completed_candles_data: Dict[int, list] = {token: [] for token in self.instrument_tokens}
         # Note: NIFTY token (256265) will be added to completed_candles_data when dynamic ATM is enabled
@@ -236,137 +238,157 @@ class AsyncLiveTickerHandler:
                             self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
                         continue
 
-                    # Get the minute of the candle we are currently building
-                    candle_minute = self.current_candles[instrument_token]['timestamp'].minute
-
-                    if current_minute != candle_minute:
-                        # A new minute has started. The previous candle is now complete.
-
-                        # 0. Print visual separator at the start of new candle (only once per minute)
-                        # Use root logger to ensure it appears in both console and file logs
-                        if not hasattr(self, '_last_separator_minute'):
-                            self._last_separator_minute = None
-                        
-                        # Print separator if this is a new minute (for any token, but only once)
-                        if self._last_separator_minute != current_minute:
-                            # Use root logger to ensure separator appears in all log files
-                            # Format: timestamp - INFO - separator line
-                            root_logger = logging.getLogger()
-                            root_logger.info("=" * 48)
-                            
-                            # Log sentiment mode only. For AUTO/HYBRID, sentiment (BULLISH/BEARISH/NEUTRAL)
-                            # is computed later from NIFTY candle vs CPR bands, so we don't show it here.
-                            try:
-                                sentiment_mode = 'MANUAL'
-                                sentiment = 'NEUTRAL'
-                                if hasattr(self, 'trading_bot') and getattr(self.trading_bot, 'state_manager', None):
-                                    sentiment_mode = (self.trading_bot.state_manager.get_sentiment_mode() or 'MANUAL').upper()
-                                    sentiment = (self.trading_bot.state_manager.get_sentiment() or 'NEUTRAL').upper()
-                                else:
-                                    config_path = 'config.yaml'
-                                    if os.path.exists(config_path):
-                                        with open(config_path, 'r') as f:
-                                            config = yaml.safe_load(f)
-                                            state_file_path = config.get('TRADE_STATE_FILE_PATH', 'output/trade_state.json')
-                                        if state_file_path and os.path.exists(state_file_path):
-                                            with open(state_file_path, 'r') as f:
-                                                state = json.load(f)
-                                                sentiment_mode = state.get('sentiment_mode', 'MANUAL').upper()
-                                                sentiment = state.get('sentiment', 'NEUTRAL').upper()
-                                if sentiment_mode in ('AUTO', 'HYBRID'):
-                                    root_logger.info(f"📊 Sentiment: {sentiment_mode}")
-                                else:
-                                    root_logger.info(f"📊 Sentiment: {sentiment_mode}/{sentiment}")
-                            except Exception:
-                                pass
-                            
-                            self._last_separator_minute = current_minute
-
-                        # 1. Finalize and store the completed candle
-                        completed_candle = self.current_candles[instrument_token]
-                        # Use last valid LTP as close to handle minute-boundary race (last tick of minute N may arrive after first tick of N+1)
-                        if instrument_token in self._last_valid_price:
-                            completed_candle['close'] = self._last_valid_price[instrument_token]
-                        
-                        # CRITICAL FIX: Check if this minute's candle already exists in completed_candles_data
-                        # This can happen if historical data was prefilled and included this minute's candle
-                        # We should use the live tick-built candle (more accurate) and skip the historical one
-                        completed_timestamp = completed_candle.get('timestamp')
-                        candle_already_exists = False
-                        if instrument_token in self.completed_candles_data:
-                            for existing_candle in self.completed_candles_data[instrument_token]:
-                                existing_timestamp = existing_candle.get('timestamp')
-                                if existing_timestamp:
-                                    # Normalize for comparison
-                                    if hasattr(existing_timestamp, 'replace'):
-                                        existing_minute = existing_timestamp.replace(second=0, microsecond=0)
-                                    else:
-                                        existing_minute = pd.to_datetime(existing_timestamp).replace(second=0, microsecond=0)
-                                    
-                                    if hasattr(completed_timestamp, 'replace'):
-                                        completed_minute = completed_timestamp.replace(second=0, microsecond=0)
-                                    else:
-                                        completed_minute = pd.to_datetime(completed_timestamp).replace(second=0, microsecond=0)
-                                    
-                                    if existing_minute == completed_minute:
-                                        # Candle already exists - remove the historical one and use the live one
-                                        logger.debug(f"Replacing historical candle with live tick-built candle for {completed_minute.strftime('%H:%M:%S')} (token {instrument_token})")
-                                        self.completed_candles_data[instrument_token].remove(existing_candle)
-                                        candle_already_exists = True
-                                        break
-                        
-                        completed_candle = self.finalize_candle(completed_candle, instrument_token, tick)
-                        self.completed_candles_data[instrument_token].append(completed_candle)
-
-                        # 2. Process NIFTY candle for automated market sentiment (if enabled)
-                        # CRITICAL: This must happen BEFORE CANDLE_FORMED dispatch and BEFORE entry condition scanning
-                        # so sentiment (v1/v2/v5) is always available before CE/PE evaluation. Same ordering for all versions.
-                        if instrument_token == nifty_token and hasattr(self, 'trading_bot') and self.trading_bot.use_automated_sentiment:
-                            # Use completed candle's timestamp (not current tick_time) to match option indicator timing
-                            completed_candle_timestamp = completed_candle['timestamp']
-                            await self._process_nifty_candle_for_sentiment(completed_candle, completed_candle_timestamp)
-                        
-                        # 2b. Process NIFTY candle for SKIP_FIRST 9:30 price (if enabled)
-                        # CRITICAL: Only fetch 9:30 price AFTER 9:31 AM (when 9:30 candle completes)
-                        # Do NOT fetch during 9:30-9:31 window - the candle hasn't completed yet
-                        if instrument_token == nifty_token and hasattr(self, 'trading_bot'):
-                            current_time = tick_time.time()
-                            # CRITICAL: Only fetch after 9:31 AM when 9:30 candle has completed
-                            # Check if it's after 9:31 and price not cached yet
-                            is_after_931_not_cached = (current_time >= dt_time(9, 31) and 
-                                                         self.trading_bot.entry_condition_manager and
-                                                         self.trading_bot.entry_condition_manager.skip_first and
-                                                         self.trading_bot.entry_condition_manager._get_nifty_price_at_930() is None)
-                            
-                            if is_after_931_not_cached:
-                                if (self.trading_bot.entry_condition_manager and 
-                                    self.trading_bot.entry_condition_manager.skip_first):
-                                    await self.trading_bot.entry_condition_manager._fetch_nifty_930_price_once()
-
-                        # 3. Dispatch candle formed event
-                        self.event_dispatcher.dispatch_event(
-                            Event(EventType.CANDLE_FORMED, {
-                                'token': instrument_token,
-                                'candle': completed_candle
-                            }, source='websocket_handler')
-                        )
-
-                        # 4. Calculate indicators if sufficient data
-                        # When precomputed band is enabled, log to terminal only for active CE/PE
-                        if len(self.completed_candles_data[instrument_token]) >= 35:
-                            completed_candle_timestamp = completed_candle['timestamp']
-                            skip_terminal_log = False
-                            if getattr(self.trading_bot, 'precomputed_band', None):
-                                ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
-                                pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
-                                skip_terminal_log = (instrument_token != ce_tok and instrument_token != pe_tok)
-                            await self._calculate_and_dispatch_indicators(instrument_token, completed_candle_timestamp, is_new_candle=True, skip_terminal_log=skip_terminal_log)
-
-                        # 5. Start a new candle for the new minute with the current tick's data
-                        self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
+                    # Get the candle we are building and its start time (normalized to minute)
+                    candle = self.current_candles[instrument_token]
+                    candle_start = candle['timestamp']
+                    if hasattr(candle_start, 'replace'):
+                        candle_start_naive = candle_start.replace(second=0, microsecond=0)
                     else:
-                        # Update high/low/close from LTP; correct open/high/low from tick.ohlc when available
-                        self._update_candle(instrument_token, ltp, tick)
+                        candle_start_naive = pd.Timestamp(candle_start).replace(second=0, microsecond=0)
+                    tick_minute_naive = tick_time.replace(second=0, microsecond=0)
+                    # Only finalize when tick is in a minute STRICTLY AFTER the candle's minute.
+                    # Otherwise a stale tick (e.g. 10:13:59 after we already rolled to 10:14) would
+                    # incorrectly finalize the new candle and create a bogus earlier-minute candle → flat/wrong OHLC.
+                    is_tick_in_later_minute = tick_minute_naive > candle_start_naive
+                    if not is_tick_in_later_minute:
+                        if tick_minute_naive == candle_start_naive:
+                            # Same minute: update candle
+                            self._update_candle(instrument_token, ltp, tick)
+                        # else: stale tick (tick from before candle start), skip to avoid corrupting candle
+                        continue
+
+                    # New minute has started (tick is in a later minute). The previous candle is now complete.
+
+                    # 0. Print visual separator at the start of new candle (only once per minute)
+                    # Use root logger to ensure it appears in both console and file logs
+                    if not hasattr(self, '_last_separator_minute'):
+                        self._last_separator_minute = None
+                    
+                    # Print separator if this is a new minute (for any token, but only once)
+                    if self._last_separator_minute != current_minute:
+                        # Use root logger to ensure separator appears in all log files
+                        root_logger = logging.getLogger()
+                        root_logger.info("=" * 48)
+                        try:
+                            sentiment_mode = 'MANUAL'
+                            sentiment = 'NEUTRAL'
+                            if hasattr(self, 'trading_bot') and getattr(self.trading_bot, 'state_manager', None):
+                                sentiment_mode = (self.trading_bot.state_manager.get_sentiment_mode() or 'MANUAL').upper()
+                                sentiment = (self.trading_bot.state_manager.get_sentiment() or 'NEUTRAL').upper()
+                            else:
+                                config_path = 'config.yaml'
+                                if os.path.exists(config_path):
+                                    with open(config_path, 'r') as f:
+                                        config = yaml.safe_load(f)
+                                        state_file_path = config.get('TRADE_STATE_FILE_PATH', 'output/trade_state.json')
+                                    if state_file_path and os.path.exists(state_file_path):
+                                        with open(state_file_path, 'r') as f:
+                                            state = json.load(f)
+                                            sentiment_mode = state.get('sentiment_mode', 'MANUAL').upper()
+                                            sentiment = state.get('sentiment', 'NEUTRAL').upper()
+                            if sentiment_mode in ('AUTO', 'HYBRID'):
+                                root_logger.info(f"📊 Sentiment: {sentiment_mode}")
+                            else:
+                                root_logger.info(f"📊 Sentiment: {sentiment_mode}/{sentiment}")
+                        except Exception:
+                            pass
+                        self._last_separator_minute = current_minute
+
+                    # 1. Finalize and store the completed candle
+                    completed_candle = self.current_candles[instrument_token]
+                    # Use last valid LTP as close to handle minute-boundary race (last tick of minute N may arrive after first tick of N+1)
+                    if instrument_token in self._last_valid_price:
+                        completed_candle['close'] = self._last_valid_price[instrument_token]
+                    
+                    # CRITICAL FIX: Check if this minute's candle already exists in completed_candles_data
+                    # This can happen if historical data was prefilled and included this minute's candle
+                    # We should use the live tick-built candle (more accurate) and skip the historical one
+                    completed_timestamp = completed_candle.get('timestamp')
+                    candle_already_exists = False
+                    if instrument_token in self.completed_candles_data:
+                        for existing_candle in self.completed_candles_data[instrument_token]:
+                            existing_timestamp = existing_candle.get('timestamp')
+                            if existing_timestamp:
+                                # Normalize for comparison
+                                if hasattr(existing_timestamp, 'replace'):
+                                    existing_minute = existing_timestamp.replace(second=0, microsecond=0)
+                                else:
+                                    existing_minute = pd.to_datetime(existing_timestamp).replace(second=0, microsecond=0)
+                                
+                                if hasattr(completed_timestamp, 'replace'):
+                                    completed_minute = completed_timestamp.replace(second=0, microsecond=0)
+                                else:
+                                    completed_minute = pd.to_datetime(completed_timestamp).replace(second=0, microsecond=0)
+                                
+                                if existing_minute == completed_minute:
+                                    # Candle already exists - remove the historical one and use the live one
+                                    logger.debug(f"Replacing historical candle with live tick-built candle for {completed_minute.strftime('%H:%M:%S')} (token {instrument_token})")
+                                    self.completed_candles_data[instrument_token].remove(existing_candle)
+                                    candle_already_exists = True
+                                    break
+                    
+                    completed_candle = self.finalize_candle(completed_candle, instrument_token, tick)
+                    self.completed_candles_data[instrument_token].append(completed_candle)
+
+                    # 2. Process NIFTY candle for automated market sentiment (if enabled)
+                    if instrument_token == nifty_token and hasattr(self, 'trading_bot') and self.trading_bot.use_automated_sentiment:
+                        completed_candle_timestamp = completed_candle['timestamp']
+                        await self._process_nifty_candle_for_sentiment(completed_candle, completed_candle_timestamp)
+                    
+                    # 2b. Process NIFTY candle for SKIP_FIRST 9:30 price (if enabled)
+                    if instrument_token == nifty_token and hasattr(self, 'trading_bot'):
+                        current_time = tick_time.time()
+                        is_after_931_not_cached = (current_time >= dt_time(9, 31) and 
+                                                     self.trading_bot.entry_condition_manager and
+                                                     self.trading_bot.entry_condition_manager.skip_first and
+                                                     self.trading_bot.entry_condition_manager._get_nifty_price_at_930() is None)
+                        if is_after_931_not_cached and self.trading_bot.entry_condition_manager and self.trading_bot.entry_condition_manager.skip_first:
+                            await self.trading_bot.entry_condition_manager._fetch_nifty_930_price_once()
+
+                    # 3. Dispatch candle formed event
+                    self.event_dispatcher.dispatch_event(
+                        Event(EventType.CANDLE_FORMED, {
+                            'token': instrument_token,
+                            'candle': completed_candle
+                        }, source='websocket_handler')
+                    )
+
+                    # 4. Calculate indicators if sufficient data
+                    if len(self.completed_candles_data[instrument_token]) >= 35:
+                        completed_candle_timestamp = completed_candle['timestamp']
+                        skip_terminal_log = False
+                        if getattr(self.trading_bot, 'precomputed_band', None):
+                            ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+                            pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+                            skip_terminal_log = (instrument_token != ce_tok and instrument_token != pe_tok)
+                        await self._calculate_and_dispatch_indicators(instrument_token, completed_candle_timestamp, is_new_candle=True, skip_terminal_log=skip_terminal_log)
+
+                    # 5. Start a new candle for the new minute with the current tick's data
+                    self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
+
+                    # 6. Roll over candles for ALL other tokens that are still on the previous minute
+                    tick_minute_ts = tick_time.replace(second=0, microsecond=0)
+                    for other_token, other_candle in list(self.current_candles.items()):
+                        if other_token == instrument_token or other_token == nifty_token:
+                            continue
+                        try:
+                            ct = other_candle.get('timestamp')
+                            candle_min = ct.minute if hasattr(ct, 'minute') else (pd.Timestamp(ct).minute if ct else None)
+                            if candle_min is None or candle_min == current_minute:
+                                continue
+                        except Exception:
+                            continue
+                        prev_candle = other_candle
+                        if other_token in self._last_valid_price:
+                            prev_candle['close'] = self._last_valid_price[other_token]
+                        prev_candle = self.finalize_candle(prev_candle, other_token, None)
+                        if other_token not in self.completed_candles_data:
+                            self.completed_candles_data[other_token] = []
+                        self.completed_candles_data[other_token].append(prev_candle)
+                        open_price = self._last_valid_price.get(other_token, prev_candle.get('close')) or prev_candle.get('close') or 0.0
+                        self._start_new_candle(other_token, tick_minute_ts, open_price, tick=None)
+                        if len(self.completed_candles_data.get(other_token, [])) >= 35:
+                            await self._calculate_and_dispatch_indicators(other_token, tick_minute_ts, is_new_candle=True, skip_terminal_log=True)
 
                 # NOTE: TICK_UPDATE events disabled to prevent queue overflow
                 # Ticks arrive every second and would overwhelm the event queue
@@ -1290,7 +1312,7 @@ class AsyncLiveTickerHandler:
                     # Start new candle
                     self._start_new_candle(nifty_token, tick_time, nifty_price, tick=tick)
                 else:
-                    # Update high/low/close from LTP; correct open/high/low from tick.ohlc when available
+                    # Update high/low/close from LTP only (never tick.ohlc - that is day OHLC)
                     self._update_candle(nifty_token, nifty_price, tick)
                     
         except Exception as e:
@@ -1740,16 +1762,34 @@ class AsyncLiveTickerHandler:
 
     def _start_new_candle(self, token: int, timestamp: datetime, price: float, tick: Optional[Dict[str, Any]] = None):
         """Initialize a new 1-minute candle.
-        Always use tick['ohlc']['open'] from MODE_FULL when available (exchange session open); fallback to LTP.
-        This fixes open mismatch vs Kite historical (ticker often misses the true first tick of each minute).
+        ONLY use tick['ohlc']['open'] for the exact 9:15 AM candle (day open). All other minutes: open from LTP.
+        Deferred open locking: do not lock open until a real trade in this minute (prevents stale quote from previous minute).
         """
         normalized_timestamp = timestamp.replace(second=0, microsecond=0)
         valid_price = price if (price is not None and (isinstance(price, (int, float)) and price > 0)) else 0.0
         open_price = valid_price
-        if tick and isinstance(tick.get('ohlc'), dict):
-            tick_open = tick['ohlc'].get('open')
-            if isinstance(tick_open, (int, float)) and tick_open > 0:
+
+        # ONLY use tick['ohlc']['open'] for the exact 9:15 AM candle (Day Open)
+        if tick and normalized_timestamp.hour == 9 and normalized_timestamp.minute == 15:
+            ohlc = tick.get('ohlc') or {}
+            tick_open = ohlc.get('open')
+            if tick_open is not None and isinstance(tick_open, (int, float)) and tick_open > 0:
                 open_price = tick_open
+
+        # Track starting volume to detect when a real trade happens
+        vol_start = 0
+        if tick and 'volume_traded' in tick:
+            vol_start = tick['volume_traded']
+            self._last_volume[token] = vol_start
+        else:
+            vol_start = self._last_volume.get(token, 0)
+
+        # Deferred open lock: only lock open when we have a real trade in this minute
+        is_real_trade = False
+        if tick:
+            exch_ts = tick.get('exchange_timestamp')
+            if exch_ts is not None and exch_ts >= normalized_timestamp:
+                is_real_trade = True
 
         self.current_candles[token] = {
             "instrument_token": token,
@@ -1757,46 +1797,58 @@ class AsyncLiveTickerHandler:
             "open": open_price,
             "high": open_price,
             "low": open_price,
-            "close": open_price
+            "close": open_price,
+            "is_open_locked": is_real_trade,
+            "volume_traded_start": vol_start,
         }
+        self._last_valid_price[token] = valid_price
 
     def _update_candle(self, token: int, price: float, tick: Optional[Dict[str, Any]] = None):
-        """Update high, low, close from LTP; correct open/high/low from tick.ohlc when available (exchange snapshot).
-        Tracks last valid price per token for close when finalizing (minute-boundary race). Keeps LTP as primary;
-        tick.ohlc refines open and extends high/low when exchange snapshot has better values.
+        """Update high, low, close strictly from LTP. Never use tick['ohlc'] for 1-min candle (it is day OHLC).
+        Deferred open locking: lock open only on first real trade of the minute to avoid stale quote from previous minute.
         """
         if price is None or (isinstance(price, (int, float)) and price <= 0):
             return
         self._last_valid_price[token] = price
+
+        # Keep cumulative volume updated
+        if tick and 'volume_traded' in tick:
+            self._last_volume[token] = tick['volume_traded']
+
         candle = self.current_candles[token]
+
+        # If open isn't locked yet, lock it on first real trade of this minute
+        if not candle.get('is_open_locked', True) and tick:
+            is_real_trade = False
+            # 1. Most reliable: Did volume increase?
+            current_vol = tick.get('volume_traded', 0)
+            start_vol = candle.get('volume_traded_start', 0)
+            if current_vol > start_vol:
+                is_real_trade = True
+            else:
+                # 2. Fallback: Is exchange timestamp inside this minute?
+                exch_ts = tick.get('exchange_timestamp')
+                if exch_ts is not None and exch_ts >= candle['timestamp']:
+                    is_real_trade = True
+            if is_real_trade:
+                candle['open'] = price
+                if candle['high'] == candle['low'] == candle['close']:
+                    candle['high'] = price
+                    candle['low'] = price
+                candle['is_open_locked'] = True
+
+        # Update high, low, close strictly from LTP
         candle['high'] = max(candle['high'], price)
         candle['low'] = min(candle['low'], price)
         candle['close'] = price
-        ohlc = tick.get('ohlc') if isinstance(tick, dict) else None
-        if isinstance(ohlc, dict):
-            o = ohlc.get('open')
-            if isinstance(o, (int, float)) and o > 0:
-                candle['open'] = o
-            h = ohlc.get('high')
-            if isinstance(h, (int, float)) and h > candle['high']:
-                candle['high'] = h
-            l = ohlc.get('low')
-            if isinstance(l, (int, float)) and l < candle['low']:
-                candle['low'] = l
 
     def finalize_candle(self, candle: dict, token: int, final_tick: Optional[Dict] = None) -> dict:
-        """Final OHLC sanity + volume and exchange OHLC from last tick before appending to completed_candles_data."""
+        """Final OHLC sanity + optional volume from tick. Do NOT overwrite open/high/low with tick['ohlc'] (day OHLC)."""
         _ensure_candle_ohlc_valid(candle)
         if isinstance(final_tick, dict):
             vol = final_tick.get('volume')
             if isinstance(vol, (int, float)):
                 candle['volume'] = vol
-            ohlc = final_tick.get('ohlc')
-            if isinstance(ohlc, dict):
-                for field in ('open', 'high', 'low'):
-                    val = ohlc.get(field)
-                    if isinstance(val, (int, float)) and val > 0:
-                        candle[field] = val
         return candle
 
     # --- Thread-safe Wrappers for KiteTicker Callbacks ---
@@ -2429,6 +2481,12 @@ class AsyncLiveTickerHandler:
             option_symbols = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
             nifty_token = self.symbol_token_map.get('NIFTY 50')
             rows = []
+            # Snapshot columns (reduced set for readability)
+            _snapshot_columns = [
+                'candle_time', 'symbol', 'open', 'high', 'low', 'close',
+                'supertrend', 'supertrend_dir', 'demarker', 'fast_ma', 'slow_ma',
+                'stoch_k', 'stoch_d', 'wpr_9', 'wpr_28',
+            ]
             minute_ts_naive = pd.Timestamp(minute_ts)
             if getattr(minute_ts_naive, "tz", None) is not None:
                 minute_ts_naive = pd.Timestamp(minute_ts_naive.to_pydatetime().replace(tzinfo=None))
@@ -2448,20 +2506,12 @@ class AsyncLiveTickerHandler:
                 if last:
                     candle_ts = last.get('timestamp')
                     candle_time_str = pd.Timestamp(candle_ts).isoformat() if candle_ts is not None else ''
-                    age_min = None
-                    try:
-                        if candle_ts is not None:
-                            age_min = (pd.Timestamp(minute_ts_naive) - pd.Timestamp(candle_ts)).total_seconds() / 60.0
-                    except Exception:
-                        age_min = None
-                    nifty_row = {
-                        'timestamp': minute_ts.isoformat(), 'candle_time': candle_time_str, 'age_min': age_min, 'symbol': 'NIFTY 50',
-                        'open': last.get('open'), 'high': last.get('high'), 'low': last.get('low'), 'close': last.get('close'),
-                        'active_ce': 0, 'active_pe': 0,
-                    }
+                    nifty_row = {'candle_time': candle_time_str, 'symbol': 'NIFTY 50',
+                                 'open': last.get('open'), 'high': last.get('high'), 'low': last.get('low'), 'close': last.get('close')}
+                    for col in _snapshot_columns:
+                        if col not in nifty_row:
+                            nifty_row[col] = None
                     rows.append(_round_row_decimals(nifty_row, 2))
-            # Columns to omit from snapshot (duplicates: fast_wpr=wpr_9, slow_wpr=wpr_28)
-            _snapshot_skip_columns = {'fast_wpr', 'slow_wpr'}
             for sym in option_symbols:
                 if sym not in self.symbol_token_map:
                     continue
@@ -2492,27 +2542,21 @@ class AsyncLiveTickerHandler:
                     r = df.iloc[last_idx_pos]
                     candle_ts = df.index[last_idx_pos]
                     candle_time_str = pd.Timestamp(candle_ts).isoformat() if candle_ts is not None else ''
-                    age_min = None
-                    try:
-                        if candle_ts is not None:
-                            age_min = (pd.Timestamp(minute_ts_naive) - pd.Timestamp(candle_ts)).total_seconds() / 60.0
-                    except Exception:
-                        age_min = None
-                    row = {
-                        'timestamp': minute_ts.isoformat(),
-                        'candle_time': candle_time_str,
-                        'age_min': age_min,
-                        'symbol': sym,
-                        'active_ce': 1 if sym == active_ce else 0,
-                        'active_pe': 1 if sym == active_pe else 0,
-                    }
-                    for k in ['open', 'high', 'low', 'close']:
-                        if k in r.index:
-                            row[k] = r[k]
-                    for c in df.columns:
-                        if c in _snapshot_skip_columns or c in row or c not in r.index:
+                    row = {'candle_time': candle_time_str, 'symbol': sym,
+                           'open': r.get('open'), 'high': r.get('high'), 'low': r.get('low'), 'close': r.get('close')}
+                    # Map indicator columns (df may use fast_wpr/slow_wpr or wpr_9/wpr_28)
+                    _indicator_map = {'wpr_9': ('wpr_9', 'fast_wpr'), 'wpr_28': ('wpr_28', 'slow_wpr')}
+                    for col in _snapshot_columns:
+                        if col in row:
                             continue
-                        row[c] = r[c]
+                        if col in _indicator_map:
+                            a, b = _indicator_map[col]
+                            row[col] = r.get(a) if a in r.index else r.get(b)
+                        elif col in r.index:
+                            row[col] = r[col]
+                    for col in _snapshot_columns:
+                        if col not in row:
+                            row[col] = None
                     rows.append(_round_row_decimals(row, 2))
                 except Exception as e:
                     logger.debug("[PRECOMPUTED_BAND] Snapshot option row failed for %s: %s", sym, e)
@@ -2535,6 +2579,7 @@ class AsyncLiveTickerHandler:
                 )
                 return
             df_out = pd.DataFrame(rows)
+            df_out = df_out[[c for c in _snapshot_columns if c in df_out.columns]]
             write_header = not os.path.exists(path)
             logger.info("[PRECOMPUTED_BAND] Writing snapshot to: %s (header=%s)", path, write_header)
             df_out.to_csv(path, mode='a', header=write_header, index=False)
