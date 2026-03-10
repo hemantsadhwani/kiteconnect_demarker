@@ -14,6 +14,19 @@ import threading
 logger = logging.getLogger(__name__)
 
 
+def _normalize_exit_reason(reason: str) -> str:
+    """Map internal exit_reason codes to human-readable ledger text."""
+    if not reason:
+        return reason
+    m = {
+        'ST_SL': 'ST SL',
+        'ST_SL_FLIPBACK': 'ST SL (flip-back)',
+        'MA_TRAILING_EXIT': 'MA trailing',
+        'EXIT_WEAK_SIGNAL': 'Exit weak signal',
+    }
+    return m.get(reason, reason)
+
+
 class TradeLedger:
     """
     Manages a daily trade ledger that persists across multiple bot runs.
@@ -203,6 +216,9 @@ class TradeLedger:
                 trades = self.get_all_trades()
                 updated = False
                 
+                # Human-readable reason for ledger and log (SL, TP, ST SL, MA trailing, etc.)
+                reason_display = _normalize_exit_reason(exit_reason)
+                
                 # Find the most recent pending entry for this symbol
                 for trade in reversed(trades):
                     if (trade['symbol'] == symbol and 
@@ -213,7 +229,7 @@ class TradeLedger:
                         trade['exit_price'] = str(round(exit_price, 2))
                         trade['pnl_percent'] = str(round(pnl_percent, 2))
                         trade['trade_status'] = 'EXECUTED'
-                        trade['exit_reason'] = exit_reason
+                        trade['exit_reason'] = reason_display
                         updated = True
                         break
                 
@@ -230,7 +246,7 @@ class TradeLedger:
                             trade['exit_price'] = str(round(exit_price, 2))
                             trade['pnl_percent'] = str(round(pnl_percent, 2))
                             trade['trade_status'] = 'EXECUTED'
-                            trade['exit_reason'] = exit_reason
+                            trade['exit_reason'] = reason_display
                             break
                 
                 # Rewrite the entire file
@@ -238,7 +254,7 @@ class TradeLedger:
                 
                 logger.info(
                     f"Logged trade exit: {symbol} @ {exit_time.strftime('%H:%M:%S')} "
-                    f"price={exit_price:.2f} pnl={pnl_percent:.2f}% reason={exit_reason}"
+                    f"price={exit_price:.2f} pnl={pnl_percent:.2f}% reason={reason_display}"
                 )
             except Exception as e:
                 logger.error(f"Error logging trade exit: {e}", exc_info=True)

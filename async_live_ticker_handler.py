@@ -385,10 +385,29 @@ class AsyncLiveTickerHandler:
                         if other_token not in self.completed_candles_data:
                             self.completed_candles_data[other_token] = []
                         self.completed_candles_data[other_token].append(prev_candle)
+                        # CRITICAL: Dispatch CANDLE_FORMED for rollover so RealTimePositionManager can activate
+                        # SuperTrend SL when ST turns bullish (otherwise only the token that ticked gets the event).
+                        self.event_dispatcher.dispatch_event(
+                            Event(EventType.CANDLE_FORMED, {
+                                'token': other_token,
+                                'candle': prev_candle
+                            }, source='websocket_handler')
+                        )
                         open_price = self._last_valid_price.get(other_token, prev_candle.get('close')) or prev_candle.get('close') or 0.0
                         self._start_new_candle(other_token, tick_minute_ts, open_price, tick=None)
                         if len(self.completed_candles_data.get(other_token, [])) >= 35:
-                            await self._calculate_and_dispatch_indicators(other_token, tick_minute_ts, is_new_candle=True, skip_terminal_log=True)
+                            other_skip_log = True
+                            if getattr(self.trading_bot, 'precomputed_band', None):
+                                _ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+                                _pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+                                other_skip_log = (other_token != _ce_tok and other_token != _pe_tok)
+                            # Use completed candle's timestamp so _maybe_write_precomputed_band_snapshot checks the right minute (the one we just wrote). Passing tick_minute_ts would check the next minute and skip writing (no snapshot for that minute).
+                            completed_candle_ts = prev_candle.get('timestamp')
+                            if completed_candle_ts is not None and hasattr(completed_candle_ts, 'replace'):
+                                completed_candle_ts = completed_candle_ts.replace(second=0, microsecond=0)
+                            else:
+                                completed_candle_ts = tick_minute_ts
+                            await self._calculate_and_dispatch_indicators(other_token, completed_candle_ts, is_new_candle=True, skip_terminal_log=other_skip_log)
 
                 # NOTE: TICK_UPDATE events disabled to prevent queue overflow
                 # Ticks arrive every second and would overwhelm the event queue
@@ -1187,10 +1206,10 @@ class AsyncLiveTickerHandler:
                     nifty_open = completed_candle.get('open', nifty_price)
                     nifty_high = completed_candle.get('high', nifty_price)
                     nifty_low = completed_candle.get('low', nifty_price)
-                    # Slab/strike formula: ((O+H)/2 + (L+C)/2)/2 — used for slab change and strike derivation only.
-                    nifty_calculated_price = ((nifty_open + nifty_high) / 2 + (nifty_low + nifty_close) / 2) / 2
-                    # NCP for sentiment (v5): Bullish (C>=O) -> (H+C)/2, Bearish (C<O) -> (L+C)/2. Not used for slab.
-                    ncp_sentiment = (nifty_high + nifty_close) / 2 if nifty_close >= nifty_open else (nifty_low + nifty_close) / 2
+                    # Slab/strike formula: true directional NCP — Bullish (C>=O) -> (H+C)/2, Bearish (C<O) -> (L+C)/2.
+                    # Same formula as sentiment v5 NCP so the initial band and slab changes are consistent with sentiment direction.
+                    nifty_calculated_price = (nifty_high + nifty_close) / 2 if nifty_close >= nifty_open else (nifty_low + nifty_close) / 2
+                    ncp_sentiment = nifty_calculated_price
                     candle_ts_str = completed_candle_timestamp.strftime('%H:%M:%S') if completed_candle_timestamp and hasattr(completed_candle_timestamp, 'strftime') else 'N/A'
                     logger.info(
                         "NIFTY candle completed for slab check: candle=%s, O=%.2f, H=%.2f, L=%.2f, C=%.2f | "
@@ -2294,7 +2313,7 @@ class AsyncLiveTickerHandler:
             band_cfg = bot.config.get('PRECOMPUTED_SYMBOL_BAND') or {}
             symbol_band = int(band_cfg.get('SYMBOL_BAND', 5))
             first_price = (band_cfg.get('FIRST_CANDLE_PRICE') or 'ncp').lower()
-            center = ((nifty_open + nifty_high) / 2 + (nifty_low + nifty_close) / 2) / 2 if first_price == 'ncp' else nifty_open
+            center = ((nifty_high + nifty_close) / 2 if nifty_close >= nifty_open else (nifty_low + nifty_close) / 2) if first_price == 'ncp' else nifty_open
             strike_difference = int(bot.config.get('STRIKE_DIFFERENCE', 50))
             strike_type = (bot.config.get('STRIKE_TYPE') or 'ATM').upper()
             from trading_bot_utils import get_weekly_expiry_date, generate_precomputed_band_symbols_and_tokens

@@ -1,0 +1,4 @@
+#DATE: 2026-03-10
+symbol,entry_time,entry_price,exit_time,exit_price,pnl_percent,trade_status,exit_reason
+NIFTY2631024050CE,09:46:01,144.1,09:48:09,134.65,-6.56,EXECUTED,SL
+NIFTY2631024150PE,09:57:01,104.2,10:01:52,95.5,-8.35,EXECUTED,SL

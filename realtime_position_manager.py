@@ -78,6 +78,8 @@ class RealTimePositionManager:
         self.exit_weak_signal_enabled: bool = trade_settings.get('EXIT_WEAK_SIGNAL', False)
         self.exit_weak_signal_profit_pct: float = float(trade_settings.get('EXIT_WEAK_SIGNAL_PROFIT_PCT', 7.0))
         self.exit_weak_signal_demarker_r: float = float(trade_settings.get('EXIT_WEAK_SIGNAL_DEMARKER_R_BAND', 0.60))
+        # Entry2: when True, switch to SuperTrend as trailing SL once ST turns bullish; when False, use fixed SL only.
+        self.entry2_use_supertrend_trailing_sl: bool = trade_settings.get('ENTRY2_USE_SUPERTREND_TRAILING_SL', True)
         
         # Background task for periodic checks
         self.periodic_check_task: Optional[asyncio.Task] = None
@@ -157,8 +159,9 @@ class RealTimePositionManager:
             # This handles cases where SuperTrend turns bullish after entry
             if not position.supertrend_sl_active:
                 # Check if SuperTrend is bullish and should activate trailing SL
-                # Only for Entry2 and Manual trades (Entry3 uses fixed SL)
-                if position.trade_type in ['Entry2', 'Manual']:
+                # Entry2: only when TRADE_SETTINGS.ENTRY2_USE_SUPERTREND_TRAILING_SL is true. Manual: always allow.
+                entry2_allowed = (position.trade_type == 'Entry2' and self.entry2_use_supertrend_trailing_sl) or position.trade_type == 'Manual'
+                if entry2_allowed:
                     supertrend_value = self._get_supertrend_value(symbol)
                     if supertrend_value:
                         token = self.symbol_token_map.get(symbol)
