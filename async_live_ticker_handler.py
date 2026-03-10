@@ -120,6 +120,8 @@ class AsyncLiveTickerHandler:
         self._last_nifty_completed_candle_ts = None
         # Precomputed band: last minute for which we wrote a snapshot (avoid duplicate writes)
         self._last_snapshot_minute = None
+        # Semaphore limiting concurrent Kite API calls from _postcorrect_candle_from_kite (max 3/sec)
+        self._kite_postcorrect_semaphore = asyncio.Semaphore(3)
 
     async def on_ticks(self, ws, ticks):
         """
@@ -345,26 +347,58 @@ class AsyncLiveTickerHandler:
                         if is_after_931_not_cached and self.trading_bot.entry_condition_manager and self.trading_bot.entry_condition_manager.skip_first:
                             await self.trading_bot.entry_condition_manager._fetch_nifty_930_price_once()
 
-                    # 3. Dispatch candle formed event
-                    self.event_dispatcher.dispatch_event(
-                        Event(EventType.CANDLE_FORMED, {
-                            'token': instrument_token,
-                            'candle': completed_candle
-                        }, source='websocket_handler')
-                    )
+                    # Compute skip_terminal_log now (before any async gap; slab change could shift
+                    # ce_symbol/pe_symbol, so capture the value at candle-close time)
+                    _skip_log = False
+                    if getattr(self.trading_bot, 'precomputed_band', None):
+                        ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+                        pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+                        _skip_log = (instrument_token != ce_tok and instrument_token != pe_tok)
 
-                    # 4. Calculate indicators if sufficient data
-                    if len(self.completed_candles_data[instrument_token]) >= 35:
-                        completed_candle_timestamp = completed_candle['timestamp']
-                        skip_terminal_log = False
-                        if getattr(self.trading_bot, 'precomputed_band', None):
-                            ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
-                            pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
-                            skip_terminal_log = (instrument_token != ce_tok and instrument_token != pe_tok)
-                        await self._calculate_and_dispatch_indicators(instrument_token, completed_candle_timestamp, is_new_candle=True, skip_terminal_log=skip_terminal_log)
+                    # Determine if post-correction applies to this token.
+                    # Hot-band tokens: sleep 1.5s → fetch Kite bar → patch OHLC → then dispatch
+                    # CANDLE_FORMED + calculate indicators. Runs as a background task so on_ticks
+                    # is not blocked (next ticks of the new minute are captured immediately).
+                    _postcorrect_enabled = self._is_postcorrect_enabled()
+                    _in_hot_band = _postcorrect_enabled and (instrument_token in self._get_hot_band_tokens())
 
-                    # 5. Start a new candle for the new minute with the current tick's data
+                    # 5. Start new candle FIRST — must capture new-minute ticks regardless of path
                     self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
+
+                    if _in_hot_band:
+                        # 3+4. Deferred path: background task handles post-correct → CANDLE_FORMED → indicators
+                        _cc  = completed_candle
+                        _ts  = completed_candle['timestamp']
+                        _tok = instrument_token
+                        _sl  = _skip_log
+
+                        async def _deferred_postcorrect(_tok=_tok, _cc=_cc, _ts=_ts, _sl=_sl):
+                            await self._postcorrect_candle_from_kite(_tok, _cc)
+                            self.event_dispatcher.dispatch_event(
+                                Event(EventType.CANDLE_FORMED, {
+                                    'token': _tok,
+                                    'candle': _cc,
+                                }, source='websocket_handler')
+                            )
+                            if len(self.completed_candles_data.get(_tok, [])) >= 35:
+                                await self._calculate_and_dispatch_indicators(
+                                    _tok, _ts, is_new_candle=True, skip_terminal_log=_sl)
+
+                        asyncio.create_task(_deferred_postcorrect())
+                    else:
+                        # 3. Dispatch candle formed event immediately (non-hot-band / postcorrect off)
+                        self.event_dispatcher.dispatch_event(
+                            Event(EventType.CANDLE_FORMED, {
+                                'token': instrument_token,
+                                'candle': completed_candle,
+                            }, source='websocket_handler')
+                        )
+                        # 4. Calculate indicators if sufficient data
+                        if len(self.completed_candles_data[instrument_token]) >= 35:
+                            completed_candle_timestamp = completed_candle['timestamp']
+                            await self._calculate_and_dispatch_indicators(
+                                instrument_token, completed_candle_timestamp,
+                                is_new_candle=True, skip_terminal_log=_skip_log)
 
                     # 6. Roll over candles for ALL other tokens that are still on the previous minute
                     tick_minute_ts = tick_time.replace(second=0, microsecond=0)
@@ -395,19 +429,29 @@ class AsyncLiveTickerHandler:
                         )
                         open_price = self._last_valid_price.get(other_token, prev_candle.get('close')) or prev_candle.get('close') or 0.0
                         self._start_new_candle(other_token, tick_minute_ts, open_price, tick=None)
-                        if len(self.completed_candles_data.get(other_token, [])) >= 35:
-                            other_skip_log = True
-                            if getattr(self.trading_bot, 'precomputed_band', None):
-                                _ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
-                                _pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
-                                other_skip_log = (other_token != _ce_tok and other_token != _pe_tok)
-                            # Use completed candle's timestamp so _maybe_write_precomputed_band_snapshot checks the right minute (the one we just wrote). Passing tick_minute_ts would check the next minute and skip writing (no snapshot for that minute).
-                            completed_candle_ts = prev_candle.get('timestamp')
-                            if completed_candle_ts is not None and hasattr(completed_candle_ts, 'replace'):
-                                completed_candle_ts = completed_candle_ts.replace(second=0, microsecond=0)
-                            else:
-                                completed_candle_ts = tick_minute_ts
-                            await self._calculate_and_dispatch_indicators(other_token, completed_candle_ts, is_new_candle=True, skip_terminal_log=other_skip_log)
+                        # Use completed candle's own timestamp (not tick_minute_ts) so snapshot
+                        # checks the right minute. Compute skip_log before any async gap.
+                        _ots = prev_candle.get('timestamp')
+                        if _ots is not None and hasattr(_ots, 'replace'):
+                            _ots = _ots.replace(second=0, microsecond=0)
+                        else:
+                            _ots = tick_minute_ts
+                        _osl = True
+                        if getattr(self.trading_bot, 'precomputed_band', None):
+                            _ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+                            _pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+                            _osl = (other_token != _ce_tok and other_token != _pe_tok)
+                        if _postcorrect_enabled and (other_token in self._get_hot_band_tokens()):
+                            async def _deferred_other(_ot=other_token, _pc=prev_candle, _ts2=_ots, _sl=_osl):
+                                await self._postcorrect_candle_from_kite(_ot, _pc)
+                                if len(self.completed_candles_data.get(_ot, [])) >= 35:
+                                    await self._calculate_and_dispatch_indicators(
+                                        _ot, _ts2, is_new_candle=True, skip_terminal_log=_sl)
+                            asyncio.create_task(_deferred_other())
+                        else:
+                            if len(self.completed_candles_data.get(other_token, [])) >= 35:
+                                await self._calculate_and_dispatch_indicators(
+                                    other_token, _ots, is_new_candle=True, skip_terminal_log=_osl)
 
                 # NOTE: TICK_UPDATE events disabled to prevent queue overflow
                 # Ticks arrive every second and would overwhelm the event queue
@@ -421,6 +465,115 @@ class AsyncLiveTickerHandler:
                     'message': f"websocket_tick_error: {str(e)}"
                 }, source='websocket_handler')
             )
+
+    # ── Post-correction helpers ────────────────────────────────────────────────────────
+
+    def _is_postcorrect_enabled(self) -> bool:
+        """True when PRECOMPUTED_SYMBOL_BAND.POSTCORRECT_CANDLE_FROM_KITE is set in config."""
+        cfg = getattr(self.trading_bot, 'config', {}) or {}
+        band_cfg = cfg.get('PRECOMPUTED_SYMBOL_BAND') or {}
+        return bool(band_cfg.get('POSTCORRECT_CANDLE_FROM_KITE', False))
+
+    def _get_hot_band_tokens(self) -> frozenset:
+        """
+        Returns a frozenset of the option token ints currently in the precomputed band.
+        With SYMBOL_BAND=1 the entire band is the hot band (3 CE + 3 PE = 6 tokens).
+        Re-evaluated on every call so slab changes / OOB rolls are reflected automatically.
+        """
+        band = getattr(self.trading_bot, 'precomputed_band', None)
+        if not band:
+            return frozenset()
+        hot_syms = band.get('band_ce_symbols', []) + band.get('band_pe_symbols', [])
+        return frozenset(t for s in hot_syms if (t := self.symbol_token_map.get(s)) is not None)
+
+    async def _postcorrect_candle_from_kite(self, token: int, candle: dict) -> bool:
+        """
+        Fetch the just-completed 1-minute bar from Kite historical API and patch
+        O/H/L/C of `candle` in place.  Called as a background asyncio task.
+
+        Flow:
+          1. Sleep 1.5 s so Kite has time to index the bar.
+          2. Acquire _kite_postcorrect_semaphore (max 3 concurrent calls → ≤3 req/sec).
+          3. Fetch historical_data for the 1-minute window.
+          4. Patch O/H/L/C, re-run _ensure_candle_ohlc_valid.
+          5. Return True if patched, False if skipped (no data / API error).
+
+        Rate: 6 hot-band symbols × ~375 min = ~2,250 calls/day  (<25% of 10k/day limit).
+        """
+        try:
+            await asyncio.sleep(1.5)
+
+            candle_ts = candle.get('timestamp')
+            if candle_ts is None:
+                return False
+            if not hasattr(candle_ts, 'replace'):
+                candle_ts = pd.Timestamp(candle_ts).to_pydatetime()
+            minute_start = candle_ts.replace(second=0, microsecond=0)
+            from_date = minute_start
+            to_date   = minute_start + timedelta(minutes=2)   # small buffer
+
+            async with self._kite_postcorrect_semaphore:
+                # kite.historical_data is synchronous — run in thread to avoid blocking event loop
+                kite_bars = await asyncio.to_thread(
+                    self.kite.historical_data,
+                    instrument_token=token,
+                    from_date=from_date,
+                    to_date=to_date,
+                    interval='minute',
+                )
+
+            if not kite_bars:
+                logger.debug("[POSTCORRECT] No bar returned for token %d at %s", token, minute_start.strftime('%H:%M'))
+                return False
+
+            # Find the bar whose minute matches candle_ts
+            kite_bar = None
+            for bar in kite_bars:
+                bar_ts = bar.get('date')
+                if bar_ts is None:
+                    continue
+                if not hasattr(bar_ts, 'replace'):
+                    bar_ts = pd.Timestamp(bar_ts).to_pydatetime()
+                if bar_ts.replace(second=0, microsecond=0) == minute_start:
+                    kite_bar = bar
+                    break
+
+            if kite_bar is None:
+                logger.debug("[POSTCORRECT] Bar not found for token %d at %s (got %d bars)",
+                             token, minute_start.strftime('%H:%M'), len(kite_bars))
+                return False
+
+            # Patch OHLC — only accept valid positive values
+            old_h = candle.get('high')
+            old_l = candle.get('low')
+            k_o = kite_bar.get('open')
+            k_h = kite_bar.get('high')
+            k_l = kite_bar.get('low')
+            k_c = kite_bar.get('close')
+
+            patched = []
+            if k_o and k_o > 0: candle['open']  = k_o; patched.append('O')
+            if k_h and k_h > 0: candle['high']  = k_h; patched.append('H')
+            if k_l and k_l > 0: candle['low']   = k_l; patched.append('L')
+            if k_c and k_c > 0: candle['close'] = k_c; patched.append('C')
+
+            _ensure_candle_ohlc_valid(candle)
+
+            h_diff = round(abs((candle.get('high') or 0) - (old_h or 0)), 2)
+            l_diff = round(abs((candle.get('low')  or 0) - (old_l or 0)), 2)
+            if h_diff > 0.01 or l_diff > 0.01:
+                logger.debug(
+                    "[POSTCORRECT] tok=%d %s patched=%s H:%.2f→%.2f(Δ%.2f) L:%.2f→%.2f(Δ%.2f)",
+                    token, minute_start.strftime('%H:%M'), ''.join(patched),
+                    old_h, candle['high'], h_diff, old_l, candle['low'], l_diff,
+                )
+            return bool(patched)
+
+        except Exception as e:
+            logger.error("[POSTCORRECT] Error for token %d: %s", token, e, exc_info=True)
+            return False
+
+    # ── Indicator calculation ──────────────────────────────────────────────────────────
 
     # In async_live_ticker_handler.py - Update the _calculate_and_dispatch_indicators method
     async def _calculate_and_dispatch_indicators(self, token: int, timestamp: datetime, is_new_candle: bool = True, skip_terminal_log: bool = False):

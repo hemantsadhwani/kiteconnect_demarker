@@ -205,6 +205,9 @@ PRECOMPUTED_SYMBOL_BAND:
   FIRST_CANDLE_PRICE: "ncp"  # Center from first NIFTY candle: "ncp" or "open"
   ADD_SYMBOL_WHEN_OUT_OF_BAND: true
   MAX_STRIKES_PER_SIDE: 1     # 1 = rolling band: always keep active ± 1 per leg (3 CE + 3 PE); was 0 (no cap)
+  # Post-correction: fetch completed Kite bar after each minute and patch O/H/L/C before indicators.
+  # Targets the 6 hot-band symbols only (~750 API calls/day). Disable here if Kite API is degraded.
+  POSTCORRECT_CANDLE_FROM_KITE: true
   # Snapshot file: NIFTY + 6 symbols with indicators written here each minute (no terminal spam)
   SNAPSHOT_DIR: "logs"
 
