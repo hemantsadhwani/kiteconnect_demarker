@@ -122,6 +122,11 @@ class AsyncLiveTickerHandler:
         self._last_snapshot_minute = None
         # Semaphore limiting concurrent Kite API calls from _postcorrect_candle_from_kite (max 3/sec)
         self._kite_postcorrect_semaphore = asyncio.Semaphore(3)
+        # Tracks which (token, minute_pd_Timestamp) pairs have completed post-correction.
+        # Used by _maybe_write_precomputed_band_snapshot to ensure the snapshot is written
+        # only after ALL hot-band tokens have been post-corrected (not just initially calculated
+        # from tick data).  Entries older than ~5 min are purged by _minute_boundary_flusher.
+        self._postcorrect_minute_done: set = set()
 
     async def on_ticks(self, ws, ticks):
         """
@@ -366,23 +371,37 @@ class AsyncLiveTickerHandler:
                     self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
 
                     if _in_hot_band:
-                        # 3+4. Deferred path: background task handles post-correct → CANDLE_FORMED → indicators
                         _cc  = completed_candle
                         _ts  = completed_candle['timestamp']
                         _tok = instrument_token
                         _sl  = _skip_log
 
-                        async def _deferred_postcorrect(_tok=_tok, _cc=_cc, _ts=_ts, _sl=_sl):
+                        # 3. Dispatch CANDLE_FORMED IMMEDIATELY — do not wait for postcorrect.
+                        self.event_dispatcher.dispatch_event(
+                            Event(EventType.CANDLE_FORMED, {
+                                'token': _tok,
+                                'candle': _cc,
+                            }, source='websocket_handler')
+                        )
+                        # 4. Calculate indicators IMMEDIATELY (tick OHLC) for fast trade signal.
+                        #    skip_snapshot=True: snapshot must wait until postcorrect finishes.
+                        if len(self.completed_candles_data.get(_tok, [])) >= 35:
+                            await self._calculate_and_dispatch_indicators(
+                                _tok, _ts, is_new_candle=True, skip_terminal_log=_sl,
+                                skip_snapshot=True)
+
+                        # 5. Background: postcorrect → mark done → silent re-calc → snapshot.
+                        #    skip_terminal_log=True on re-run: no double trailing-SL or logging.
+                        async def _deferred_postcorrect(_tok=_tok, _cc=_cc, _ts=_ts):
                             await self._postcorrect_candle_from_kite(_tok, _cc)
-                            self.event_dispatcher.dispatch_event(
-                                Event(EventType.CANDLE_FORMED, {
-                                    'token': _tok,
-                                    'candle': _cc,
-                                }, source='websocket_handler')
-                            )
+                            _raw = _ts.replace(second=0, microsecond=0) if hasattr(_ts, 'replace') else _ts
+                            _mk = pd.Timestamp(_raw)
+                            if getattr(_mk, 'tz', None) is not None:
+                                _mk = pd.Timestamp(_mk.to_pydatetime().replace(tzinfo=None))
+                            self._postcorrect_minute_done.add((_tok, _mk))
                             if len(self.completed_candles_data.get(_tok, [])) >= 35:
                                 await self._calculate_and_dispatch_indicators(
-                                    _tok, _ts, is_new_candle=True, skip_terminal_log=_sl)
+                                    _tok, _ts, is_new_candle=True, skip_terminal_log=True)
 
                         asyncio.create_task(_deferred_postcorrect())
                     else:
@@ -442,11 +461,25 @@ class AsyncLiveTickerHandler:
                             _pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
                             _osl = (other_token != _ce_tok and other_token != _pe_tok)
                         if _postcorrect_enabled and (other_token in self._get_hot_band_tokens()):
+                            # Fire indicators IMMEDIATELY (tick OHLC) — active pair must not
+                            # wait 3 s for postcorrect before it can make entry decisions.
+                            # skip_snapshot=True: snapshot must wait until postcorrect finishes.
+                            if len(self.completed_candles_data.get(other_token, [])) >= 35:
+                                await self._calculate_and_dispatch_indicators(
+                                    other_token, _ots, is_new_candle=True,
+                                    skip_terminal_log=_osl, skip_snapshot=True)
+                            # Background: postcorrect → mark done → silent re-calc → snapshot.
+                            # skip_terminal_log=True on re-run: no double trailing-SL or logging.
                             async def _deferred_other(_ot=other_token, _pc=prev_candle, _ts2=_ots, _sl=_osl):
                                 await self._postcorrect_candle_from_kite(_ot, _pc)
+                                _raw2 = _ts2.replace(second=0, microsecond=0) if hasattr(_ts2, 'replace') else _ts2
+                                _mk = pd.Timestamp(_raw2)
+                                if getattr(_mk, 'tz', None) is not None:
+                                    _mk = pd.Timestamp(_mk.to_pydatetime().replace(tzinfo=None))
+                                self._postcorrect_minute_done.add((_ot, _mk))
                                 if len(self.completed_candles_data.get(_ot, [])) >= 35:
                                     await self._calculate_and_dispatch_indicators(
-                                        _ot, _ts2, is_new_candle=True, skip_terminal_log=_sl)
+                                        _ot, _ts2, is_new_candle=True, skip_terminal_log=True)
                             asyncio.create_task(_deferred_other())
                         else:
                             if len(self.completed_candles_data.get(other_token, [])) >= 35:
@@ -492,16 +525,25 @@ class AsyncLiveTickerHandler:
         O/H/L/C of `candle` in place.  Called as a background asyncio task.
 
         Flow:
-          1. Sleep 1.5 s so Kite has time to index the bar.
+          1. Sleep 3 s so Kite has time to index the bar (1.5 s was too short — bar
+             often not indexed yet, especially for the 3 symbols queued behind the
+             semaphore which effectively waited 2 s).
           2. Acquire _kite_postcorrect_semaphore (max 3 concurrent calls → ≤3 req/sec).
           3. Fetch historical_data for the 1-minute window.
-          4. Patch O/H/L/C, re-run _ensure_candle_ohlc_valid.
-          5. Return True if patched, False if skipped (no data / API error).
+          4. If bar not found, retry once after another 2 s.
+          5. Patch O/H/L/C, re-run _ensure_candle_ohlc_valid.
+          6. Return True if patched, False if skipped (no data / API error).
+
+        Timing budget (worst-case, all 6 symbols need retry):
+          T+3 s   : first 3 fetch (semaphore)
+          T+3.5 s : second 3 fetch
+          T+5–5.5 s : retries complete
+          T+5.5 s : last indicator updated → snapshot written (<8 s safety valve)
 
         Rate: 6 hot-band symbols × ~375 min = ~2,250 calls/day  (<25% of 10k/day limit).
         """
         try:
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(3.0)
 
             candle_ts = candle.get('timestamp')
             if candle_ts is None:
@@ -509,41 +551,59 @@ class AsyncLiveTickerHandler:
             if not hasattr(candle_ts, 'replace'):
                 candle_ts = pd.Timestamp(candle_ts).to_pydatetime()
             minute_start = candle_ts.replace(second=0, microsecond=0)
+            # Strip timezone so comparison with Kite's bar date (may be tz-aware IST) works
+            if getattr(minute_start, 'tzinfo', None) is not None:
+                minute_start = minute_start.replace(tzinfo=None)
             from_date = minute_start
             to_date   = minute_start + timedelta(minutes=2)   # small buffer
 
-            async with self._kite_postcorrect_semaphore:
-                # kite.historical_data is synchronous — run in thread to avoid blocking event loop
-                kite_bars = await asyncio.to_thread(
-                    self.kite.historical_data,
-                    instrument_token=token,
-                    from_date=from_date,
-                    to_date=to_date,
-                    interval='minute',
+            async def _fetch_bars():
+                async with self._kite_postcorrect_semaphore:
+                    return await asyncio.to_thread(
+                        self.kite.historical_data,
+                        instrument_token=token,
+                        from_date=from_date,
+                        to_date=to_date,
+                        interval='minute',
+                    )
+
+            def _find_bar(bars):
+                for bar in bars:
+                    bar_ts = bar.get('date')
+                    if bar_ts is None:
+                        continue
+                    if not hasattr(bar_ts, 'replace'):
+                        bar_ts = pd.Timestamp(bar_ts).to_pydatetime()
+                    bar_min = bar_ts.replace(second=0, microsecond=0)
+                    # Strip timezone to allow naive vs aware comparison
+                    if getattr(bar_min, 'tzinfo', None) is not None:
+                        bar_min = bar_min.replace(tzinfo=None)
+                    if bar_min == minute_start:
+                        return bar
+                return None
+
+            kite_bars = await _fetch_bars()
+            kite_bar = _find_bar(kite_bars) if kite_bars else None
+
+            # Retry once if bar not indexed yet (common when semaphore queues the request)
+            if kite_bar is None:
+                logger.debug(
+                    "[POSTCORRECT] Bar not ready for token %d at %s (bars=%d) — retrying in 2 s",
+                    token, minute_start.strftime('%H:%M'), len(kite_bars) if kite_bars else 0,
                 )
-
-            if not kite_bars:
-                logger.debug("[POSTCORRECT] No bar returned for token %d at %s", token, minute_start.strftime('%H:%M'))
-                return False
-
-            # Find the bar whose minute matches candle_ts
-            kite_bar = None
-            for bar in kite_bars:
-                bar_ts = bar.get('date')
-                if bar_ts is None:
-                    continue
-                if not hasattr(bar_ts, 'replace'):
-                    bar_ts = pd.Timestamp(bar_ts).to_pydatetime()
-                if bar_ts.replace(second=0, microsecond=0) == minute_start:
-                    kite_bar = bar
-                    break
+                await asyncio.sleep(2.0)
+                kite_bars = await _fetch_bars()
+                kite_bar = _find_bar(kite_bars) if kite_bars else None
 
             if kite_bar is None:
-                logger.debug("[POSTCORRECT] Bar not found for token %d at %s (got %d bars)",
-                             token, minute_start.strftime('%H:%M'), len(kite_bars))
+                logger.info(
+                    "[POSTCORRECT] Bar unavailable for tok=%d %s after retry (bars=%d) — keeping tick values",
+                    token, minute_start.strftime('%H:%M'), len(kite_bars) if kite_bars else 0,
+                )
                 return False
 
             # Patch OHLC — only accept valid positive values
+            old_o = candle.get('open')
             old_h = candle.get('high')
             old_l = candle.get('low')
             k_o = kite_bar.get('open')
@@ -559,13 +619,17 @@ class AsyncLiveTickerHandler:
 
             _ensure_candle_ohlc_valid(candle)
 
+            o_diff = round(abs((candle.get('open')  or 0) - (old_o or 0)), 2)
             h_diff = round(abs((candle.get('high') or 0) - (old_h or 0)), 2)
             l_diff = round(abs((candle.get('low')  or 0) - (old_l or 0)), 2)
-            if h_diff > 0.01 or l_diff > 0.01:
-                logger.debug(
-                    "[POSTCORRECT] tok=%d %s patched=%s H:%.2f→%.2f(Δ%.2f) L:%.2f→%.2f(Δ%.2f)",
+            if o_diff > 0.01 or h_diff > 0.01 or l_diff > 0.01:
+                logger.info(
+                    "[POSTCORRECT] tok=%d %s patched=%s "
+                    "O:%.2f→%.2f(Δ%.2f) H:%.2f→%.2f(Δ%.2f) L:%.2f→%.2f(Δ%.2f)",
                     token, minute_start.strftime('%H:%M'), ''.join(patched),
-                    old_h, candle['high'], h_diff, old_l, candle['low'], l_diff,
+                    old_o, candle['open'], o_diff,
+                    old_h, candle['high'], h_diff,
+                    old_l, candle['low'], l_diff,
                 )
             return bool(patched)
 
@@ -576,8 +640,18 @@ class AsyncLiveTickerHandler:
     # ── Indicator calculation ──────────────────────────────────────────────────────────
 
     # In async_live_ticker_handler.py - Update the _calculate_and_dispatch_indicators method
-    async def _calculate_and_dispatch_indicators(self, token: int, timestamp: datetime, is_new_candle: bool = True, skip_terminal_log: bool = False):
-        """Calculate indicators and dispatch indicator update event. When skip_terminal_log=True, do not log to terminal or run trailing SL (used for precomputed band non-active symbols)."""
+    async def _calculate_and_dispatch_indicators(self, token: int, timestamp: datetime, is_new_candle: bool = True, skip_terminal_log: bool = False, skip_snapshot: bool = False):
+        """Calculate indicators and dispatch indicator update event.
+
+        skip_terminal_log=True : suppress terminal print, trailing-SL management, and logging
+                                  (used for precomputed band non-active symbols and for the
+                                  silent postcorrect re-calculation pass).
+        skip_snapshot=True     : do NOT trigger _maybe_write_precomputed_band_snapshot.
+                                  Set this for the *immediate* (tick-OHLC) indicator fire so the
+                                  snapshot is not written before postcorrect has run.  The
+                                  background postcorrect re-run calls with skip_snapshot=False
+                                  (default) and that is what eventually writes the snapshot.
+        """
         try:
             async with self.indicator_lock:  # Use a lock to prevent concurrent calculations
                 # Ensure completed_candles_data[token] is a list
@@ -725,8 +799,10 @@ class AsyncLiveTickerHandler:
                 if not skip_terminal_log and is_new_candle and not df_with_indicators.empty:
                     await self._manage_trailing_sl_for_entry_trades(token, df_with_indicators)
 
-                # Precomputed band: write snapshot once option indicators are updated for this minute
-                if getattr(self.trading_bot, 'precomputed_band', None) and is_new_candle:
+                # Precomputed band: write snapshot once option indicators are updated for this minute.
+                # skip_snapshot=True is used for the immediate (tick-OHLC) fire so the snapshot is
+                # not written before postcorrect has completed for all hot-band tokens.
+                if getattr(self.trading_bot, 'precomputed_band', None) and is_new_candle and not skip_snapshot:
                     await self._maybe_write_precomputed_band_snapshot(timestamp)
 
         except Exception as e:
@@ -2206,6 +2282,10 @@ class AsyncLiveTickerHandler:
         self.is_running = True
         logger.info("Async WebSocket is running in a background thread.")
 
+        # Start the minute-boundary flusher: guarantees a snapshot row is written every
+        # minute even for band tokens that received zero ticks during that minute.
+        asyncio.create_task(self._minute_boundary_flusher())
+
     async def stop_ticker(self):
         """Stop the WebSocket connection."""
         logger.info("Stopping async WebSocket listener...")
@@ -2598,6 +2678,29 @@ class AsyncLiveTickerHandler:
             if not _has_minute(df, minute_ts_naive):
                 return
 
+        # When post-correction is enabled, indicators are fired in TWO passes:
+        #   Pass 1 (immediate, T+0): tick OHLC → INDICATOR_UPDATE for fast trade signal
+        #                             skip_snapshot=True → does NOT reach here
+        #   Pass 2 (background, T+3-5s): postcorrect OHLC → re-calc → skip_snapshot=False
+        #                             → reaches here; snapshot is written with accurate OHLC
+        #
+        # Guard: wait until ALL hot-band tokens have completed postcorrect for this minute
+        # (tracked in _postcorrect_minute_done) before writing the snapshot.
+        # Safety valve: if 8 s have elapsed since minute close and some token still hasn't
+        # completed postcorrect (e.g. tick starvation / API error), write anyway with whatever
+        # is available so the snapshot is never permanently missing for a minute.
+        if self._is_postcorrect_enabled():
+            minute_close_time = minute_ts + timedelta(minutes=1)
+            seconds_since_close = (datetime.now() - minute_close_time).total_seconds()
+            if seconds_since_close < 8:
+                hot_tokens = self._get_hot_band_tokens()
+                all_postcorrected = all(
+                    (t, minute_ts_naive) in self._postcorrect_minute_done
+                    for t in hot_tokens
+                )
+                if not all_postcorrected:
+                    return  # Will be retried when next postcorrect background task finishes
+
         # Passed all guards: schedule snapshot write without blocking tick handler.
         # Do NOT synthesize missing option candles; if an option doesn't tick, we keep the last known candle
         # and expose the actual candle timestamp via `candle_time` in the snapshot.
@@ -2747,6 +2850,72 @@ class AsyncLiveTickerHandler:
             logger.warning("[PRECOMPUTED_BAND] Snapshot skipped (file busy?): %s", e)
         except Exception as e:
             logger.warning("[PRECOMPUTED_BAND] Snapshot write failed: %s", e, exc_info=True)
+
+    async def _minute_boundary_flusher(self):
+        """
+        Background task: fires at second :08 of every minute.
+
+        Purpose — guarantee a snapshot row is written every minute even when one or
+        more band tokens suffered tick starvation for the entire minute (Root Cause A).
+
+        Normal flow (all 6 hot-band tokens ticked):
+          - _maybe_write_precomputed_band_snapshot fires within ~2 s of minute close.
+          - _last_snapshot_minute is already set for that minute.
+          - This task sees last_minute >= prev_minute and does nothing.
+
+        Tick-starvation flow (e.g. 24150CE got no tick in minute N):
+          - _maybe_write_precomputed_band_snapshot kept returning early (hot-band not
+            all ready) until the 8-second safety valve elapsed, then wrote anyway.
+          - OR: the active CE/PE deferred task fired but wrote with stale indicators
+            before the 8 s window. Either way, snapshot is already written.
+          - If neither fired (e.g. post-correct disabled and rollover never triggered
+            because the stale token had no open candle), this task is the last resort:
+            it forces a write at :08 using whatever indicator state is available.
+        """
+        logger.info("[BAND_FLUSHER] Minute-boundary flusher started.")
+        while self.is_running:
+            try:
+                now = datetime.now()
+                # Sleep until :08 of the next minute
+                next_flush = (now + timedelta(minutes=1)).replace(second=8, microsecond=0)
+                sleep_secs = (next_flush - now).total_seconds()
+                if sleep_secs <= 0:
+                    sleep_secs += 60
+                await asyncio.sleep(sleep_secs)
+
+                if not self.is_running:
+                    break
+
+                band = getattr(self.trading_bot, 'precomputed_band', None) if self.trading_bot else None
+                if not band:
+                    continue
+
+                # The minute whose snapshot we are guaranteeing
+                prev_minute = datetime.now().replace(second=0, microsecond=0) - timedelta(minutes=1)
+                last = self._last_snapshot_minute
+                if last is not None and last >= prev_minute:
+                    # Already written by the normal path — nothing to do
+                    continue
+
+                # Purge _postcorrect_minute_done entries older than 5 minutes to prevent
+                # unbounded growth (375 minutes × 6 tokens = ~2250 entries/day if not purged).
+                cutoff = pd.Timestamp(datetime.now() - timedelta(minutes=5))
+                self._postcorrect_minute_done = {
+                    (t, m) for (t, m) in self._postcorrect_minute_done if m >= cutoff
+                }
+
+                logger.info(
+                    "[BAND_FLUSHER] Snapshot for %s not yet written at :08 — forcing write (tick starvation guard).",
+                    prev_minute.strftime('%H:%M'),
+                )
+                # Write with whatever indicator state is currently available
+                await self._write_precomputed_band_snapshot(prev_minute)
+                self._last_snapshot_minute = prev_minute
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("[BAND_FLUSHER] Unexpected error: %s", e, exc_info=True)
 
     async def _prefill_historical_data_for_symbols(self, symbol_token_pairs: list):
         """
