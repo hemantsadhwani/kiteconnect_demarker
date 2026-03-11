@@ -261,6 +261,45 @@ class AsyncLiveTickerHandler:
                         if tick_minute_naive == candle_start_naive:
                             # Same minute: update candle
                             self._update_candle(instrument_token, ltp, tick)
+
+                            # OPTIMAL_ENTRY early-tick check — handles gap-up opens.
+                            # notify_candle_open() fires only on the FIRST tick of a new candle
+                            # (the minute-boundary path below). If that first tick was below
+                            # confirm_high but the actual exchange open is above it (gap-up),
+                            # subsequent ticks within the first 10 s of the candle reflect the
+                            # true open price. Without this check, entry falls back to the
+                            # candle-close path (~1 minute late).
+                            _ot_em = getattr(getattr(self, 'trading_bot', None), 'entry_condition_manager', None)
+                            _ot_eh = getattr(getattr(self, 'trading_bot', None), 'event_handlers', None)
+                            if _ot_em and _ot_eh:
+                                _ot_sym = next(
+                                    (s for s, t in self.symbol_token_map.items() if t == instrument_token), None
+                                )
+                                if _ot_sym and _ot_sym in (self.ce_symbol, self.pe_symbol):
+                                    _ot_elapsed = (tick_time - candle_start).total_seconds()
+                                    if 0 < _ot_elapsed <= 10:
+                                        if _ot_em.notify_candle_open(_ot_sym, ltp, candle_start_naive):
+                                            _ot_sentiment = (
+                                                self.trading_bot.state_manager.get_sentiment()
+                                                if getattr(self.trading_bot, 'state_manager', None) else 'NEUTRAL'
+                                            )
+                                            with _ot_eh._entry_check_lock:
+                                                if not _ot_eh._entry_check_in_progress:
+                                                    _ot_eh._entry_check_in_progress = True
+                                                    logger.info(
+                                                        f"[OPTIMAL_OPEN] Scheduling immediate entry check for {_ot_sym}"
+                                                        f" at early tick {tick_time.strftime('%H:%M:%S')}"
+                                                        f" (T+{_ot_elapsed:.0f}s, LTP={ltp})"
+                                                    )
+                                                    asyncio.create_task(
+                                                        _ot_eh._check_entry_conditions_async(_ot_sentiment)
+                                                    )
+                                                else:
+                                                    logger.info(
+                                                        f"[OPTIMAL_OPEN] Entry check in progress — flag set for {_ot_sym},"
+                                                        f" will be picked up on next check"
+                                                    )
+
                         # else: stale tick (tick from before candle start), skip to avoid corrupting candle
                         continue
 
@@ -1493,7 +1532,9 @@ class AsyncLiveTickerHandler:
                         else:
                             # Original path: 1 CE + 1 PE + NIFTY
                             price_for_strikes = nifty_calculated_price
-                            use_kite_first = (self.trading_bot.config.get('DYNAMIC_ATM') or {}).get('USE_KITE_FIRST_CANDLE_FOR_STRIKES', True)
+                            strike_type = (self.trading_bot.config.get('STRIKE_TYPE') or 'ATM').upper()
+                            dynamic_cfg = (self.trading_bot.config.get('DYNAMIC_OTM' if strike_type == 'OTM' else 'DYNAMIC_ATM') or {})
+                            use_kite_first = dynamic_cfg.get('USE_KITE_FIRST_CANDLE_FOR_STRIKES', True)
                             if use_kite_first and hasattr(self.trading_bot, 'kite') and self.trading_bot.kite:
                                 from trading_bot_utils import get_nifty_first_candle_calculated_price_from_kite
                                 kite_price = get_nifty_first_candle_calculated_price_from_kite(self.trading_bot.kite)

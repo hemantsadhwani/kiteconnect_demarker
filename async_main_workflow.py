@@ -915,9 +915,12 @@ class AsyncTradingBot:
                 self.config = yaml.safe_load(file)
             logger.info(f"Configuration loaded from {self.config_path}")
 
-            # Load dynamic ATM configuration
-            self.use_dynamic_atm = self.config.get('DYNAMIC_ATM', {}).get('ENABLED', False)
-            logger.info(f"Dynamic ATM enabled: {self.use_dynamic_atm}")
+            # Load dynamic strike configuration (ATM or OTM based on STRIKE_TYPE)
+            strike_type = (self.config.get('STRIKE_TYPE') or 'ATM').upper()
+            dynamic_key = 'DYNAMIC_OTM' if strike_type == 'OTM' else 'DYNAMIC_ATM'
+            dynamic_cfg = self.config.get(dynamic_key, {}) or {}
+            self.use_dynamic_atm = dynamic_cfg.get('ENABLED', False)
+            logger.info(f"Dynamic {strike_type} enabled ({dynamic_key}): {self.use_dynamic_atm}")
             
             # Migrate old MARKET_SENTIMENT config format to new format
             self._migrate_sentiment_config()
@@ -1221,8 +1224,10 @@ class AsyncTradingBot:
             self.dynamic_atm_manager.current_active_pe = pe_strike
             self.dynamic_atm_manager.current_nifty_price = opening_price
             
-            # Set minimum slab change interval from config
-            min_interval = self.config.get('DYNAMIC_ATM', {}).get('MIN_SLAB_CHANGE_INTERVAL', 60)
+            # Set minimum slab change interval from config (use DYNAMIC_OTM when STRIKE_TYPE=OTM)
+            strike_type = (self.config.get('STRIKE_TYPE') or 'ATM').upper()
+            dynamic_cfg = self.config.get('DYNAMIC_OTM' if strike_type == 'OTM' else 'DYNAMIC_ATM', {}) or {}
+            min_interval = dynamic_cfg.get('MIN_SLAB_CHANGE_INTERVAL', 60)
             self.dynamic_atm_manager.min_slab_change_interval = min_interval
             self.dynamic_atm_manager.last_slab_change_time = None
             self.dynamic_atm_manager.last_slab_change_price = None  # Initialize price tolerance tracking

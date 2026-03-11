@@ -1401,6 +1401,22 @@ class EntryConditionManager:
         if not pending:
             return 'wait'
 
+        # If the current time falls in a disabled trading zone the pending entry can never
+        # be executed. Invalidate immediately so the slab-change guard is unblocked rather
+        # than waiting for the full 4-candle confirmation window to expire naturally (or for
+        # the option to eventually reach confirm_high — which would still be blocked at
+        # execution time and could deadlock slab changes for the entire disabled zone).
+        if not self._is_time_zone_enabled():
+            self._pending_optimal_entry_at_open.pop(symbol, None)  # discard any stale fast-path flag
+            disabled_zone = self._get_current_time_zone()
+            zone_info = f" (disabled zone: {disabled_zone})" if disabled_zone else ""
+            self.logger.info(
+                f"Entry2 optimal entry: INVALIDATE for {symbol}{zone_info} — "
+                f"time distribution filter active, pending entry cannot be executed. "
+                f"Clearing to unblock slab changes."
+            )
+            return 'invalidate'
+
         # Fast path: notify_candle_open() already confirmed open >= confirm_high at first tick.
         # Enter immediately without re-reading the DataFrame open (which is one candle stale).
         if self._pending_optimal_entry_at_open.pop(symbol, False):
@@ -3496,6 +3512,12 @@ class EntryConditionManager:
                     return 2
                 if result == 'invalidate':
                     del self.pending_optimal_entry[symbol]
+                    # Disabled-zone invalidations must NOT fall through to _check_entry2_improved.
+                    # The state machine would immediately re-detect the same WPR crossover on the
+                    # same candle data, create a fresh pending, and trigger the early-tick loop
+                    # again on the next tick — spinning every second for up to 10s.
+                    if not self._is_time_zone_enabled():
+                        return False
                     self.logger.debug(f"Entry2 optimal entry invalidated for {symbol}, continuing to normal Entry2 path")
             try:
                 # CRITICAL: Log when Entry2 is about to be called (before it's called) at INFO level

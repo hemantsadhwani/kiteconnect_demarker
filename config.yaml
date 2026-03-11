@@ -2,7 +2,7 @@
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
-  CAPITAL: 15000 # Max capital to use per trade
+  CAPITAL: 18000 # Max capital to use per trade
   PRODUCT: "NRML" # NRML is required for GTT orders
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
@@ -82,7 +82,7 @@ TRADE_SETTINGS:
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 15000  # Starting daily capital (backtest uses 100000)
+  CAPITAL: 18000  # Starting daily capital (backtest uses 100000)
   LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
   PER_DAY: true
   USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
@@ -121,7 +121,7 @@ TIME_DISTRIBUTION_FILTER:
     11:00-12:00: true
     12:00-13:00: false
     13:00-14:00: true
-    14:00-15:30: false
+    14:00-15:30: true
 
 # File Paths for State and Control
 SENTIMENT_FILE_PATH: "output/market_sentiment.txt"
@@ -165,12 +165,22 @@ THRESHOLDS:
 
 # Dynamic ATM Configuration
 # Controls whether ATM strikes adjust intraday based on NIFTY price movements
+# Used when STRIKE_TYPE: ATM
 DYNAMIC_ATM:
   ENABLED: true          # Set to false to use static ATM (strikes calculated once at market open)
   SLAB_CHANGE_ALERT: true # Log alerts when slab changes occur
   MIN_SLAB_CHANGE_INTERVAL: 180  # Minimum seconds between slab changes (prevents rapid switching)
   # When true, derive strikes from first NIFTY candle using Kite API (1 call at 9:16) instead of tick-built candle
   # Reduces first-candle open error (e.g. 7 pts in experiments) for initial strike derivation
+  USE_KITE_FIRST_CANDLE_FOR_STRIKES: true
+
+# Dynamic OTM Configuration
+# Same as DYNAMIC_ATM but used when STRIKE_TYPE: OTM (slab/strikes adjust intraday for OTM selection)
+DYNAMIC_OTM:
+  ENABLED: true          # Set to false to use static OTM (strikes calculated once at market open)
+  SLAB_CHANGE_ALERT: true # Log alerts when slab changes occur
+  MIN_SLAB_CHANGE_INTERVAL: 180  # Minimum seconds between slab changes (prevents rapid switching)
+  # When true, derive strikes from first NIFTY candle using Kite API (1 call at 9:16) instead of tick-built candle
   USE_KITE_FIRST_CANDLE_FOR_STRIKES: true
 
 # Strike Difference Configuration
