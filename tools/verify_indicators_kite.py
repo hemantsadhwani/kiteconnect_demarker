@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Verify production indicators against Kite OHLC using backtesting_st50 logic.
+Verify production indicators against Kite OHLC using backtesting logic.
 
 Fetches 1-minute historical data from Kite for a symbol/date, runs the same
-indicator calculations as backtesting_st50 (SuperTrend 10/2.0, W%R 9/28,
+indicator calculations as backtesting (SuperTrend 10/2.0, W%R 9/28,
 StochRSI 3/3/14/14), and prints the last N rows so you can compare with
 Zerodha and production logs.
 
@@ -11,7 +11,7 @@ Usage:
   python tools/verify_indicators_kite.py --symbol NIFTY2631024500CE --date 2026-03-04
   python tools/verify_indicators_kite.py --symbol NIFTY2631024500CE --date 2026-03-04 --last 10
 
-Requires: Kite API session (access_token or env), and backtesting_st50/indicators_backtesting.py.
+Requires: Kite API session (access_token or env), and backtesting/indicators_backtesting.py.
 """
 
 import argparse
@@ -21,12 +21,12 @@ from pathlib import Path
 
 import pandas as pd
 
-# Add project root and backtesting_st50
+# Add project root and backtesting
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "backtesting_st50"))
+sys.path.insert(0, str(ROOT / "backtesting"))
 
-from backtesting_st50.indicators_backtesting import calculate_all_indicators
+from backtesting.indicators_backtesting import calculate_all_indicators
 
 
 def get_kite_client():
@@ -95,7 +95,7 @@ def main():
         sys.exit(1)
     print(f"Got {len(df)} candles from {df['timestamp'].iloc[0]} to {df['timestamp'].iloc[-1]}")
 
-    # Same params as backtesting_st50/indicators_config.yaml and Zerodha: FACTOR=2.5
+    # Same params as backtesting/indicators_config.yaml and Zerodha: FACTOR=2.5
     df = calculate_all_indicators(
         df,
         supertrend_atr_period=10,

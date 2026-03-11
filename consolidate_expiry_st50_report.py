@@ -2,11 +2,11 @@
 """
 Consolidate weekly/monthly trades and PnL from:
 - backtesting_expiry (Tuesday expiry days) -> DYNAMIC_ATM from analysis_output_latest.csv
-- backtesting_st50 (remaining 4 days per week) -> DYNAMIC_OTM from analysis_output_latest.csv
+- backtesting (remaining 4 days per week) -> DYNAMIC_OTM from analysis_output_latest.csv
 
 Date assignment:
 - If date is in backtesting_expiry BACKTESTING_DAYS -> use expiry data (DYNAMIC_ATM).
-- Otherwise (date in backtesting_st50 BACKTESTING_DAYS) -> use st50 data (DYNAMIC_OTM).
+- Otherwise (date in backtesting BACKTESTING_DAYS) -> use st50 data (DYNAMIC_OTM).
 
 Data source: analysis_output_latest.csv in each project (not HTML).
 Weekly grouping: by expiry week (Wednesday to Tuesday), keyed by week-ending Tuesday date.
@@ -35,9 +35,9 @@ except ImportError:
 # Paths (project root = script dir)
 PROJECT_ROOT = Path(__file__).resolve().parent
 EXPIRY_CONFIG = PROJECT_ROOT / "backtesting_expiry" / "backtesting_config.yaml"
-ST50_CONFIG = PROJECT_ROOT / "backtesting_st50" / "backtesting_config.yaml"
+ST50_CONFIG = PROJECT_ROOT / "backtesting" / "backtesting_config.yaml"
 EXPIRY_CSV = PROJECT_ROOT / "backtesting_expiry" / "data" / "analysis_output" / "consolidated" / "analysis_output_latest.csv"
-ST50_CSV = PROJECT_ROOT / "backtesting_st50" / "data" / "analysis_output" / "consolidated" / "analysis_output_latest.csv"
+ST50_CSV = PROJECT_ROOT / "backtesting" / "data" / "analysis_output" / "consolidated" / "analysis_output_latest.csv"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 WEEKLY_CSV = OUTPUT_DIR / "consolidated_entry2_weekly.csv"
 WEEKLY_PDF = OUTPUT_DIR / "fact_sheet_weekly_expiry_report.pdf"

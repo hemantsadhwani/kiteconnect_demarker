@@ -1,3 +1,0 @@
-Strike Type,Total Trades,Filtered Trades,Winning Trades,Filtering Efficiency,Un-Filtered P&L,Filtered P&L,Win Rate,expiry_week,day_label,data_type
-DYNAMIC_OTM,7,7,3,100.0%,41.32%,41.32%,42.9%,MAR10_DYNAMIC,MAR10,DYNAMIC
-DYNAMIC_ATM,15,12,3,80.0%,-25.53%,-25.53%,25.0%,MAR10_DYNAMIC,MAR10,DYNAMIC

@@ -8,7 +8,7 @@ Example:
     python scripts/compare_snapshot_vs_backtest.py \
         logs/precomputed_band_snapshot_2026-03-10.csv \
         NIFTY2631024200CE \
-        "backtesting_st50/data/MAR10_DYNAMIC/MAR10/ATM/NIFTY2631024200CE_strategy.csv"
+        "backtesting/data_st50/MAR10_DYNAMIC/MAR10/ATM/NIFTY2631024200CE_strategy.csv"
 """
 
 import sys
