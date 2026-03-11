@@ -1,4 +1,0 @@
-#DATE: 2026-02-24
-symbol,entry_time,entry_price,exit_time,exit_price,pnl_percent,trade_status,exit_reason
-NIFTY26FEB25550PE,10:03:01,84.6,10:07:00,74.0,-12.53,EXECUTED,SL
-NIFTY26FEB25550PE,11:44:01,71.95,11:45:00,77.85,8.2,EXECUTED,MA_TRAILING_EXIT

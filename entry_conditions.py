@@ -172,6 +172,10 @@ class EntryConditionManager:
         self.entry2_state_machine = {}
         # Pending optimal entry (per symbol): when OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN, defer until next candle; enter on that candle if its open >= confirm_high
         self.pending_optimal_entry = {}
+        # Fast-path flag set by notify_candle_open() when the first tick of a new candle
+        # already qualifies (open_ltp >= confirm_high). Checked first in
+        # _check_pending_optimal_entry_production to enter at candle open, not candle close.
+        self._pending_optimal_entry_at_open = {}
 
         # --- Load price zone configuration ---
         price_zones = config.get('PRICE_ZONES', {})
@@ -1355,6 +1359,38 @@ class EntryConditionManager:
                 'stoch_rsi_confirmed_in_window': False
             }
 
+    def notify_candle_open(self, symbol: str, open_ltp: float, candle_ts) -> bool:
+        """
+        Called at the first tick of every new candle for the active CE/PE symbol.
+        If a pending optimal entry exists and open_ltp >= confirm_high (and we are
+        strictly after the confirmation candle), sets _pending_optimal_entry_at_open[symbol]
+        so that the next _check_pending_optimal_entry_production call returns 'enter'
+        immediately without re-reading the DataFrame open.
+
+        Returns True if the fast-path flag was set (caller should schedule entry check).
+        """
+        pending = getattr(self, 'pending_optimal_entry', {}).get(symbol)
+        if not pending:
+            return False
+        confirm_ts = pending.get('confirm_candle_timestamp')
+        confirm_high = float(pending['confirm_high'])
+        try:
+            confirm_normalized = confirm_ts.replace(second=0, microsecond=0) if hasattr(confirm_ts, 'replace') else confirm_ts
+            current_normalized = candle_ts.replace(second=0, microsecond=0) if hasattr(candle_ts, 'replace') else candle_ts
+            if current_normalized <= confirm_normalized:
+                return False
+        except Exception:
+            return False
+        if open_ltp >= confirm_high:
+            self._pending_optimal_entry_at_open[symbol] = True
+            self.logger.info(
+                f"[OPTIMAL_OPEN] {symbol}: first tick open={open_ltp:.2f} >= confirm_high={confirm_high:.2f} "
+                f"at candle open {candle_ts.strftime('%H:%M:%S') if hasattr(candle_ts, 'strftime') else candle_ts}"
+                f" — flagged for immediate entry"
+            )
+            return True
+        return False
+
     def _check_pending_optimal_entry_production(self, df_with_indicators, symbol: str) -> str:
         """
         Optimal entry (production): enter on the first candle after confirmation whose open is at or above confirm_high
@@ -1364,6 +1400,15 @@ class EntryConditionManager:
         pending = getattr(self, 'pending_optimal_entry', {}).get(symbol)
         if not pending:
             return 'wait'
+
+        # Fast path: notify_candle_open() already confirmed open >= confirm_high at first tick.
+        # Enter immediately without re-reading the DataFrame open (which is one candle stale).
+        if self._pending_optimal_entry_at_open.pop(symbol, False):
+            self.logger.info(
+                f"Entry2 optimal entry: ENTER for {symbol} (qualified at candle open — fast path)"
+            )
+            return 'enter'
+
         confirm_ts = pending.get('confirm_candle_timestamp')
         confirm_high = float(pending['confirm_high'])
         sl_price = float(pending['sl_price'])
@@ -2326,7 +2371,8 @@ class EntryConditionManager:
         # Clear pending optimal entry (deferred Entry2) so no carry-over across session/symbol change
         if hasattr(self, 'pending_optimal_entry'):
             self.pending_optimal_entry = {}
-        
+        self._pending_optimal_entry_at_open = {}
+
         # CRITICAL FIX: Do NOT reset current_bar_index and last_candle_timestamp
         # These should maintain continuity to ensure Entry2 window calculations remain correct
         # The bar index will continue to increment properly on next candle update
@@ -2605,6 +2651,7 @@ class EntryConditionManager:
             # Clear pending optimal entry on slab change (symbol/strike change); do not carry over to new instrument
             if hasattr(self, 'pending_optimal_entry'):
                 self.pending_optimal_entry = {}
+                self._pending_optimal_entry_at_open = {}
                 self.logger.debug("Entry2 optimal entry: Cleared pending_optimal_entry on slab change")
 
             handoff_ts = handoff.get('timestamp_minute')

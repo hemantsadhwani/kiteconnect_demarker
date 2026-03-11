@@ -370,6 +370,39 @@ class AsyncLiveTickerHandler:
                     # 5. Start new candle FIRST — must capture new-minute ticks regardless of path
                     self._start_new_candle(instrument_token, tick_time, ltp, tick=tick)
 
+                    # OPTIMAL_ENTRY candle-open check: fire entry at the FIRST TICK of the new
+                    # candle (= candle open) rather than after the candle closes. This matches
+                    # backtesting which checks open(bar_i) at the start of bar_i, not bar_i+1.
+                    _entry_mgr = getattr(getattr(self, 'trading_bot', None), 'entry_condition_manager', None)
+                    _event_hdlrs = getattr(getattr(self, 'trading_bot', None), 'event_handlers', None)
+                    if _entry_mgr and _event_hdlrs:
+                        _sym_for_tok = next(
+                            (s for s, t in self.symbol_token_map.items() if t == instrument_token), None
+                        )
+                        if _sym_for_tok and _sym_for_tok in (self.ce_symbol, self.pe_symbol):
+                            if _entry_mgr.notify_candle_open(_sym_for_tok, ltp, tick_time):
+                                # Condition met at candle open — schedule entry check now.
+                                # Respect the in-progress guard to avoid duplicate checks.
+                                _sentiment_now = (
+                                    self.trading_bot.state_manager.get_sentiment()
+                                    if getattr(self.trading_bot, 'state_manager', None) else 'NEUTRAL'
+                                )
+                                with _event_hdlrs._entry_check_lock:
+                                    if not _event_hdlrs._entry_check_in_progress:
+                                        _event_hdlrs._entry_check_in_progress = True
+                                        logger.info(
+                                            f"[OPTIMAL_OPEN] Scheduling immediate entry check for {_sym_for_tok}"
+                                            f" at candle open {tick_time.strftime('%H:%M:%S')}"
+                                        )
+                                        asyncio.create_task(
+                                            _event_hdlrs._check_entry_conditions_async(_sentiment_now)
+                                        )
+                                    else:
+                                        logger.info(
+                                            f"[OPTIMAL_OPEN] Entry check in progress — flag set for {_sym_for_tok},"
+                                            f" will be picked up on next check"
+                                        )
+
                     if _in_hot_band:
                         _cc  = completed_candle
                         _ts  = completed_candle['timestamp']

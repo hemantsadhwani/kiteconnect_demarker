@@ -2,7 +2,7 @@
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
-  CAPITAL: 20000 # Max capital to use per trade
+  CAPITAL: 15000 # Max capital to use per trade
   PRODUCT: "NRML" # NRML is required for GTT orders
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
@@ -39,6 +39,8 @@ TRADE_SETTINGS:
   # Dynamic Trailing MA Configuration (Stage 3)
   DYNAMIC_TRAILING_MA: true # Enable MA-based dynamic trailing for Entry2 trades
   DYNAMIC_TRAILING_MA_THRESH: 7 # Percentage above entry to activate MA trailing (e.g., 7%)
+  # Entry2: when true, switch to SuperTrend as trailing SL once ST turns bullish; when false, use fixed SL only (no ST trailing).
+  ENTRY2_USE_SUPERTREND_TRAILING_SL: true
   # EXIT_WEAK_SIGNAL (R1-R2 zone only): when high >= 7%, if DeMarker < R_BAND exit at 7% else start trailing
   EXIT_WEAK_SIGNAL: true
   EXIT_WEAK_SIGNAL_PROFIT_PCT: 7.0
@@ -80,7 +82,7 @@ TRADE_SETTINGS:
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 20000  # Starting daily capital (backtest uses 100000)
+  CAPITAL: 15000  # Starting daily capital (backtest uses 100000)
   LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
   PER_DAY: true
   USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
@@ -90,11 +92,11 @@ TRADING_HOURS:
   START_HOUR: 9
   START_MINUTE: 15
   END_HOUR: 15
-  END_MINUTE: 30
+  END_MINUTE: 14
 
 MARKET_CLOSE:
   HOUR: 15
-  MINUTE: 30
+  MINUTE: 14
 
 # CPR-derived trading range: entry only when Nifty at entry is between CPR_LOWER and CPR_UPPER.
 # Aligned with backtesting_st50/backtesting_config.yaml.
@@ -117,9 +119,9 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: true
+    12:00-13:00: false
     13:00-14:00: true
-    14:00-15:30: true
+    14:00-15:30: false
 
 # File Paths for State and Control
 SENTIMENT_FILE_PATH: "output/market_sentiment.txt"
@@ -189,22 +191,27 @@ STRIKE_DIFFERENCE: 50  # Options: 50 or 100
 STRIKE_TYPE: OTM  # Options: ATM or OTM
 
 # Precomputed symbol band (avoids cold start on slab change)
-# When enabled: subscribe to center ± SYMBOL_BAND strikes at start; compute indicators for all 22 CE/PE.
-# Terminal logs unchanged (active CE/PE only); full 23-symbol snapshot written to logs/ each minute.
+# Rolling 6-symbol hot band: subscribe to active_ce ± 1 strike + active_pe ± 1 strike = 6 options + NIFTY = 7.
+# On slab change ±50 (most common): pointer switch only — zero cold start.
+# On slab change ±100 (out-of-band): add new edge symbol (~1s cold start), drop farthest, band rolls.
+# Terminal logs unchanged (active CE/PE only); 7-symbol snapshot written to logs/ each minute.
 PRECOMPUTED_SYMBOL_BAND:
   ENABLED: true       # Set true to use precomputed band (recommended after testing with logs)
-  SYMBOL_BAND: 5      # Strikes each side of center (5 → 11 CE + 11 PE + 1 NIFTY = 23)
+  SYMBOL_BAND: 1      # Strikes each side of center (1 → 3 CE + 3 PE + 1 NIFTY = 7); was 5 (23 symbols)
   FIRST_CANDLE_PRICE: "ncp"  # Center from first NIFTY candle: "ncp" or "open"
   ADD_SYMBOL_WHEN_OUT_OF_BAND: true
-  MAX_STRIKES_PER_SIDE: 0     # 0 = no cap
-  # Snapshot file: NIFTY + 22 symbols with indicators written here each minute (no terminal spam)
+  MAX_STRIKES_PER_SIDE: 1     # 1 = rolling band: always keep active ± 1 per leg (3 CE + 3 PE); was 0 (no cap)
+  # Post-correction: fetch completed Kite bar after each minute and patch O/H/L/C before indicators.
+  # Targets the 6 hot-band symbols only (~750 API calls/day). Disable here if Kite API is degraded.
+  POSTCORRECT_CANDLE_FROM_KITE: true
+  # Snapshot file: NIFTY + 6 symbols with indicators written here each minute (no terminal spam)
   SNAPSHOT_DIR: "logs"
 
 # Price Zone Filter (aligned with backtesting_st50 BACKTESTING_ANALYSIS.PRICE_ZONES)
 # Only takes trades if entry price is within range. DYNAMIC_OTM optional for OTM strike type.
 PRICE_ZONES:
   DYNAMIC_ATM:
-    LOW_PRICE: 40
+    LOW_PRICE: 20
     HIGH_PRICE: 300
   DYNAMIC_OTM:
     LOW_PRICE: 20

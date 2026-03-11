@@ -13,13 +13,9 @@ TRADE_SETTINGS:
   # - If option price is between thresholds (70-120), use BETWEEN_THRESHOLD percentage (12%)
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (15%)
   REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT:
-    ABOVE_THRESHOLD: 20  # Max swing low distance % when entry price > 120 (aligned with backtesting_st50)
-    BETWEEN_THRESHOLD: 25  # Max swing low distance % when entry price is between 70 and 120
-    BELOW_THRESHOLD: 25  # Max swing low distance % when entry price < 70  
-  # REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT:
-  #   ABOVE_THRESHOLD: 14  # Max swing low distance % when entry price > 120 (aligned with backtesting_st50)
-  #   BETWEEN_THRESHOLD: 19  # Max swing low distance % when entry price is between 70 and 120
-  #   BELOW_THRESHOLD: 20  # Max swing low distance % when entry price < 70
+    ABOVE_THRESHOLD: 14  # Max swing low distance % when entry price > 120 (aligned with backtesting_st50)
+    BETWEEN_THRESHOLD: 19  # Max swing low distance % when entry price is between 70 and 120
+    BELOW_THRESHOLD: 20  # Max swing low distance % when entry price < 70
   CONTINUATION_MAX_SUPERTREND_DISTANCE_PERCENT: 6 # Max SuperTrend distance for CONTINUATION entries (useEntry3)
   
   # Stop Loss Mode for Entry2: "Fixed Percentage" = SL at entry_price * (1 - percent/100);
@@ -123,9 +119,9 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: true
+    12:00-13:00: false
     13:00-14:00: true
-    14:00-15:30: true
+    14:00-15:30: false
 
 # File Paths for State and Control
 SENTIMENT_FILE_PATH: "output/market_sentiment.txt"
@@ -192,7 +188,7 @@ STRIKE_DIFFERENCE: 50  # Options: 50 or 100
 # Example: NIFTY=25123.45, STRIKE_DIFFERENCE=50
 #   ATM: CE=25100 (floor), PE=25150 (ceil)
 #   OTM: PE=25100 (floor), CE=25150 (ceil)
-STRIKE_TYPE: ATM  # Options: ATM or OTM
+STRIKE_TYPE: OTM  # Options: ATM or OTM
 
 # Precomputed symbol band (avoids cold start on slab change)
 # Rolling 6-symbol hot band: subscribe to active_ce ± 1 strike + active_pe ± 1 strike = 6 options + NIFTY = 7.
