@@ -399,7 +399,10 @@ def main() -> None:
             pass
         return
 
-    # Full run: all dates from BACKTESTING_DAYS or DATE_MAPPINGS
+    # Full run: dates from DATE_MAPPINGS (or fallback). Merge with existing CSV:
+    # - Keep existing rows for dates already in cpr_dates.csv (CPR does not change).
+    # - Fetch only dates that are in the config but not yet in the CSV.
+    # - Output = existing rows (preserved) + new rows (fetched), sorted by date.
     backtesting_days = load_dates_for_cpr(backtesting_root, script_dir)
     if not backtesting_days:
         logger.error(
@@ -409,12 +412,49 @@ def main() -> None:
         )
         sys.exit(1)
     logger.info("Loaded %d dates from DATE_MAPPINGS (config.yaml) for CPR", len(backtesting_days))
-    logger.info("Fetching previous day OHLC from Kite API (daily candles)...")
 
-    rows = []
+    # Load existing CSV so we preserve rows for dates we already have
+    existing_by_date = {}
+    if out_path_v5.exists():
+        try:
+            existing_full = pd.read_csv(out_path_v5)
+            existing_full["date"] = existing_full["date"].astype(str).str.strip()
+            # Normalize date format (e.g. remove 00:00:00 if present)
+            existing_full["date"] = existing_full["date"].str.replace(r"\s+00:00:00$", "", regex=True)
+            for _, r in existing_full.iterrows():
+                d = r["date"]
+                if d and len(d) >= 10:
+                    existing_by_date[d] = r.to_dict()
+            logger.info("Found existing cpr_dates.csv with %d date(s); will preserve and only fetch missing", len(existing_by_date))
+        except Exception as e:
+            logger.warning("Could not load existing %s: %s. Will overwrite.", out_path_v5, e)
+
+    # Which of the requested dates do we still need to fetch?
+    dates_to_fetch = [d for d in backtesting_days if d not in existing_by_date]
+    if not dates_to_fetch:
+        logger.info("All %d requested date(s) already in cpr_dates.csv; nothing to fetch.", len(backtesting_days))
+        output_dates = sorted(existing_by_date.keys())
+        rows = [existing_by_date[d] for d in output_dates]
+        out_df = pd.DataFrame(rows).reindex(columns=base_columns)
+        for band in ALL_BAND_NAMES:
+            mid = (out_df[f"band_{band}_lower"] + out_df[f"band_{band}_upper"]) / 2
+            out_df[f"band_{band}_5"] = mid.rolling(5, min_periods=1).mean().round(2)
+        out_df = out_df.reindex(columns=CPR_COLUMNS)
+        out_df.to_csv(out_path_v5, index=False)
+        analytics_path.parent.mkdir(parents=True, exist_ok=True)
+        out_df.to_csv(analytics_path, index=False)
+        logger.info("Wrote %d rows to %s and %s (no new fetches)", len(out_df), out_path_v5, analytics_path)
+        try:
+            os.chdir(orig_cwd)
+        except OSError:
+            pass
+        return
+
+    logger.info("Fetching previous day OHLC from Kite API for %d new date(s) (existing dates kept as-is)...", len(dates_to_fetch))
+    rows_new = []
     missing_prev = []
-    total = len(backtesting_days)
-    for i, date_str in enumerate(backtesting_days):
+    total = len(dates_to_fetch)
+    for i, date_str in enumerate(dates_to_fetch):
         logger.info("Fetching %d/%d: %s (prev day OHLC)...", i + 1, total, date_str)
         sys.stdout.flush()
         sys.stderr.flush()
@@ -429,7 +469,8 @@ def main() -> None:
         fib_bands = compute_cpr_fib_bands(cpr)
         type2_bands = compute_cpr_type2_bands(cpr)
         row = {"date": date_str, **cpr, **fib_bands, **type2_bands}
-        rows.append(row)
+        rows_new.append(row)
+        existing_by_date[date_str] = row
 
     try:
         os.chdir(orig_cwd)
@@ -441,24 +482,27 @@ def main() -> None:
         if len(missing_prev) > 10:
             logger.warning("  ... and %d more", len(missing_prev) - 10)
 
-    # Write to v5 folder (this script's directory) and to analytics for analyze_trades_above_r1_below_s1.py
-    # Always build with full column set so output has CPR + all bands even with 0 rows or mixed runs
+    # Merge: all dates we have (existing + newly fetched), sorted by date
+    output_dates = sorted(existing_by_date.keys())
+    rows = [existing_by_date[d] for d in output_dates]
     out_df = pd.DataFrame(rows, columns=base_columns)
-    # band_*_5 = 5-period rolling mean of band midpoint (average of lower and upper)
     for band in ALL_BAND_NAMES:
         mid = (out_df[f"band_{band}_lower"] + out_df[f"band_{band}_upper"]) / 2
         out_df[f"band_{band}_5"] = mid.rolling(5, min_periods=1).mean().round(2)
-    # Enforce full column order and presence (avoids ever writing CPR-only when many dates / other scripts)
     out_df = out_df.reindex(columns=CPR_COLUMNS)
     out_df.to_csv(out_path_v5, index=False)
-    logger.info("Wrote %d rows (%d columns: 14 CPR + %d band cols) to %s", len(out_df), len(CPR_COLUMNS), len(CPR_BAND_COLUMNS), out_path_v5)
+    logger.info(
+        "Wrote %d rows (%d existing + %d new) to %s",
+        len(out_df),
+        len(output_dates) - len(rows_new),
+        len(rows_new),
+        out_path_v5,
+    )
     analytics_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(analytics_path, index=False)
     logger.info("Also wrote to %s", analytics_path)
-    if rows:
-        logger.info("Sample (first date): R1=%.2f, S1=%.2f", rows[0]["R1"], rows[0]["S1"])
-        if len(rows) >= 2:
-            logger.info("Sample (last date): R1=%.2f, S1=%.2f", rows[-1]["R1"], rows[-1]["S1"])
+    if rows_new:
+        logger.info("Sample (first new): R1=%.2f, S1=%.2f", rows_new[0]["R1"], rows_new[0]["S1"])
 
 
 if __name__ == "__main__":

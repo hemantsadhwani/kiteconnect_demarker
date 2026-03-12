@@ -4,8 +4,9 @@
 # ── Strike-mode selector ─────────────────────────────────────────────────────
 # data_config.yaml is the authority for data collection — data_fetcher.py is
 # always run standalone and does NOT read backtesting_config.yaml.
-# Change STRIKE_MODE here to collect data into data_st50 or data_st100.
-STRIKE_MODE: ST50   # ST50 | ST100
+# Change STRIKE_MODE here to collect data into data_st50, data_st100, or BOTH.
+# BOTH: run the same TRADING_DAYS for both strike types (one run adds data to both dirs).
+STRIKE_MODE: BOTH   # ST50 | ST100 | BOTH
 
 STRIKE_MODE_SETTINGS:
   ST50:

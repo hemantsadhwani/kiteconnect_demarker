@@ -297,10 +297,9 @@ def main():
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
-    # Resolve data directory from STRIKE_MODE.
+    # Resolve data directory (or directories when STRIKE_MODE=BOTH) from STRIKE_MODE.
     # process_sentiment.py is always run standalone — config.yaml is the authority.
-    # backtesting_config.yaml is used only as a fallback if config.yaml has no STRIKE_MODE.
-    def _resolve_data_dir():
+    def _resolve_data_dirs():
         mode = config.get('STRIKE_MODE')
         if not mode:
             try:
@@ -310,55 +309,143 @@ def main():
             except Exception:
                 pass
         mode = mode or 'ST50'
-        data_dir_name = (
-            config.get('STRIKE_MODE_SETTINGS', {}).get(mode, {}).get('DATA_DIR')
-            or f'data_{mode.lower()}'
-        )
-        return os.path.join(backtesting_dir, data_dir_name)
+        settings = config.get('STRIKE_MODE_SETTINGS', {})
+        if mode == 'BOTH':
+            # Part A: run for both data_st50 and data_st100
+            d50 = settings.get('ST50', {}).get('DATA_DIR', 'data_st50')
+            d100 = settings.get('ST100', {}).get('DATA_DIR', 'data_st100')
+            return [
+                os.path.join(backtesting_dir, d50),
+                os.path.join(backtesting_dir, d100),
+            ]
+        data_dir_name = settings.get(mode, {}).get('DATA_DIR') or f'data_{mode.lower()}'
+        return [os.path.join(backtesting_dir, data_dir_name)]
 
-    data_dir = _resolve_data_dir()
-    
+    data_dirs = _resolve_data_dirs()
     date_mappings = config.get('DATE_MAPPINGS', {})
-    
-    # Parse command line arguments
+
     parser = argparse.ArgumentParser(description='Process NIFTY 1-minute data and generate sentiment analysis')
-    parser.add_argument('date', nargs='?', help='Date identifier (e.g., nov21) or "all" to process all files')
+    parser.add_argument('date', nargs='?', help='Date identifier (e.g., 2026-03-11 or YYYY-MM-DD) or "all"')
     args = parser.parse_args()
-    
-    def find_input_files(date_identifier):
-        """Find input files in DYNAMIC or STATIC directories based on DATE_MAPPINGS."""
-        if date_identifier not in date_mappings:
-            print(f"Warning: Date identifier '{date_identifier}' not found in DATE_MAPPINGS. Skipping.")
-            return []
 
-        expiry_week = date_mappings[date_identifier]
-        # Keys are YYYY-MM-DD — derive MMM DD directory label and lowercase filename label
-        try:
-            from datetime import datetime as _dt
-            _d = _dt.strptime(str(date_identifier), '%Y-%m-%d')
-            day_label = _d.strftime('%b%d').upper()       # e.g. MAR11
-            day_label_lower = _d.strftime('%b%d').lower() # e.g. mar11
-        except ValueError:
-            day_label = str(date_identifier).upper()
-            day_label_lower = str(date_identifier).lower()
+    for data_dir in data_dirs:
+        if len(data_dirs) > 1:
+            print(f"\n--- Processing data dir: {os.path.basename(data_dir)} ---")
+        def find_input_files(date_identifier):
+            """Find input files in DYNAMIC or STATIC directories based on DATE_MAPPINGS."""
+            if date_identifier not in date_mappings:
+                print(f"Warning: Date identifier '{date_identifier}' not found in DATE_MAPPINGS. Skipping.")
+                return []
+            expiry_week = date_mappings[date_identifier]
+            try:
+                from datetime import datetime as _dt
+                _d = _dt.strptime(str(date_identifier), '%Y-%m-%d')
+                day_label = _d.strftime('%b%d').upper()
+                day_label_lower = _d.strftime('%b%d').lower()
+            except ValueError:
+                day_label = str(date_identifier).upper()
+                day_label_lower = str(date_identifier).lower()
+            input_files = []
+            for data_type in ['DYNAMIC', 'STATIC']:
+                file_path = os.path.join(data_dir, f'{expiry_week}_{data_type}', day_label,
+                                        f'nifty50_1min_data_{day_label_lower}.csv')
+                if os.path.exists(file_path):
+                    input_files.append((file_path, data_type))
+            return input_files
 
-        input_files = []
-        for data_type in ['DYNAMIC', 'STATIC']:
-            file_path = os.path.join(data_dir, f'{expiry_week}_{data_type}', day_label,
-                                    f'nifty50_1min_data_{day_label_lower}.csv')
-            if os.path.exists(file_path):
-                input_files.append((file_path, data_type))
-
-        return input_files
-    
-    # If date argument provided, process only that file
-    if args.date:
-        if args.date.lower() == 'all':
-            # Process all files based on DATE_MAPPINGS
+        if args.date:
+            if args.date.lower() == 'all':
+                # Process all files based on DATE_MAPPINGS
+                successful = 0
+                failed = 0
+                kite_instance = None
+                try:
+                    PROJECT_ROOT = os.path.abspath(os.path.join(script_dir, '..', '..', '..'))
+                    if PROJECT_ROOT not in sys.path:
+                        sys.path.append(PROJECT_ROOT)
+                    ORIGINAL_CWD = os.getcwd()
+                    os.chdir(PROJECT_ROOT)
+                    from trading_bot_utils import get_kite_api_instance
+                    os.chdir(ORIGINAL_CWD)
+                    kite_instance, _, _ = get_kite_api_instance(suppress_logs=True)
+                    _cached_kite_instance = kite_instance
+                    print("Initialized Kite API instance for batch processing...")
+                except Exception as e:
+                    print(f"Warning: Could not initialize Kite API (will use fallback): {e}")
+                    kite_instance = None
+                for date_identifier in sorted(date_mappings.keys()):
+                    input_files = find_input_files(date_identifier)
+                    if not input_files:
+                        print(f"Warning: No input files found for {date_identifier}. Skipping.")
+                        failed += 1
+                        continue
+                    for input_file, data_type in input_files:
+                        output_file = os.path.join(os.path.dirname(input_file),
+                                                 f'nifty_market_sentiment_{date_identifier}_plot.csv')
+                        try:
+                            print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
+                            success = process_single_file(input_file, output_file, config_path, kite_instance)
+                            if success:
+                                successful += 1
+                            else:
+                                failed += 1
+                        except Exception as e:
+                            print(f"ERROR processing {os.path.basename(input_file)}: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            failed += 1
+                print(f"\n{'=' * 80}")
+                print(f"Processing Complete!")
+                print(f"  Successful: {successful}")
+                print(f"  Failed: {failed}")
+                print(f"  Total: {successful + failed}")
+                print(f"{'=' * 80}")
+            else:
+                # Process single file
+                date_identifier = args.date.lower()
+                input_files = find_input_files(date_identifier)
+                if not input_files:
+                    print(f"ERROR: No input files found for date identifier '{date_identifier}'")
+                    print(f"Available dates in DATE_MAPPINGS: {list(date_mappings.keys())}")
+                    return
+                kite_instance = None
+                try:
+                    PROJECT_ROOT = os.path.abspath(os.path.join(script_dir, '..', '..', '..'))
+                    if PROJECT_ROOT not in sys.path:
+                        sys.path.append(PROJECT_ROOT)
+                    ORIGINAL_CWD = os.getcwd()
+                    os.chdir(PROJECT_ROOT)
+                    from trading_bot_utils import get_kite_api_instance
+                    os.chdir(ORIGINAL_CWD)
+                    kite_instance, _, _ = get_kite_api_instance(suppress_logs=True)
+                    _cached_kite_instance = kite_instance
+                except Exception as e:
+                    print(f"Warning: Could not initialize Kite API (will use fallback): {e}")
+                    kite_instance = None
+                for input_file, data_type in input_files:
+                    output_file = os.path.join(os.path.dirname(input_file),
+                                              f'nifty_market_sentiment_{date_identifier}_plot.csv')
+                    try:
+                        print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
+                        success = process_single_file(input_file, output_file, config_path, kite_instance)
+                        if success:
+                            print(f"\n{'=' * 80}")
+                            print(f"Processing Complete!")
+                            print(f"  Status: Success")
+                            print(f"{'=' * 80}")
+                        else:
+                            print(f"\n{'=' * 80}")
+                            print(f"Processing Complete!")
+                            print(f"  Status: Failed")
+                            print(f"{'=' * 80}")
+                    except Exception as e:
+                        print(f"ERROR processing {os.path.basename(input_file)}: {e}")
+                        import traceback
+                        traceback.print_exc()
+        else:
+            # No argument provided - process all files (default behavior)
             successful = 0
             failed = 0
-            
-            # Initialize Kite instance once for all files
             kite_instance = None
             try:
                 PROJECT_ROOT = os.path.abspath(os.path.join(script_dir, '..', '..', '..'))
@@ -374,19 +461,15 @@ def main():
             except Exception as e:
                 print(f"Warning: Could not initialize Kite API (will use fallback): {e}")
                 kite_instance = None
-            
             for date_identifier in sorted(date_mappings.keys()):
                 input_files = find_input_files(date_identifier)
-                
                 if not input_files:
                     print(f"Warning: No input files found for {date_identifier}. Skipping.")
                     failed += 1
                     continue
-                
                 for input_file, data_type in input_files:
-                    output_file = os.path.join(os.path.dirname(input_file), 
+                    output_file = os.path.join(os.path.dirname(input_file),
                                              f'nifty_market_sentiment_{date_identifier}_plot.csv')
-                    
                     try:
                         print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
                         success = process_single_file(input_file, output_file, config_path, kite_instance)
@@ -399,115 +482,12 @@ def main():
                         import traceback
                         traceback.print_exc()
                         failed += 1
-            
-            # Summary
             print(f"\n{'=' * 80}")
             print(f"Processing Complete!")
             print(f"  Successful: {successful}")
             print(f"  Failed: {failed}")
             print(f"  Total: {successful + failed}")
             print(f"{'=' * 80}")
-        else:
-            # Process single file
-            date_identifier = args.date.lower()
-            input_files = find_input_files(date_identifier)
-            
-            if not input_files:
-                print(f"ERROR: No input files found for date identifier '{date_identifier}'")
-                print(f"Available dates in DATE_MAPPINGS: {list(date_mappings.keys())}")
-                return
-            
-            # Initialize Kite instance once
-            kite_instance = None
-            try:
-                PROJECT_ROOT = os.path.abspath(os.path.join(script_dir, '..', '..', '..'))
-                if PROJECT_ROOT not in sys.path:
-                    sys.path.append(PROJECT_ROOT)
-                ORIGINAL_CWD = os.getcwd()
-                os.chdir(PROJECT_ROOT)
-                from trading_bot_utils import get_kite_api_instance
-                os.chdir(ORIGINAL_CWD)
-                kite_instance, _, _ = get_kite_api_instance(suppress_logs=True)
-                _cached_kite_instance = kite_instance
-            except Exception as e:
-                print(f"Warning: Could not initialize Kite API (will use fallback): {e}")
-                kite_instance = None
-            
-            for input_file, data_type in input_files:
-                output_file = os.path.join(os.path.dirname(input_file), 
-                                          f'nifty_market_sentiment_{date_identifier}_plot.csv')
-                
-                try:
-                    print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
-                    success = process_single_file(input_file, output_file, config_path, kite_instance)
-                    if success:
-                        print(f"\n{'=' * 80}")
-                        print(f"Processing Complete!")
-                        print(f"  Status: Success")
-                        print(f"{'=' * 80}")
-                    else:
-                        print(f"\n{'=' * 80}")
-                        print(f"Processing Complete!")
-                        print(f"  Status: Failed")
-                        print(f"{'=' * 80}")
-                except Exception as e:
-                    print(f"ERROR processing {os.path.basename(input_file)}: {e}")
-                    import traceback
-                    traceback.print_exc()
-    else:
-        # No argument provided - process all files (default behavior)
-        successful = 0
-        failed = 0
-        
-        # Initialize Kite instance once for all files
-        kite_instance = None
-        try:
-            PROJECT_ROOT = os.path.abspath(os.path.join(script_dir, '..', '..', '..'))
-            if PROJECT_ROOT not in sys.path:
-                sys.path.append(PROJECT_ROOT)
-            ORIGINAL_CWD = os.getcwd()
-            os.chdir(PROJECT_ROOT)
-            from trading_bot_utils import get_kite_api_instance
-            os.chdir(ORIGINAL_CWD)
-            kite_instance, _, _ = get_kite_api_instance(suppress_logs=True)
-            _cached_kite_instance = kite_instance
-            print("Initialized Kite API instance for batch processing...")
-        except Exception as e:
-            print(f"Warning: Could not initialize Kite API (will use fallback): {e}")
-            kite_instance = None
-        
-        for date_identifier in sorted(date_mappings.keys()):
-            input_files = find_input_files(date_identifier)
-            
-            if not input_files:
-                print(f"Warning: No input files found for {date_identifier}. Skipping.")
-                failed += 1
-                continue
-            
-            for input_file, data_type in input_files:
-                output_file = os.path.join(os.path.dirname(input_file), 
-                                         f'nifty_market_sentiment_{date_identifier}_plot.csv')
-                
-                try:
-                    print(f"\nProcessing {data_type}: {os.path.basename(input_file)}")
-                    success = process_single_file(input_file, output_file, config_path, kite_instance)
-                    if success:
-                        successful += 1
-                    else:
-                        failed += 1
-                except Exception as e:
-                    print(f"ERROR processing {os.path.basename(input_file)}: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    failed += 1
-        
-        # Summary
-        print(f"\n{'=' * 80}")
-        print(f"Processing Complete!")
-        print(f"  Successful: {successful}")
-        print(f"  Failed: {failed}")
-        print(f"  Total: {successful + failed}")
-        print(f"{'=' * 80}")
 
 if __name__ == "__main__":
     main()

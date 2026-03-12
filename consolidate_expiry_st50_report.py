@@ -37,7 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 EXPIRY_CONFIG = PROJECT_ROOT / "backtesting_expiry" / "backtesting_config.yaml"
 ST50_CONFIG = PROJECT_ROOT / "backtesting" / "backtesting_config.yaml"
 EXPIRY_CSV = PROJECT_ROOT / "backtesting_expiry" / "data" / "analysis_output" / "consolidated" / "analysis_output_latest.csv"
-ST50_CSV = PROJECT_ROOT / "backtesting" / "data" / "analysis_output" / "consolidated" / "analysis_output_latest.csv"
+ST50_CSV = PROJECT_ROOT / "backtesting" / "data_st50" / "analysis_output" / "consolidated" / "analysis_output_latest.csv"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 WEEKLY_CSV = OUTPUT_DIR / "consolidated_entry2_weekly.csv"
 WEEKLY_PDF = OUTPUT_DIR / "fact_sheet_weekly_expiry_report.pdf"
@@ -302,9 +302,11 @@ def build_weekly_expiry_pdf(
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load configs
+    # Load configs (backtesting uses BACKTESTING_DAYS_ST50 / BACKTESTING_DAYS_ST100)
     expiry_dates = load_backtesting_days(EXPIRY_CONFIG)
-    st50_dates = load_backtesting_days(ST50_CONFIG)
+    st50_dates = load_backtesting_days(ST50_CONFIG, ("BACKTESTING_EXPIRY", "BACKTESTING_DAYS_ST50"))
+    if not st50_dates:
+        st50_dates = load_backtesting_days(ST50_CONFIG)  # fallback to BACKTESTING_DAYS if present
     date_to_source = build_date_to_source(expiry_dates, st50_dates)
     all_dates = sorted(date_to_source.keys())
 

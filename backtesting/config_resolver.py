@@ -38,8 +38,10 @@ def resolve_strike_mode(config: dict) -> dict:
     """
     Resolve STRIKE_MODE-specific settings into the live config dict.
 
-    Reads STRIKE_MODE (default: ST50) and STRIKE_MODE_SETTINGS from the config,
-    then overrides:
+    Reads STRIKE_MODE (default: ST50) and STRIKE_MODE_SETTINGS from the config.
+    When STRIKE_MODE is BOTH, no single DATA_DIR is set; scripts that support
+    BOTH (e.g. data_fetcher) run twice for ST50 and ST100.
+    For ST50/ST100, overrides:
         PATHS.DATA_DIR                         <- STRIKE_MODE_SETTINGS.<mode>.DATA_DIR
         BACKTESTING_EXPIRY.BACKTESTING_DAYS    <- BACKTESTING_EXPIRY.BACKTESTING_DAYS_<mode>
         DATA_COLLECTION.STRIKE_DIFFERENCE      <- STRIKE_MODE_SETTINGS.<mode>.STRIKE_DIFFERENCE
@@ -51,6 +53,9 @@ def resolve_strike_mode(config: dict) -> dict:
         return config
 
     mode = config.get('STRIKE_MODE', 'ST50')
+    if mode == 'BOTH':
+        # No single DATA_DIR; Part A scripts handle BOTH by looping ST50 then ST100
+        return config
     settings = config.get('STRIKE_MODE_SETTINGS', {}).get(mode, {})
 
     # DATA_DIR
@@ -114,9 +119,30 @@ def resolve_indicators_config(indicators_config: dict, backtesting_dir: Path) ->
         or 'ST50'
     )
 
+    target = indicators_config.setdefault('TARGET_EXPIRY', {})
+    settings_map = indicators_config.get('STRIKE_MODE_SETTINGS', {})
+
+    if mode == 'BOTH':
+        # Run same dates for both ST50 and ST100; run_indicators loops over _BOTH_RUNS
+        days = (
+            target.get('TRADING_DAYS_BOTH')
+            or target.get('TRADING_DAYS_ST50')
+            or target.get('TRADING_DAYS_ST100')
+            or []
+        )
+        st50_dir = settings_map.get('ST50', {}).get('DATA_DIR', 'data_st50')
+        st100_dir = settings_map.get('ST100', {}).get('DATA_DIR', 'data_st100')
+        indicators_config['_BOTH_RUNS'] = [
+            {'DATA_DIR': st50_dir, 'TRADING_DAYS': list(days)},
+            {'DATA_DIR': st100_dir, 'TRADING_DAYS': list(days)},
+        ]
+        indicators_config.setdefault('PATHS', {})['DATA_DIR'] = st50_dir
+        target['TRADING_DAYS'] = list(days)
+        return indicators_config
+
     # DATA_DIR: prefer indicators_config's own STRIKE_MODE_SETTINGS, then
     # fall back to what backtesting_config resolved.
-    ind_settings = indicators_config.get('STRIKE_MODE_SETTINGS', {}).get(mode, {})
+    ind_settings = settings_map.get(mode, {})
     data_dir = (
         ind_settings.get('DATA_DIR')
         or bt_config.get('PATHS', {}).get('DATA_DIR', f'data_{mode.lower()}')
@@ -127,7 +153,6 @@ def resolve_indicators_config(indicators_config: dict, backtesting_dir: Path) ->
 
     # Override TRADING_DAYS from the mode-specific key
     days_key = f'TRADING_DAYS_{mode}'
-    target = indicators_config.setdefault('TARGET_EXPIRY', {})
     if days_key in target:
         target['TRADING_DAYS'] = target[days_key]
 

@@ -4,13 +4,15 @@
 # STRIKE_MODE is read from backtesting_config.yaml (single source of truth).
 # Set here only when running these scripts standalone, independently of the
 # backtesting workflow.  backtesting_config.yaml takes precedence when present.
-STRIKE_MODE: ST100   # ST50 | ST100
+# BOTH = run sentiment for the same date(s) in both data_st50 and data_st100.
+STRIKE_MODE: BOTH   # ST50 | ST100 | BOTH
 
 STRIKE_MODE_SETTINGS:
   ST50:
     DATA_DIR: data_st50
   ST100:
     DATA_DIR: data_st100
+  # BOTH: no single DATA_DIR; process_sentiment runs for both dirs
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Optional: generate_cpr_dates.py "new day only" mode.
@@ -23,39 +25,39 @@ STRIKE_MODE_SETTINGS:
 # Full dates eliminate year-guessing; consistent with indicators_config.yaml format.
 # Enable a date by uncommenting its line.
 DATE_MAPPINGS:
-  # '2025-10-15': OCT20
-  # '2025-10-16': OCT20
-  # '2025-10-17': OCT20
-  # '2025-10-23': OCT28
-  # '2025-10-24': OCT28
-  # '2025-10-27': OCT28
-  # '2025-10-29': NOV04
-  # '2025-10-30': NOV04
-  # '2025-10-31': NOV04
-  # '2025-11-03': NOV04
-  # '2025-11-06': NOV11
-  # '2025-11-07': NOV11
-  # '2025-11-10': NOV11
-  # '2025-11-12': NOV18
-  # '2025-11-13': NOV18
-  # '2025-11-14': NOV18
-  # '2025-11-17': NOV18
-  # '2025-11-19': NOV25
-  # '2025-11-20': NOV25
-  # '2025-11-21': NOV25
-  # '2025-11-24': NOV25
-  # '2025-11-26': DEC02
-  # '2025-11-27': DEC02
-  # '2025-11-28': DEC02
-  # '2025-12-01': DEC02
-  # '2025-12-03': DEC09
-  # '2025-12-04': DEC09
-  # '2025-12-05': DEC09
-  # '2025-12-08': DEC09
-  # '2025-12-10': DEC16
-  # '2025-12-11': DEC16
-  # '2025-12-12': DEC16
-  # '2025-12-15': DEC16
+  '2025-10-15': OCT20
+  '2025-10-16': OCT20
+  '2025-10-17': OCT20
+  '2025-10-23': OCT28
+  '2025-10-24': OCT28
+  '2025-10-27': OCT28
+  '2025-10-29': NOV04
+  '2025-10-30': NOV04
+  '2025-10-31': NOV04
+  '2025-11-03': NOV04
+  '2025-11-06': NOV11
+  '2025-11-07': NOV11
+  '2025-11-10': NOV11
+  '2025-11-12': NOV18
+  '2025-11-13': NOV18
+  '2025-11-14': NOV18
+  '2025-11-17': NOV18
+  '2025-11-19': NOV25
+  '2025-11-20': NOV25
+  '2025-11-21': NOV25
+  '2025-11-24': NOV25
+  '2025-11-26': DEC02
+  '2025-11-27': DEC02
+  '2025-11-28': DEC02
+  '2025-12-01': DEC02
+  '2025-12-03': DEC09
+  '2025-12-04': DEC09
+  '2025-12-05': DEC09
+  '2025-12-08': DEC09
+  '2025-12-10': DEC16
+  '2025-12-11': DEC16
+  '2025-12-12': DEC16
+  '2025-12-15': DEC16
 
   '2026-01-07': JAN13
   '2026-01-08': JAN13
@@ -74,14 +76,14 @@ DATE_MAPPINGS:
   '2026-02-01': FEB03
   '2026-02-02': FEB03
 
-  # '2026-02-04': FEB10
-  # '2026-02-05': FEB10
-  # '2026-02-06': FEB10
-  # '2026-02-09': FEB10
-  # '2026-02-11': FEB17
-  # '2026-02-12': FEB17
-  # '2026-02-13': FEB17
-  # '2026-02-16': FEB17
+  '2026-02-04': FEB10
+  '2026-02-05': FEB10
+  '2026-02-06': FEB10
+  '2026-02-09': FEB10
+  '2026-02-11': FEB17
+  '2026-02-12': FEB17
+  '2026-02-13': FEB17
+  '2026-02-16': FEB17
 
   '2026-02-18': FEB24
   '2026-02-19': FEB24
@@ -96,12 +98,6 @@ DATE_MAPPINGS:
   '2026-03-09': MAR10
   '2026-03-10': MAR10
   '2026-03-11': MAR17
-
-
-
-
-
-
 
 # Realtime alignment: sentiment of candle T is only known when T closes (at start of T+1).
 # Workflow file (nifty_market_sentiment_<date>.csv) – used by backtest:

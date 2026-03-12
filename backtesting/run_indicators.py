@@ -713,6 +713,7 @@ def get_expiry_date_from_label(expiry_label):
 
 def main():
     """Main function to run indicators calculation"""
+    import copy as copy_module
     parser = argparse.ArgumentParser(description='Independent Indicators Calculator')
     parser.add_argument('--config', default='indicators_config.yaml', help='Configuration file path')
     parser.add_argument('--expiry', help='Expiry label (e.g., OCT20, OCT28) - overrides config')
@@ -728,168 +729,148 @@ def main():
         logger.error("Failed to load configuration")
         return
     
-    # Determine expiry weeks and trading days to process
-    # NEW_DAY in config: process only that date (incremental run for new trading day); --date overrides
-    target_expiry = config.get('TARGET_EXPIRY') or {}
-    new_day_str = target_expiry.get('NEW_DAY') or config.get('NEW_DAY')
-    if isinstance(new_day_str, str):
-        new_day_str = new_day_str.strip()
+    # STRIKE_MODE=BOTH: run same dates for data_st50 and data_st100 (Part A)
+    run_configs = []
+    if config.get('_BOTH_RUNS'):
+        for r in config['_BOTH_RUNS']:
+            c = copy_module.deepcopy(config)
+            c.setdefault('PATHS', {})['DATA_DIR'] = r['DATA_DIR']
+            c.setdefault('TARGET_EXPIRY', {})['TRADING_DAYS'] = r['TRADING_DAYS']
+            run_configs.append(c)
+        logger.info("STRIKE_MODE=BOTH: will run indicators for data_st50 then data_st100")
     else:
-        new_day_str = None
+        run_configs = [config]
+    
+    total_processed = 0
+    total_failed = 0
+    for run_config in run_configs:
+        data_dir_name = run_config['PATHS'].get('DATA_DIR', 'data')
+        logger.info("--- Running for %s ---", data_dir_name)
+        config = run_config  # use this for the rest of this iteration
 
-    if args.expiry and args.date:
-        # Process specific expiry and date
-        expiry_weeks = [args.expiry]
-        trading_dates = [datetime.strptime(args.date, '%Y-%m-%d').date()]
-        logger.info(f"Processing specific expiry: {args.expiry}, date: {args.date}")
-    elif args.expiry:
-        # Process specific expiry with all its trading days (or only NEW_DAY if set)
-        expiry_weeks = [args.expiry]
-        if new_day_str and not args.date:
-            trading_dates = [datetime.strptime(new_day_str, '%Y-%m-%d').date()]
-            logger.info(f"Processing expiry: {args.expiry}, NEW_DAY only: {new_day_str}")
+        # Determine expiry weeks and trading days to process
+        # NEW_DAY in config: process only that date (incremental run for new trading day); --date overrides
+        target_expiry = config.get('TARGET_EXPIRY') or {}
+        new_day_str = target_expiry.get('NEW_DAY') or config.get('NEW_DAY')
+        if isinstance(new_day_str, str):
+            new_day_str = new_day_str.strip()
         else:
+            new_day_str = None
+
+        if args.expiry and args.date:
+            # Process specific expiry and date
+            expiry_weeks = [args.expiry]
+            trading_dates = [datetime.strptime(args.date, '%Y-%m-%d').date()]
+            logger.info(f"Processing specific expiry: {args.expiry}, date: {args.date}")
+        elif args.expiry:
+            # Process specific expiry with all its trading days (or only NEW_DAY if set)
+            expiry_weeks = [args.expiry]
+            if new_day_str and not args.date:
+                trading_dates = [datetime.strptime(new_day_str, '%Y-%m-%d').date()]
+                logger.info(f"Processing expiry: {args.expiry}, NEW_DAY only: {new_day_str}")
+            else:
+                trading_dates = [
+                    datetime.strptime(day, '%Y-%m-%d').date()
+                    for day in config['TARGET_EXPIRY']['TRADING_DAYS']
+                ]
+                logger.info(f"Processing specific expiry: {args.expiry}")
+        elif args.date:
+            # Process specific date across all expiry weeks (--date overrides config)
+            expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
+            if isinstance(expiry_week_config, list):
+                expiry_weeks = expiry_week_config
+            else:
+                expiry_weeks = [expiry_week_config] if expiry_week_config else []
+            trading_dates = [datetime.strptime(args.date, '%Y-%m-%d').date()]
+            logger.info(f"Processing specific date: {args.date}")
+        elif new_day_str:
+            # NEW_DAY only: process just this date (all expiry weeks so we find the right folder)
+            expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
+            if isinstance(expiry_week_config, list):
+                expiry_weeks = expiry_week_config
+            else:
+                expiry_weeks = [expiry_week_config] if expiry_week_config else []
+            trading_dates = [datetime.strptime(new_day_str, '%Y-%m-%d').date()]
+            logger.info("Processing NEW_DAY only: %s (TRADING_DAYS unchanged for backtest)", new_day_str)
+        else:
+            # Process all configured expiry weeks and trading days
+            expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
+            if isinstance(expiry_week_config, list):
+                expiry_weeks = expiry_week_config
+            else:
+                expiry_weeks = [expiry_week_config] if expiry_week_config else []
             trading_dates = [
                 datetime.strptime(day, '%Y-%m-%d').date()
                 for day in config['TARGET_EXPIRY']['TRADING_DAYS']
             ]
-            logger.info(f"Processing specific expiry: {args.expiry}")
-    elif args.date:
-        # Process specific date across all expiry weeks (--date overrides config)
-        expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
-        if isinstance(expiry_week_config, list):
-            expiry_weeks = expiry_week_config
-        else:
-            expiry_weeks = [expiry_week_config] if expiry_week_config else []
-        trading_dates = [datetime.strptime(args.date, '%Y-%m-%d').date()]
-        logger.info(f"Processing specific date: {args.date}")
-    elif new_day_str:
-        # NEW_DAY only: process just this date (all expiry weeks so we find the right folder)
-        expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
-        if isinstance(expiry_week_config, list):
-            expiry_weeks = expiry_week_config
-        else:
-            expiry_weeks = [expiry_week_config] if expiry_week_config else []
-        trading_dates = [datetime.strptime(new_day_str, '%Y-%m-%d').date()]
-        logger.info("Processing NEW_DAY only: %s (TRADING_DAYS unchanged for backtest)", new_day_str)
-    else:
-        # Process all configured expiry weeks and trading days
-        expiry_week_config = config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABELS') or config['TARGET_EXPIRY'].get('EXPIRY_WEEK_LABEL')
-        if isinstance(expiry_week_config, list):
-            expiry_weeks = expiry_week_config
-        else:
-            expiry_weeks = [expiry_week_config] if expiry_week_config else []
-        trading_dates = [
-            datetime.strptime(day, '%Y-%m-%d').date()
-            for day in config['TARGET_EXPIRY']['TRADING_DAYS']
-        ]
-        logger.info("Processing all configured expiry weeks and trading days")
-    
-    # Determine if we should use parallel processing
-    # Use parallel if we have multiple files to process
-    data_dir = Path(config['PATHS']['DATA_DIR'])
-    
-    # Log strike type processing settings
-    atm_enabled = is_strike_type_enabled(config, 'ATM')
-    otm_enabled = is_strike_type_enabled(config, 'OTM')
-    logger.info(f"Processing configuration: ATM={'Enabled' if atm_enabled else 'Disabled'}, OTM={'Enabled' if otm_enabled else 'Disabled'}")
-    if not otm_enabled:
-        logger.info(f"  → Skipping all OTM directories (e.g., data/JAN20_DYNAMIC/JAN14/OTM/*.csv)")
-    if not atm_enabled:
-        logger.info("  → Skipping all ATM directories (e.g., data/JAN20_DYNAMIC/JAN14/ATM/*.csv)")
-    if not otm_enabled:
-        logger.info("  → Skipping all OTM directories (e.g., data/JAN20_DYNAMIC/JAN14/OTM/*.csv)")
-    
-    # Collect all file tasks
-    all_file_tasks = []
-    
-    for expiry_week in expiry_weeks:
-        for trading_date in trading_dates:
-            # Convert date to day label (e.g., 2025-10-24 -> OCT24)
-            day_label = trading_date.strftime('%b%d').upper()
-            
-            # Process both STATIC and DYNAMIC directories
-            for data_type in ['STATIC', 'DYNAMIC']:
-                expiry_dir = data_dir / f"{expiry_week}_{data_type}" / day_label
-                
-                if expiry_dir.exists():
-                    # Collect all CSV files to process
-                    for strike_type in ['ATM', 'OTM']:
-                        # Check if this strike type is enabled for processing
-                        if not is_strike_type_enabled(config, strike_type):
-                            logger.debug(f"Skipping {strike_type} directory - disabled in config")
-                            continue
-                        
-                        strike_dir = expiry_dir / strike_type
-                        if strike_dir.exists():
-                            csv_files = list(strike_dir.glob("*.csv"))
-                            for csv_file in csv_files:
-                                # Skip strategy files, sentiment files, and NIFTY files
-                                if (csv_file.name.endswith('_strategy.csv') or 
-                                    'nifty_market_sentiment' in csv_file.name or 
-                                    'aggregate' in csv_file.name or
-                                    'nifty50_1min_data' in csv_file.name):
-                                    continue
-                                all_file_tasks.append((str(csv_file), config, args.skip_existing, trading_date.strftime('%Y-%m-%d'), True))  # True = parallel_mode
-    
-    logger.info(f"Found {len(all_file_tasks)} files to process")
-    
-    # Process all files in parallel
-    total_processed = 0
-    total_failed = 0
-    
-    if len(all_file_tasks) > 0:
-        # Set parallel processing mode flag to prevent workers from making API calls
-        global _parallel_processing_mode
-        _parallel_processing_mode = True
-        logger.info("Entering parallel processing mode - workers will use cached data only (no API calls)")
-        
-        # Use multiprocessing if we have files to process
-        import os
-        max_workers = os.cpu_count() or 4
-        logger.info(f"Processing {len(all_file_tasks)} files in parallel using {max_workers} workers...")
-        
-        try:
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks
-                future_to_task = {
-                    executor.submit(process_single_file_worker, task): task[0]  # task[0] is file_path_str
-                    for task in all_file_tasks
-                }
-                
-                # Collect results as they complete
-                completed = 0
-                for future in as_completed(future_to_task):
-                    file_path = future_to_task[future]
-                    completed += 1
-                    try:
-                        result = future.result()
-                        if result['success']:
-                            total_processed += 1
-                        else:
+            logger.info("Processing all configured expiry weeks and trading days")
+
+        data_dir = Path(config['PATHS']['DATA_DIR'])
+        atm_enabled = is_strike_type_enabled(config, 'ATM')
+        otm_enabled = is_strike_type_enabled(config, 'OTM')
+        logger.info(f"Processing configuration: ATM={'Enabled' if atm_enabled else 'Disabled'}, OTM={'Enabled' if otm_enabled else 'Disabled'}")
+
+        all_file_tasks = []
+        for expiry_week in expiry_weeks:
+            for trading_date in trading_dates:
+                day_label = trading_date.strftime('%b%d').upper()
+                for data_type in ['STATIC', 'DYNAMIC']:
+                    expiry_dir = data_dir / f"{expiry_week}_{data_type}" / day_label
+                    if expiry_dir.exists():
+                        for strike_type in ['ATM', 'OTM']:
+                            if not is_strike_type_enabled(config, strike_type):
+                                continue
+                            strike_dir = expiry_dir / strike_type
+                            if strike_dir.exists():
+                                for csv_file in strike_dir.glob("*.csv"):
+                                    if (csv_file.name.endswith('_strategy.csv') or
+                                        'nifty_market_sentiment' in csv_file.name or
+                                        'aggregate' in csv_file.name or
+                                        'nifty50_1min_data' in csv_file.name):
+                                        continue
+                                    all_file_tasks.append((str(csv_file), config, args.skip_existing, trading_date.strftime('%Y-%m-%d'), True))
+
+        logger.info(f"Found {len(all_file_tasks)} files to process")
+        if len(all_file_tasks) > 0:
+            global _parallel_processing_mode
+            _parallel_processing_mode = True
+            logger.info("Entering parallel processing mode - workers will use cached data only (no API calls)")
+            import os
+            max_workers = os.cpu_count() or 4
+            logger.info(f"Processing {len(all_file_tasks)} files in parallel using {max_workers} workers...")
+            try:
+                with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_task = {
+                        executor.submit(process_single_file_worker, task): task[0]
+                        for task in all_file_tasks
+                    }
+                    completed = 0
+                    for future in as_completed(future_to_task):
+                        file_path = future_to_task[future]
+                        completed += 1
+                        try:
+                            result = future.result()
+                            if result['success']:
+                                total_processed += 1
+                            else:
+                                total_failed += 1
+                                if total_failed <= 5:
+                                    logger.error(f"Failed: {Path(file_path).name} - {result.get('error', 'Unknown error')}")
+                            if completed % 100 == 0 or completed == len(all_file_tasks):
+                                logger.info(f"[PROGRESS] {completed}/{len(all_file_tasks)} files processed ({total_processed} successful, {total_failed} failed)")
+                        except Exception as e:
                             total_failed += 1
-                            if total_failed <= 5:  # Only log first 5 failures
-                                logger.error(f"Failed: {Path(file_path).name} - {result.get('error', 'Unknown error')}")
-                        
-                        # Log progress every 100 files or at completion
-                        if completed % 100 == 0 or completed == len(all_file_tasks):
-                            logger.info(f"[PROGRESS] {completed}/{len(all_file_tasks)} files processed ({total_processed} successful, {total_failed} failed)")
-                    except Exception as e:
-                        total_failed += 1
-                        logger.error(f"Exception processing {Path(file_path).name}: {e}")
-        finally:
-            # Reset parallel processing mode flag
-            _parallel_processing_mode = False
-            logger.info("Exited parallel processing mode")
-    else:
-        logger.info("No files to process")
-    
+                            logger.error(f"Exception processing {Path(file_path).name}: {e}")
+            finally:
+                _parallel_processing_mode = False
+                logger.info("Exited parallel processing mode")
+        else:
+            logger.info("No files to process")
+        if args.verify:
+            logger.info("Verifying indicators calculation...")
+            verify_indicators_calculation(data_dir, expiry_weeks, trading_dates, config)
+
     logger.info(f"Indicators calculation completed. Total files processed: {total_processed} (failed: {total_failed})")
-    
-    # Verification step
-    if args.verify:
-        logger.info("Verifying indicators calculation...")
-        verify_indicators_calculation(data_dir, expiry_weeks, trading_dates, config)
 
 def verify_indicators_calculation(data_dir, expiry_weeks, trading_dates, config):
     """Verify that indicators were calculated correctly"""

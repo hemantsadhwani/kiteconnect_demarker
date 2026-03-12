@@ -135,17 +135,22 @@ TARGET_EXPIRY:
   - '2026-03-10'
   - '2026-03-11'
 
+  # ── BOTH: same dates for ST50 and ST100 (Part A — add new day once for both) ─
+  TRADING_DAYS_BOTH:
+  - '2026-03-11'
+
 # ── Strike-mode selector ─────────────────────────────────────────────────────
 # indicators_config.yaml is the authority for run_indicators.py (always run
-# standalone). Change STRIKE_MODE here to process data_st50 or data_st100.
+# standalone). ST50 | ST100 = single strike type; BOTH = run same dates for both.
 # backtesting_config.yaml is used only as a fallback if STRIKE_MODE is absent.
-STRIKE_MODE: ST100   # ST50 | ST100
+STRIKE_MODE: BOTH   # ST50 | ST100 | BOTH
 
 STRIKE_MODE_SETTINGS:
   ST50:
     DATA_DIR: data_st50
   ST100:
     DATA_DIR: data_st100
+  # BOTH: no single DATA_DIR; resolver sets _BOTH_RUNS for run_indicators
 # ─────────────────────────────────────────────────────────────────────────────
 PATHS:
   # DATA_DIR is injected at runtime from STRIKE_MODE_SETTINGS above — do not set here

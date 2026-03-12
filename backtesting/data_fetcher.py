@@ -49,12 +49,16 @@ logger = logging.getLogger(__name__)
 class DataFetcher:
     """Orchestrates data collection for both static and dynamic strategies"""
     
-    def __init__(self, config_path="data_config.yaml", expiry_label=None, trading_date=None):
-        """Initialize the data fetcher with configuration"""
+    def __init__(self, config_path="data_config.yaml", expiry_label=None, trading_date=None, config=None):
+        """Initialize the data fetcher with configuration.
+        If config is provided (e.g. when STRIKE_MODE=BOTH and caller resolves per mode), it is used as-is.
+        """
         self.base_dir = Path(__file__).parent
         self.config_path = self.base_dir / config_path
-        # Load config first
-        self.config = self._load_config()
+        if config is not None:
+            self.config = config
+        else:
+            self.config = self._load_config()
         
         # Override config with command-line parameters if provided
         if expiry_label:
@@ -932,6 +936,7 @@ class DataFetcher:
 def main():
     """Main function to run data collection"""
     import argparse
+    import copy
     
     parser = argparse.ArgumentParser(description='Data Fetcher - Unified data collection')
     parser.add_argument('--config', default='data_config.yaml', help='Configuration file path')
@@ -943,28 +948,65 @@ def main():
     
     args = parser.parse_args()
     
-    # Initialize data fetcher with command-line parameters
-    fetcher = DataFetcher(
-        config_path=args.config,
-        expiry_label=args.expiry,
-        trading_date=args.date
-    )
-    
-    if fetcher.config is None:
-        logger.error("Failed to load configuration")
+    base_dir = Path(__file__).parent
+    config_path = base_dir / args.config
+    try:
+        with open(config_path, 'r') as f:
+            raw_config = yaml.safe_load(f)
+    except Exception as e:
+        logger.error(f"Failed to load configuration from {config_path}: {e}")
         return
     
-    # Run data collection based on mode
-    if args.mode == 'static':
-        success = fetcher.run_static_data_collection()
-    elif args.mode == 'dynamic':
-        success = fetcher.run_dynamic_data_collection()
-    else:  # both
-        success = fetcher.run_complete_data_collection()
+    strike_mode = raw_config.get('STRIKE_MODE', 'ST50')
     
-    # Verify data collection if requested
-    if success and args.verify:
-        fetcher.verify_data_collection()
+    if strike_mode == 'BOTH':
+        # Run same TRADING_DAYS for both ST50 and ST100 (Part A: add new day to both dirs)
+        all_success = True
+        for mode in ['ST50', 'ST100']:
+            logger.info("=" * 60)
+            logger.info(f"STRIKE_MODE=BOTH: running data collection for {mode}")
+            logger.info("=" * 60)
+            resolved = copy.deepcopy(raw_config)
+            resolved['STRIKE_MODE'] = mode
+            resolved = resolve_strike_mode(resolved)
+            fetcher = DataFetcher(
+                config_path=args.config,
+                expiry_label=args.expiry,
+                trading_date=args.date,
+                config=resolved
+            )
+            if fetcher.config is None:
+                logger.error(f"Failed to resolve configuration for {mode}")
+                all_success = False
+                continue
+            if args.mode == 'static':
+                ok = fetcher.run_static_data_collection()
+            elif args.mode == 'dynamic':
+                ok = fetcher.run_dynamic_data_collection()
+            else:
+                ok = fetcher.run_complete_data_collection()
+            if not ok:
+                all_success = False
+            if ok and args.verify:
+                fetcher.verify_data_collection()
+        success = all_success
+    else:
+        fetcher = DataFetcher(
+            config_path=args.config,
+            expiry_label=args.expiry,
+            trading_date=args.date
+        )
+        if fetcher.config is None:
+            logger.error("Failed to load configuration")
+            return
+        if args.mode == 'static':
+            success = fetcher.run_static_data_collection()
+        elif args.mode == 'dynamic':
+            success = fetcher.run_dynamic_data_collection()
+        else:
+            success = fetcher.run_complete_data_collection()
+        if success and args.verify:
+            fetcher.verify_data_collection()
     
     if success:
         logger.info("Data collection completed successfully!")
