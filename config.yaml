@@ -2,7 +2,7 @@
 TRADE_SETTINGS:
   # Common Settings
   QUANTITY: 65 # Nifty 50 current lot size
-  CAPITAL: 18000 # Max capital to use per trade
+  CAPITAL: 20000 # Max capital to use per trade
   PRODUCT: "NRML" # NRML is required for GTT orders
   
   # Entry Risk Validation (Pre-Entry Risk Assessment)
@@ -82,7 +82,7 @@ TRADE_SETTINGS:
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
   ENABLE: true
-  CAPITAL: 18000  # Starting daily capital (backtest uses 100000)
+  CAPITAL: 20000  # Starting daily capital (backtest uses 100000)
   LOSS_MARK: 30   # Percentage drop from reference to trigger stop (backtest: 30 when MODE HYBRID)
   PER_DAY: true
   USE_START_CAPITAL_FOR_LIMIT: false  # false = limit from day high (HWM); true = fixed limit from starting capital (from backtest) 
@@ -121,7 +121,7 @@ TIME_DISTRIBUTION_FILTER:
     11:00-12:00: true
     12:00-13:00: false
     13:00-14:00: true
-    14:00-15:30: true
+    14:00-15:30: false
 
 # File Paths for State and Control
 SENTIMENT_FILE_PATH: "output/market_sentiment.txt"
@@ -225,7 +225,7 @@ PRICE_ZONES:
     HIGH_PRICE: 300
   DYNAMIC_OTM:
     LOW_PRICE: 20
-    HIGH_PRICE: 300
+    HIGH_PRICE: 350
   STATIC_ATM:
     LOW_PRICE: 20
     HIGH_PRICE: 250

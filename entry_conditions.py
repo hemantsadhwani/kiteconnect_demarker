@@ -1636,7 +1636,15 @@ class EntryConditionManager:
             s1 = cpr.get('S1') if cpr else None
             effective_sentiment = compute_effective_sentiment_hybrid(current_mode, sentiment, nifty, r1, s1)
             if current_mode == 'HYBRID' and effective_sentiment == 'NEUTRAL' and sentiment != 'NEUTRAL':
-                self.logger.debug(f"HYBRID: Nifty {nifty} outside R1-S1 ({r1}/{s1}), using NEUTRAL")
+                self.logger.info(
+                    f"[HYBRID] v5 algo={sentiment} but NIFTY={nifty} is outside S1-R1 zone "
+                    f"(S1={s1}, R1={r1}) → effective_sentiment=NEUTRAL (both CE & PE allowed)"
+                )
+            elif current_mode == 'HYBRID' and effective_sentiment != 'NEUTRAL' and sentiment != 'NEUTRAL':
+                self.logger.info(
+                    f"[HYBRID] v5 algo={sentiment}, NIFTY={nifty} inside S1-R1 zone "
+                    f"(S1={s1}, R1={r1}) → effective_sentiment={effective_sentiment} (strict filter active)"
+                )
             # Note: NO_SENTIMENT_IN_STRICT_ZONE (exclude when in R1-S1 but no sentiment) is a backtest-only case:
             # production sentiment always comes from state_manager.get_sentiment() which returns only BULLISH/BEARISH/NEUTRAL/DISABLE (or NEUTRAL for invalid).
 

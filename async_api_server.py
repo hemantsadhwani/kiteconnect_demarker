@@ -257,9 +257,11 @@ class AsyncAPIServer:
         """Handle status requests"""
         try:
             # Get event system status
+            # Convert EventType enum keys to strings for JSON serialisation
+            raw_handlers = self.event_dispatcher.get_registered_handlers()
             event_status = {
                 'queue_size': self.event_dispatcher.get_queue_size(),
-                'registered_handlers': self.event_dispatcher.get_registered_handlers()
+                'registered_handlers': {str(k.value if hasattr(k, 'value') else k): v for k, v in raw_handlers.items()}
             }
 
             # Get config status
