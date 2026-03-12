@@ -122,7 +122,15 @@ def load_expiry_config():
         # First, use date mappings from CPR config for dates that exist in mappings
         if date_mappings:
             for day_suffix, expiry_week in date_mappings.items():
-                day_label = day_suffix.upper()
+                # Support both day labels (MAR12) and YYYY-MM-DD keys ('2026-03-12')
+                try:
+                    if '/' in str(day_suffix) or (isinstance(day_suffix, str) and len(day_suffix) == 10 and day_suffix[4] == '-'):
+                        day_date = datetime.strptime(str(day_suffix), '%Y-%m-%d').date()
+                        day_label = day_date.strftime('%b%d').upper()
+                    else:
+                        day_label = str(day_suffix).upper()
+                except ValueError:
+                    day_label = str(day_suffix).upper()
                 # Only include days that are in BACKTESTING_DAYS
                 if day_label in allowed_day_labels:
                     if expiry_week not in expiry_config:
@@ -1497,6 +1505,7 @@ def clean_entry2_output_files():
         'entry2_dynamic_atm_ce_trades.csv',
         'entry2_dynamic_atm_pe_trades.csv',
         'entry2_dynamic_atm_mkt_sentiment_trades.csv',
+        'entry2_dynamic_atm_mkt_sentiment_trades_excluded.csv',
         'entry2_dynamic_atm_ce_sentiment_trades.csv',
         'entry2_dynamic_atm_pe_sentiment_trades.csv',
         'entry2_dynamic_market_sentiment_summary.csv',

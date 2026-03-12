@@ -465,7 +465,7 @@ class AsyncLiveTickerHandler:
                         # 5. Background: postcorrect → mark done → silent re-calc → snapshot.
                         #    skip_terminal_log=True on re-run: no double trailing-SL or logging.
                         async def _deferred_postcorrect(_tok=_tok, _cc=_cc, _ts=_ts):
-                            await self._postcorrect_candle_from_kite(_tok, _cc)
+                            patched = await self._postcorrect_candle_from_kite(_tok, _cc)
                             _raw = _ts.replace(second=0, microsecond=0) if hasattr(_ts, 'replace') else _ts
                             _mk = pd.Timestamp(_raw)
                             if getattr(_mk, 'tz', None) is not None:
@@ -474,6 +474,10 @@ class AsyncLiveTickerHandler:
                             if len(self.completed_candles_data.get(_tok, [])) >= 35:
                                 await self._calculate_and_dispatch_indicators(
                                     _tok, _ts, is_new_candle=True, skip_terminal_log=True)
+                            # Reset the duplicate-check guard so the POSTCORRECT-recalculated
+                            # indicators fire a fresh entry check for the active CE/PE symbol.
+                            if patched:
+                                self._maybe_reset_entry_check_for_postcorrect(_tok, _mk)
 
                         asyncio.create_task(_deferred_postcorrect())
                     else:
@@ -543,7 +547,7 @@ class AsyncLiveTickerHandler:
                             # Background: postcorrect → mark done → silent re-calc → snapshot.
                             # skip_terminal_log=True on re-run: no double trailing-SL or logging.
                             async def _deferred_other(_ot=other_token, _pc=prev_candle, _ts2=_ots, _sl=_osl):
-                                await self._postcorrect_candle_from_kite(_ot, _pc)
+                                patched2 = await self._postcorrect_candle_from_kite(_ot, _pc)
                                 _raw2 = _ts2.replace(second=0, microsecond=0) if hasattr(_ts2, 'replace') else _ts2
                                 _mk = pd.Timestamp(_raw2)
                                 if getattr(_mk, 'tz', None) is not None:
@@ -552,6 +556,8 @@ class AsyncLiveTickerHandler:
                                 if len(self.completed_candles_data.get(_ot, [])) >= 35:
                                     await self._calculate_and_dispatch_indicators(
                                         _ot, _ts2, is_new_candle=True, skip_terminal_log=True)
+                                if patched2:
+                                    self._maybe_reset_entry_check_for_postcorrect(_ot, _mk)
                             asyncio.create_task(_deferred_other())
                         else:
                             if len(self.completed_candles_data.get(other_token, [])) >= 35:
@@ -572,6 +578,38 @@ class AsyncLiveTickerHandler:
             )
 
     # ── Post-correction helpers ────────────────────────────────────────────────────────
+
+    def _maybe_reset_entry_check_for_postcorrect(self, token: int, candle_minute) -> None:
+        """
+        If POSTCORRECT patched the OHLC of the active CE or PE symbol, reset the
+        _last_entry_check_timestamp guard in event_handlers so the indicator re-calculation
+        that follows triggers a fresh entry-condition check with corrected W%R/StochRSI.
+
+        This fixes the POSTCORRECT timing gap where:
+          T+0s  — entry check runs with tick-OHLC (possibly 5 pts wrong)
+          T+3s  — POSTCORRECT corrects OHLC, recalculates indicators
+          T+3s  — guard blocks "already checked this candle" → fresh check never fires
+
+        Guard: only reset if no check is currently in progress AND the last check
+        was for THIS candle minute (i.e., the original check already ran).
+        """
+        ce_tok = self.symbol_token_map.get(self.ce_symbol) if self.ce_symbol else None
+        pe_tok = self.symbol_token_map.get(self.pe_symbol) if self.pe_symbol else None
+        if token not in (ce_tok, pe_tok):
+            return  # not an active symbol — no action needed
+        sym = next((s for s, t in self.symbol_token_map.items() if t == token), str(token))
+        event_handlers = getattr(getattr(self, 'trading_bot', None), 'event_handlers', None)
+        if not event_handlers:
+            return
+        with event_handlers._entry_check_lock:
+            if (event_handlers._last_entry_check_timestamp == candle_minute
+                    and not event_handlers._entry_check_in_progress):
+                event_handlers._last_entry_check_timestamp = None
+                logger.info(
+                    f"[POSTCORRECT_RECHECK] {sym}: OHLC corrected at "
+                    f"{candle_minute.strftime('%H:%M') if hasattr(candle_minute, 'strftime') else candle_minute}"
+                    f" — entry-check guard reset; fresh evaluation with corrected indicators scheduled"
+                )
 
     def _is_postcorrect_enabled(self) -> bool:
         """True when PRECOMPUTED_SYMBOL_BAND.POSTCORRECT_CANDLE_FROM_KITE is set in config."""

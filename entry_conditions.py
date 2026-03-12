@@ -176,6 +176,11 @@ class EntryConditionManager:
         # already qualifies (open_ltp >= confirm_high). Checked first in
         # _check_pending_optimal_entry_production to enter at candle open, not candle close.
         self._pending_optimal_entry_at_open = {}
+        # Cache of the most-recently-seen candle open per symbol, populated by
+        # notify_candle_open() regardless of whether a pending entry exists.
+        # Used by _retroactive_candle_open_check() to handle the race condition where
+        # the signal fires 800ms+ into the new candle (after its first tick has passed).
+        self._current_candle_open = {}
 
         # --- Load price zone configuration ---
         price_zones = config.get('PRICE_ZONES', {})
@@ -946,6 +951,11 @@ class EntryConditionManager:
                         'option_type': option_type,
                     }
                     self._reset_entry2_state_machine(symbol)
+                    # Retroactive open check: signal may have fired 800ms+ into the new candle
+                    # (after its first tick passed). If the cached candle open already meets
+                    # confirm_high the fast-path flag is set so _check_entry_conditions can
+                    # enter on this same pass rather than waiting a full extra candle.
+                    self._retroactive_candle_open_check(symbol, confirm_candle_timestamp, confirm_high)
                     self.logger.info(
                         f"Entry2 optimal entry: Pending for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
                         "will enter when next candle's open is at or above confirm_high"
@@ -1106,6 +1116,7 @@ class EntryConditionManager:
                                 'option_type': option_type,
                             }
                             self._reset_entry2_state_machine(symbol)
+                            self._retroactive_candle_open_check(symbol, confirm_candle_timestamp, confirm_high)
                             self.logger.info(
                                 f"Entry2 optimal entry: Pending for {symbol} (same-candle signal, confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
                                 "will enter when next candle's open is at or above confirm_high"
@@ -1316,6 +1327,7 @@ class EntryConditionManager:
                         'option_type': option_type,
                     }
                     self._reset_entry2_state_machine(symbol)
+                    self._retroactive_candle_open_check(symbol, confirm_candle_timestamp, confirm_high)
                     self.logger.info(
                         f"Entry2 optimal entry: Pending for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}); "
                         "will enter when next candle's open is at or above confirm_high"
@@ -1362,13 +1374,20 @@ class EntryConditionManager:
     def notify_candle_open(self, symbol: str, open_ltp: float, candle_ts) -> bool:
         """
         Called at the first tick of every new candle for the active CE/PE symbol.
-        If a pending optimal entry exists and open_ltp >= confirm_high (and we are
-        strictly after the confirmation candle), sets _pending_optimal_entry_at_open[symbol]
+        Always caches (open_ltp, candle_ts) in _current_candle_open so that
+        _retroactive_candle_open_check() can use it if a pending entry is set
+        later in the same candle (race condition: signal fires 800ms+ into candle).
+
+        If a pending optimal entry already exists and open_ltp >= confirm_high (and we
+        are strictly after the confirmation candle), sets _pending_optimal_entry_at_open[symbol]
         so that the next _check_pending_optimal_entry_production call returns 'enter'
         immediately without re-reading the DataFrame open.
 
         Returns True if the fast-path flag was set (caller should schedule entry check).
         """
+        # Always cache candle open regardless of pending state.
+        self._current_candle_open[symbol] = (open_ltp, candle_ts)
+
         pending = getattr(self, 'pending_optimal_entry', {}).get(symbol)
         if not pending:
             return False
@@ -1389,6 +1408,52 @@ class EntryConditionManager:
                 f" — flagged for immediate entry"
             )
             return True
+        return False
+
+    def _retroactive_candle_open_check(self, symbol: str, confirm_candle_ts, confirm_high: float) -> bool:
+        """
+        Called immediately after pending_optimal_entry is set (inside _check_entry2_improved)
+        to handle the latency race condition:
+
+          Production processes CE → PE → NIFTY → Sentiment sequentially, so the signal for
+          a given candle may fire 800ms+ into that candle — AFTER notify_candle_open() already
+          ran and found no pending entry.  Without this check the system has to wait a full
+          extra candle before acting.
+
+        Reads the candle open cached by notify_candle_open() and, if it already meets
+        confirm_high AND belongs to a candle strictly after the signal (confirmation) candle,
+        sets _pending_optimal_entry_at_open[symbol] = True so that the next
+        _check_pending_optimal_entry_production call in the SAME _check_entry_conditions
+        pass returns 'enter' immediately.
+
+        Returns True if the fast-path flag was set, False otherwise.
+        """
+        stored = getattr(self, '_current_candle_open', {}).get(symbol)
+        if not stored:
+            return False
+        open_ltp, candle_ts = stored
+        try:
+            confirm_norm = confirm_candle_ts.replace(second=0, microsecond=0) if hasattr(confirm_candle_ts, 'replace') else confirm_candle_ts
+            current_norm = candle_ts.replace(second=0, microsecond=0) if hasattr(candle_ts, 'replace') else candle_ts
+            if current_norm <= confirm_norm:
+                # Cached open is from the signal candle itself or an earlier candle — not eligible
+                return False
+        except Exception:
+            return False
+        if open_ltp >= confirm_high:
+            if not hasattr(self, '_pending_optimal_entry_at_open'):
+                self._pending_optimal_entry_at_open = {}
+            self._pending_optimal_entry_at_open[symbol] = True
+            self.logger.info(
+                f"[RETROACTIVE_OPEN] {symbol}: cached candle open={open_ltp:.2f} >= "
+                f"confirm_high={confirm_high:.2f} — fast-path flag set "
+                f"(signal fired after candle open, fixing latency race condition)"
+            )
+            return True
+        self.logger.debug(
+            f"[RETROACTIVE_OPEN] {symbol}: cached candle open={open_ltp:.2f} < "
+            f"confirm_high={confirm_high:.2f} — no fast-path (will check next candle)"
+        )
         return False
 
     def _check_pending_optimal_entry_production(self, df_with_indicators, symbol: str) -> str:
@@ -2648,6 +2713,87 @@ class EntryConditionManager:
         
         self.logger.info(f"SKIP_FIRST: Updated symbols - CE: {old_ce_symbol} -> {new_ce_symbol}, PE: {old_pe_symbol} -> {new_pe_symbol}")
 
+    def replay_entry2_on_slab_change(self, symbol: str, df_with_indicators, max_lookback: int = 4) -> bool:
+        """
+        After a slab change activates a new CE/PE symbol, replay the Entry2 state machine
+        over the last `max_lookback` closed candles to catch any W%R trigger that fired
+        while production was watching the wrong strike.
+
+        Why this is needed:
+          Production tracks ONE strike at a time and resets the state machine on slab change.
+          If the trigger candle fell in the window where the old slab was locked (e.g. blocked
+          by a confirmation window), the new symbol's state machine never saw it.  This replay
+          re-feeds those candles so a pending_optimal_entry can be set for the next open check.
+
+        Returns True if a pending_optimal_entry was created.
+        """
+        try:
+            if df_with_indicators is None or getattr(df_with_indicators, 'empty', True):
+                return False
+            if not getattr(self, 'optimal_entry_above_confirm_open', False):
+                return False
+            n = len(df_with_indicators)
+            if n < 2:
+                return False
+
+            # Don't replay if we already have pending or active confirmation on this symbol.
+            if symbol in getattr(self, 'pending_optimal_entry', {}):
+                return False
+            existing = self.entry2_state_machine.get(symbol, {})
+            if existing.get('state') == 'AWAITING_CONFIRMATION':
+                return False
+
+            # Save global bar index; set it to the last real bar so confirmation-window
+            # expiry arithmetic stays correct relative to the real DataFrame length.
+            saved_bar_index = self.current_bar_index
+
+            # Reset the state machine so we start fresh without any stale state.
+            self._reset_entry2_state_machine(symbol)
+
+            start_idx = max(1, n - max_lookback)  # need at least prev+current row
+            found = False
+
+            for i in range(start_idx, n):
+                # Simulate "current_bar_index = i" so confirmation-window arithmetic is
+                # consistent with what the real-time path would have used.
+                self.current_bar_index = i
+                df_slice = df_with_indicators.iloc[:i + 1]
+                try:
+                    self._check_entry2_improved(df_slice, symbol)
+                except Exception as exc:
+                    self.logger.debug(
+                        f"[SLAB_REPLAY] {symbol}: exception replaying bar {i}: {exc}"
+                    )
+                    self._reset_entry2_state_machine(symbol)
+                    break
+
+                if symbol in getattr(self, 'pending_optimal_entry', {}):
+                    found = True
+                    try:
+                        candle_label = str(df_with_indicators.index[i])
+                    except Exception:
+                        candle_label = str(i)
+                    ch = self.pending_optimal_entry[symbol].get('confirm_high', 0)
+                    self.logger.info(
+                        f"[SLAB_REPLAY] {symbol}: found pending_optimal_entry at replay bar {i} "
+                        f"({candle_label}); confirm_high={ch:.2f} — "
+                        f"will enter when next candle open ≥ confirm_high"
+                    )
+                    break
+
+            self.current_bar_index = saved_bar_index
+
+            if not found:
+                self.logger.debug(
+                    f"[SLAB_REPLAY] {symbol}: no pending signal in last "
+                    f"{n - start_idx} candles (max_lookback={max_lookback})"
+                )
+            return found
+
+        except Exception as e:
+            self.logger.error(f"[SLAB_REPLAY] Error replaying Entry2 for {symbol}: {e}", exc_info=True)
+            return False
+
     def apply_slab_change_entry2_handoff(self, ticker_handler) -> bool:
         """
         Apply Entry2 trigger handoff from OLD slab -> NEW slab.
@@ -2814,6 +2960,30 @@ class EntryConditionManager:
 
             if handoff.get('ce_applied') and handoff.get('pe_applied'):
                 handoff['applied'] = True
+
+            # SLAB-CHANGE REPLAY: after the boundary-candle handoff completes for both sides,
+            # run a retroactive scan on the last 4 candles of the NEW CE and PE symbols.
+            # This catches signals that triggered BEFORE the boundary candle (while the old
+            # slab was locked by a confirmation window), which the handoff above cannot cover.
+            # Only runs once (guarded by 'replay_done' in handoff dict).
+            if handoff.get('ce_applied') and handoff.get('pe_applied') and not handoff.get('replay_done'):
+                handoff['replay_done'] = True
+                for side in ('CE', 'PE'):
+                    new_sym = handoff.get(f'new_{side.lower()}_symbol')
+                    if not new_sym:
+                        continue
+                    # Skip if handoff already placed a trigger in the state machine.
+                    existing_sm = self.entry2_state_machine.get(new_sym, {})
+                    if existing_sm.get('state') == 'AWAITING_CONFIRMATION':
+                        self.logger.debug(
+                            f"[SLAB_REPLAY] {new_sym}: boundary handoff already set confirmation window — skipping replay"
+                        )
+                        continue
+                    new_tok = ticker_handler.symbol_token_map.get(new_sym) if hasattr(ticker_handler, 'symbol_token_map') else None
+                    if new_tok is None:
+                        continue
+                    df_new = ticker_handler.get_indicators(new_tok)
+                    self.replay_entry2_on_slab_change(new_sym, df_new, max_lookback=4)
 
             return applied_any
 
@@ -3547,6 +3717,45 @@ class EntryConditionManager:
             except Exception as e:
                 self.logger.error(f"Exception in Entry2 evaluation for {symbol}: {e}", exc_info=True)
                 entry2_result = False
+
+            # RETROACTIVE OPEN CHECK: _check_entry2_improved may have just set
+            # pending_optimal_entry AND called _retroactive_candle_open_check(), which
+            # sets the fast-path flag when the current candle's cached open already
+            # meets confirm_high.  Re-run _check_pending_optimal_entry_production here
+            # so we enter on THIS pass rather than waiting a full extra candle.
+            if not entry2_result and symbol in getattr(self, 'pending_optimal_entry', {}):
+                retro_result = self._check_pending_optimal_entry_production(df_with_indicators, symbol)
+                if retro_result == 'enter':
+                    validate_entry_risk = trade_settings.get('VALIDATE_ENTRY_RISK', True)
+                    if validate_entry_risk and pd.notna(latest_indicators.get('swing_low')):
+                        raw_reversal_config = trade_settings.get('REVERSAL_MAX_SWING_LOW_DISTANCE_PERCENT', 12)
+                        reversal_max_swing_low_config = self._normalize_reversal_max_swing_low_config(raw_reversal_config)
+                        close_price = latest_indicators['close']
+                        swing_low_price = latest_indicators['swing_low']
+                        swing_low_distance_percent = ((close_price - swing_low_price) / close_price) * 100
+                        max_swing_low_distance_percent = self._determine_reversal_max_swing_low_distance_percent(close_price, reversal_max_swing_low_config)
+                        if isinstance(max_swing_low_distance_percent, dict):
+                            max_swing_low_distance_percent = reversal_max_swing_low_config.get('above', 12.0)
+                        elif not isinstance(max_swing_low_distance_percent, (int, float)):
+                            max_swing_low_distance_percent = 12.0
+                        else:
+                            max_swing_low_distance_percent = float(max_swing_low_distance_percent)
+                        if swing_low_distance_percent > max_swing_low_distance_percent:
+                            self.logger.info(
+                                f"Skipping REVERSAL trade (retroactive optimal entry) for {symbol}: "
+                                f"Swing low distance ({swing_low_distance_percent:.2f}%) exceeds max "
+                                f"({max_swing_low_distance_percent:.2f}%)"
+                            )
+                            del self.pending_optimal_entry[symbol]
+                            return False
+                    del self.pending_optimal_entry[symbol]
+                    self.logger.info(
+                        f"Entry 2 (retroactive optimal entry) conditions met for {symbol}, returning 2"
+                    )
+                    return 2
+                elif retro_result == 'invalidate':
+                    del self.pending_optimal_entry[symbol]
+
             if entry2_result:
                 # CRITICAL: Entry Risk Validation should only happen when Entry2 conditions are met (signal generated)
                 # This allows Entry2 state machine to run and detect triggers, but blocks execution if risk is too high

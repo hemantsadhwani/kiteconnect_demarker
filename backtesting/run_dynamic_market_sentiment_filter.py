@@ -1141,7 +1141,30 @@ def main():
 
     data_base_dir = get_data_dir(Path(__file__).parent) / f"{expiry_week}_DYNAMIC/{day_label}"
     sentiment_file = data_base_dir / f"nifty_market_sentiment_{date_suffix}.csv"
-    
+
+    # Resolve sentiment file: process_sentiment writes nifty_market_sentiment_YYYY-MM-DD.csv when DATE_MAPPINGS use YYYY-MM-DD keys
+    if not sentiment_file.exists():
+        # Fallback 1: YYYY-MM-DD format (MAR12 -> 2026-03-12, try current and previous year)
+        from datetime import datetime
+        month_map = {'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12}
+        month_num = month_map.get(date_suffix[:3])
+        day_num = int(date_suffix[3:]) if (len(date_suffix) > 3 and date_suffix[3:].isdigit()) else None
+        if month_num is not None and day_num is not None:
+            for year in [datetime.now().year, datetime.now().year - 1]:
+                alt_path = data_base_dir / f"nifty_market_sentiment_{year}-{month_num:02d}-{day_num:02d}.csv"
+                if alt_path.exists():
+                    sentiment_file = alt_path
+                    logger.info(f"Using sentiment file (YYYY-MM-DD format): {sentiment_file.name}")
+                    break
+        # Fallback 2: glob for any workflow sentiment file (excluding _plot)
+        if not sentiment_file.exists():
+            candidates = [f for f in data_base_dir.glob("nifty_market_sentiment_*.csv")
+                          if not f.name.endswith("_plot.csv")]
+            if candidates:
+                sentiment_file = candidates[0]
+                logger.info(f"Using sentiment file (from glob): {sentiment_file.name}")
+
     # Load config first to check if sentiment filter is enabled
     script_base_dir = Path(__file__).parent
     config_path = script_base_dir / 'backtesting_config.yaml'
@@ -1170,7 +1193,8 @@ def main():
             # AUTO mode: Load sentiment file
             if not sentiment_file.exists():
                 logger.error(f"Market sentiment file not found: {sentiment_file}")
-                logger.error("Cannot proceed with AUTO sentiment filtering - sentiment filter is enabled but file is missing")
+                logger.error("Cannot proceed with AUTO/HYBRID sentiment filtering - sentiment filter is enabled but file is missing")
+                logger.error(f"For {day_label}, run process_sentiment first: python backtesting/grid_search_tools/cpr_market_sentiment_v1/process_sentiment.py <YYYY-MM-DD>  (use date from DATE_MAPPINGS in cpr config)")
                 return
             logger.info("AUTO mode: Loading market sentiment data from file...")
             sentiment_df = pd.read_csv(sentiment_file)

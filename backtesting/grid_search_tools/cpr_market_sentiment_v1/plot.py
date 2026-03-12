@@ -505,7 +505,17 @@ def process_csv_data(csv_file_path, kite_instance=None):
             sentiment_path = preferred_sentiment_path
         elif os.path.exists(legacy_sentiment_path):
             sentiment_path = legacy_sentiment_path
-        # else: keep original sentiment_path (will likely not exist, handled below)
+        else:
+            # Fallback: process_sentiment writes nifty_market_sentiment_YYYY-MM-DD_plot.csv
+            # but input CSV is nifty50_1min_data_mar12.csv — glob for any *_plot.csv in same dir
+            csv_dir = os.path.dirname(csv_file_path)
+            glob_pattern = os.path.join(csv_dir, 'nifty_market_sentiment_*_plot.csv')
+            candidates = glob.glob(glob_pattern)
+            if len(candidates) == 1:
+                sentiment_path = candidates[0]
+            elif len(candidates) > 1:
+                # Use first by date if multiple (e.g. DYNAMIC vs STATIC)
+                sentiment_path = sorted(candidates)[0]
 
     print(f"Looking for sentiment file: {sentiment_path}")
     if os.path.exists(sentiment_path):
@@ -1458,6 +1468,9 @@ Examples:
             except Exception:
                 pass
         mode = mode or 'ST50'
+        # BOTH has no single DATA_DIR; use data_st50 so plot finds files (use ST50/ST100 to pick explicitly)
+        if mode == 'BOTH':
+            mode = 'ST50'
         data_dir_name = (
             config.get('STRIKE_MODE_SETTINGS', {}).get(mode, {}).get('DATA_DIR')
             or f'data_{mode.lower()}'

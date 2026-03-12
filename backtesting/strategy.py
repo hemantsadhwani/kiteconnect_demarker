@@ -477,7 +477,11 @@ class Entry2BacktestStrategyFixed:
         self.entry2_optimal_entry_above_confirm_open = entry2_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
         self.entry2_optimal_entry_wpr_invalidate = entry2_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
         self.entry2_trigger_require_supertrend_bearish = entry2_config.get('TRIGGER_REQUIRE_SUPERTREND_BEARISH', True)
-        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}, trigger require SuperTrend bearish: {self.entry2_trigger_require_supertrend_bearish}")
+        # OPTIMAL_ENTRY_CONFIRM_PRICE: 'HIGH' (default) uses signal candle's HIGH as the confirmation threshold;
+        # 'CLOSE' uses the signal candle's CLOSE instead. CLOSE is slightly lower (fewer misses on big-wick candles)
+        # and more consistent between historical and real-time OHLC data sources.
+        self.entry2_optimal_entry_confirm_price = entry2_config.get('OPTIMAL_ENTRY_CONFIRM_PRICE', 'HIGH').upper()
+        logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, confirm_price field: {self.entry2_optimal_entry_confirm_price}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}, trigger require SuperTrend bearish: {self.entry2_trigger_require_supertrend_bearish}")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -3220,14 +3224,15 @@ class Entry2BacktestStrategyFixed:
                                     next_open = float(df.iloc[next_bar]['open'])
                                     sl_pct = self._determine_stop_loss_percent(next_open)
                                     sl_price = next_open * (1 - sl_pct / 100.0)
-                                    confirm_high = float(df.iloc[signal_bar_index]['high'])
+                                    _confirm_price_field = 'close' if getattr(self, 'entry2_optimal_entry_confirm_price', 'HIGH') == 'CLOSE' else 'high'
+                                    confirm_high = float(df.iloc[signal_bar_index][_confirm_price_field])
                                     if not hasattr(self, 'pending_optimal_entry'):
                                         self.pending_optimal_entry = {}
                                     self.pending_optimal_entry[symbol] = {'confirm_bar': signal_bar_index, 'confirm_high': confirm_high, 'sl_price': sl_price}
                                     if 'entry2_signal_bar' in df.columns:
                                         df.at[signal_bar_index, 'entry2_signal_bar'] = 1
                                     self._reset_entry2_state_machine(symbol)
-                                    logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f}) [new signal overwrote previous pending]")
+                                    logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f} [{_confirm_price_field}], sl_price={sl_price:.2f}) [new signal overwrote previous pending]")
                     else:
                         # Normal Entry2 path (no pending)
                         signal_bar_index = i
@@ -3246,7 +3251,8 @@ class Entry2BacktestStrategyFixed:
                                         next_open = float(df.iloc[next_bar]['open'])
                                         sl_pct = self._determine_stop_loss_percent(next_open)
                                         sl_price = next_open * (1 - sl_pct / 100.0)
-                                        confirm_high = float(df.iloc[signal_bar_index]['high'])
+                                        _confirm_price_field = 'close' if getattr(self, 'entry2_optimal_entry_confirm_price', 'HIGH') == 'CLOSE' else 'high'
+                                        confirm_high = float(df.iloc[signal_bar_index][_confirm_price_field])
                                         if not hasattr(self, 'pending_optimal_entry'):
                                             self.pending_optimal_entry = {}
                                         self.pending_optimal_entry[symbol] = {'confirm_bar': signal_bar_index, 'confirm_high': confirm_high, 'sl_price': sl_price}
@@ -3254,7 +3260,7 @@ class Entry2BacktestStrategyFixed:
                                         if 'entry2_signal_bar' in df.columns:
                                             df.at[signal_bar_index, 'entry2_signal_bar'] = 1  # 1 = signal bar (numeric)
                                         self._reset_entry2_state_machine(symbol)
-                                        logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f}, sl_price={sl_price:.2f})")
+                                        logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f} [{_confirm_price_field}], sl_price={sl_price:.2f})")
                                     else:
                                         entered = self._enter_position(df, signal_bar_index, "Entry2")
                                         if entered:

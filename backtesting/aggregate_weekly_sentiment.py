@@ -234,12 +234,13 @@ def find_sentiment_files(base_path, analysis_config=None, entry_type='Entry2', g
     
     # Try to load from backtesting_config.yaml and CPR config
     config_path = base_path / 'backtesting_config.yaml'
-    cpr_config_path = base_path / 'grid_search_tools' / 'cpr_market_sentiment' / 'config.yaml'
+    cpr_config_path = base_path / 'grid_search_tools' / 'cpr_market_sentiment_v1' / 'config.yaml'
     
     if config_path.exists():
         try:
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
+            config = resolve_strike_mode(config)  # Resolve STRIKE_MODE so BACKTESTING_DAYS is set
         except Exception as e:
             logger.warning(f"Could not load backtesting_config.yaml: {e}")
     
