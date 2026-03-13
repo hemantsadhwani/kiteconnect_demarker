@@ -101,7 +101,8 @@ TARGET_EXPIRY:
   # - '2026-03-06'
   # - '2026-03-09'
   # - '2026-03-10'
-  - '2026-03-11'
+  # - '2026-03-11'
+  - '2026-03-13'
 
   # ── ST100 trading days (active when STRIKE_MODE: ST100) ──────────────────────
   TRADING_DAYS_ST100:
@@ -137,7 +138,7 @@ TARGET_EXPIRY:
 
   # ── BOTH: same dates for ST50 and ST100 (Part A — add new day once for both) ─
   TRADING_DAYS_BOTH:
-  - '2026-03-12'
+  - '2026-03-13'
 
 # ── Strike-mode selector ─────────────────────────────────────────────────────
 # indicators_config.yaml is the authority for run_indicators.py (always run

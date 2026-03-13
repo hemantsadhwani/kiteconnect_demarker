@@ -98,7 +98,8 @@ DATE_MAPPINGS:
   # '2026-03-09': MAR10
   # '2026-03-10': MAR10
   # '2026-03-11': MAR17
-  '2026-03-12': MAR17
+  # '2026-03-12': MAR17
+  '2026-03-13': MAR17
 
 # Realtime alignment: sentiment of candle T is only known when T closes (at start of T+1).
 # Workflow file (nifty_market_sentiment_<date>.csv) – used by backtest:
