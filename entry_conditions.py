@@ -163,6 +163,26 @@ class EntryConditionManager:
             )
         else:
             self.logger.info("WPR9_ENTRY_GATE disabled")
+
+        # NIFTY_REGIME_FILTER: reject all Entry2 trades on low-volatility days.
+        # At 10:15 AM, compute Nifty 1-min close-to-close return std-dev for 09:15-10:15.
+        # If below threshold, day is too quiet for reversals — skip all entries.
+        _regime_cfg = strategy_config.get('NIFTY_REGIME_FILTER', {})
+        if isinstance(_regime_cfg, dict):
+            self.regime_filter_enabled = _regime_cfg.get('ENABLED', False)
+            self.regime_vol_threshold = float(_regime_cfg.get('MIN_FIRST_HOUR_VOL', 0.028))
+        else:
+            self.regime_filter_enabled = False
+            self.regime_vol_threshold = 0.028
+        self._regime_checked_today = False
+        self._regime_trading_allowed = True
+        self._regime_check_date = None
+        if self.regime_filter_enabled:
+            self.logger.info(
+                f"NIFTY_REGIME_FILTER ENABLED: reject all Entry2 when first-hour vol < {self.regime_vol_threshold}"
+            )
+        else:
+            self.logger.info("NIFTY_REGIME_FILTER disabled")
         # SL_MODE for Entry2: "Swing Low" = use swing low as invalidation level for pending optimal entry; "Fixed Percentage" = use % below confirm close
         sl_mode_raw = (strategy_config.get('SL_MODE') or 'Fixed Percentage').strip()
         self.sl_mode_use_swing_low = sl_mode_raw.upper().startswith('SWING')
@@ -1581,6 +1601,69 @@ class EntryConditionManager:
             f"(fast_wpr={wpr9:.2f} < {self.wpr9_gate_threshold})"
         )
         return False
+
+    def _check_regime_filter(self, symbol: str) -> bool:
+        """Nifty first-hour volatility regime filter. Rejects ALL trades on low-vol days.
+        Computed once per day at/after 10:15 AM using Kite historical API. Cached for the day.
+        Returns True if trading is allowed, False if rejected."""
+        if not getattr(self, 'regime_filter_enabled', False):
+            return True
+
+        today = datetime.now().date()
+
+        if self._regime_check_date == today and self._regime_checked_today:
+            if not self._regime_trading_allowed:
+                self.logger.debug(f"REGIME: REJECT {symbol} (cached: low-vol day)")
+            return self._regime_trading_allowed
+
+        current_time = datetime.now().time()
+        if current_time < dt_time(10, 16):
+            return True
+
+        try:
+            from_dt = datetime.combine(today, dt_time(9, 15))
+            to_dt = datetime.combine(today, dt_time(10, 15))
+
+            data = self.kite.historical_data(
+                instrument_token=256265,  # NIFTY 50
+                from_date=from_dt,
+                to_date=to_dt,
+                interval="minute",
+            )
+
+            if not data or len(data) < 10:
+                self.logger.info(f"REGIME: ALLOW {symbol} (insufficient Nifty first-hour candles: {len(data) if data else 0})")
+                self._regime_checked_today = True
+                self._regime_trading_allowed = True
+                self._regime_check_date = today
+                return True
+
+            import numpy as np
+            closes = [float(c['close']) for c in data]
+            returns = np.diff(closes) / closes[:-1]
+            vol = float(np.std(returns)) * 100
+
+            allowed = vol >= self.regime_vol_threshold
+            self._regime_checked_today = True
+            self._regime_trading_allowed = allowed
+            self._regime_check_date = today
+
+            if allowed:
+                self.logger.info(
+                    f"REGIME: ALLOW — first_hour_vol={vol:.4f} >= {self.regime_vol_threshold} (trading enabled for today)"
+                )
+            else:
+                self.logger.info(
+                    f"REGIME: REJECT ALL TRADES — first_hour_vol={vol:.4f} < {self.regime_vol_threshold} (low-vol day, skipping)"
+                )
+            return allowed
+
+        except Exception as e:
+            self.logger.warning(f"REGIME: ALLOW {symbol} (error fetching Nifty data: {e})")
+            self._regime_checked_today = True
+            self._regime_trading_allowed = True
+            self._regime_check_date = today
+            return True
 
     def _validate_price_zone(self, symbol, ticker_handler):
         """
@@ -3732,6 +3815,10 @@ class EntryConditionManager:
                             self.logger.info(f"Skipping REVERSAL trade (optimal entry) for {symbol}: Swing low distance ({swing_low_distance_percent:.2f}%) exceeds max ({max_swing_low_distance_percent:.2f}%)")
                             del self.pending_optimal_entry[symbol]
                             return False
+                    if not self._check_regime_filter(symbol):
+                        del self.pending_optimal_entry[symbol]
+                        self.logger.info(f"Entry 2 (optimal entry) for {symbol} REJECTED by REGIME filter — clearing pending")
+                        return False
                     if not self._check_wpr9_entry_gate(df_with_indicators, symbol):
                         del self.pending_optimal_entry[symbol]
                         self.logger.info(f"Entry 2 (optimal entry) for {symbol} REJECTED by WPR9 gate — clearing pending")
@@ -3799,6 +3886,12 @@ class EntryConditionManager:
                             )
                             del self.pending_optimal_entry[symbol]
                             return False
+                    if not self._check_regime_filter(symbol):
+                        del self.pending_optimal_entry[symbol]
+                        self.logger.info(
+                            f"Entry 2 (retroactive optimal entry) for {symbol} REJECTED by REGIME filter — clearing pending"
+                        )
+                        return False
                     if not self._check_wpr9_entry_gate(df_with_indicators, symbol):
                         del self.pending_optimal_entry[symbol]
                         self.logger.info(
@@ -3853,6 +3946,11 @@ class EntryConditionManager:
                     else:
                         self.logger.debug(f"Entry Risk Validation PASSED for {symbol}: Swing low distance ({swing_low_distance_percent:.2f}%) <= maximum allowed ({max_swing_low_distance_percent:.2f}%)")
                 
+                if not self._check_regime_filter(symbol):
+                    self.logger.info(f"Entry 2 ({self.entry2_confirmation_window}-Bar) for {symbol} REJECTED by REGIME filter")
+                    if symbol in self.entry2_state_machine:
+                        self._reset_entry2_state_machine(symbol)
+                    return False
                 if not self._check_wpr9_entry_gate(df_with_indicators, symbol):
                     self.logger.info(f"Entry 2 ({self.entry2_confirmation_window}-Bar) for {symbol} REJECTED by WPR9 gate")
                     if symbol in self.entry2_state_machine:

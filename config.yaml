@@ -86,6 +86,15 @@ TRADE_SETTINGS:
     ENABLED: true
     THRESHOLD: -50
 
+  # NIFTY_REGIME_FILTER: reject all Entry2 trades on low-volatility days.
+  # Computes Nifty 1-min return std-dev in the first hour (09:15-10:15) at 10:15 AM.
+  # Research: days with first-hour vol < 0.028 are net losers even with WPR9.
+  # Drops ~30% of days while improving NET P&L by +30 pts (after slippage).
+  # Enable after WPR9 gate is validated in production.
+  NIFTY_REGIME_FILTER:
+    ENABLED: false
+    MIN_FIRST_HOUR_VOL: 0.028
+
 # High-Water Mark Trailing Stop Risk Management (aligned with backtesting_st50/backtesting_config.yaml)
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:
@@ -127,7 +136,7 @@ TIME_DISTRIBUTION_FILTER:
     09:15-10:00: true
     10:00-11:00: true
     11:00-12:00: true
-    12:00-13:00: false
+    12:00-13:00: true
     13:00-14:00: true
     14:00-15:30: false
 

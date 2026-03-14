@@ -494,6 +494,42 @@ class Entry2BacktestStrategyFixed:
         logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, confirm_price field: {self.entry2_optimal_entry_confirm_price}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}, trigger require SuperTrend bearish: {self.entry2_trigger_require_supertrend_bearish}")
         if self.entry2_wpr9_gate_enabled:
             logger.info(f"Entry2 WPR9 entry gate ENABLED: threshold={self.entry2_wpr9_gate_threshold} (reject entry when fast_wpr < {self.entry2_wpr9_gate_threshold})")
+        # ML_ENTRY_GATE: GradientBoosting classifier replacing / complementing WPR9 gate.
+        _ml_gate_cfg = entry2_config.get('ML_ENTRY_GATE', {})
+        self.entry2_ml_gate_enabled = False
+        self._ml_gate_model = None
+        if isinstance(_ml_gate_cfg, dict) and _ml_gate_cfg.get('ENABLED', False):
+            ml_model_path = _ml_gate_cfg.get('MODEL_PATH', 'models/ml_entry_gate.pkl')
+            ml_threshold = float(_ml_gate_cfg.get('THRESHOLD', 0.40))
+            # Resolve relative path from backtesting directory
+            ml_path = Path(ml_model_path)
+            if not ml_path.is_absolute():
+                ml_path = Path(__file__).resolve().parent / ml_model_path
+            if ml_path.exists():
+                try:
+                    from ml_entry_gate import MLEntryGateModel
+                    self._ml_gate_model = MLEntryGateModel(str(ml_path))
+                    self._ml_gate_model.threshold = ml_threshold
+                    self.entry2_ml_gate_enabled = True
+                    logger.info(f"Entry2 ML entry gate ENABLED: model={ml_path.name}, threshold={ml_threshold}")
+                except Exception as e:
+                    logger.error(f"Failed to load ML entry gate model from {ml_path}: {e}")
+            else:
+                logger.warning(f"ML_ENTRY_GATE enabled but model file not found: {ml_path}")
+        # NIFTY_REGIME_FILTER: reject all Entry2 trades on days where Nifty first-hour
+        # volatility is below threshold. Low first-hour vol = trending/quiet day where
+        # reversals fail. Computed once per day from Nifty 1-min data by 10:15 AM.
+        _regime_cfg = entry2_config.get('NIFTY_REGIME_FILTER', {})
+        if isinstance(_regime_cfg, dict):
+            self.regime_filter_enabled = _regime_cfg.get('ENABLED', False)
+            self.regime_vol_threshold = float(_regime_cfg.get('MIN_FIRST_HOUR_VOL', 0.029))
+        else:
+            self.regime_filter_enabled = False
+            self.regime_vol_threshold = 0.029
+        self._regime_cache = {}  # date_str -> bool (True = trading allowed)
+        if self.regime_filter_enabled:
+            logger.info(f"NIFTY_REGIME_FILTER ENABLED: reject day when first-hour vol < {self.regime_vol_threshold}")
+
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -691,6 +727,99 @@ class Entry2BacktestStrategyFixed:
             return True
         logger.info(f"Entry2 WPR9 gate: REJECT {symbol} at bar {execution_index} (fast_wpr={wpr9:.2f} < {self.entry2_wpr9_gate_threshold})")
         return False
+
+    def _check_ml_entry_gate(self, df: pd.DataFrame, execution_index: int, symbol: str) -> bool:
+        """ML entry gate: predict P(winner) using GradientBoosting; reject when below threshold.
+        Returns True if entry is allowed, False if rejected."""
+        if not getattr(self, 'entry2_ml_gate_enabled', False) or self._ml_gate_model is None:
+            return True
+        if execution_index < 0 or execution_index >= len(df):
+            return True
+        try:
+            from ml_entry_gate import extract_features_from_df
+            entry_price = None
+            if execution_index + 1 < len(df):
+                ep = df.iloc[execution_index + 1].get('open')
+                if pd.notna(ep):
+                    entry_price = float(ep)
+            if entry_price is None:
+                ep = df.iloc[execution_index].get('close')
+                if pd.notna(ep):
+                    entry_price = float(ep)
+            features = extract_features_from_df(df, execution_index, entry_price)
+            allowed, proba, reason = self._ml_gate_model.should_enter(features)
+            if allowed:
+                logger.info(f"Entry2 ML gate: ALLOW {symbol} at bar {execution_index} ({reason})")
+            else:
+                logger.info(f"Entry2 ML gate: REJECT {symbol} at bar {execution_index} ({reason})")
+            return allowed
+        except Exception as e:
+            logger.warning(f"Entry2 ML gate error for {symbol} at bar {execution_index}: {e}; allowing entry")
+            return True
+
+    def _check_regime_filter(self, df: pd.DataFrame, execution_index: int, symbol: str) -> bool:
+        """Nifty first-hour volatility regime filter. Rejects ALL trades on low-vol days.
+        Computes once per day (cached). Returns True if trading is allowed."""
+        if not getattr(self, 'regime_filter_enabled', False):
+            return True
+
+        date_str = None
+        try:
+            exec_date = df.iloc[execution_index].get('date', df.index[execution_index] if isinstance(df.index, pd.DatetimeIndex) else None)
+            if isinstance(exec_date, pd.Timestamp):
+                date_str = str(exec_date.date())
+            elif exec_date is not None:
+                date_str = str(pd.Timestamp(str(exec_date)).date())
+        except Exception:
+            pass
+
+        if date_str is None:
+            if hasattr(self, 'csv_file_path') and self.csv_file_path:
+                parent = self.csv_file_path.parent
+                day_label = parent.parent.name if parent.name in ('ATM', 'OTM') else parent.name
+                date_str = day_label
+            else:
+                return True
+
+        if date_str in self._regime_cache:
+            allowed = self._regime_cache[date_str]
+            if not allowed:
+                logger.debug(f"REGIME: REJECT {symbol} (cached: low-vol day {date_str})")
+            return allowed
+
+        nifty_file = self._get_nifty_file_path(
+            self.csv_file_path, date_str
+        ) if hasattr(self, 'csv_file_path') and self.csv_file_path else None
+
+        if not nifty_file or not nifty_file.exists():
+            logger.info(f"REGIME: ALLOW {symbol} on {date_str} (no Nifty file, cannot filter)")
+            self._regime_cache[date_str] = True
+            return True
+
+        try:
+            ndf = pd.read_csv(nifty_file)
+            ndf['date'] = pd.to_datetime(ndf['date'])
+            first_hour = ndf[
+                (ndf['date'].dt.time >= pd.Timestamp('09:15:00').time()) &
+                (ndf['date'].dt.time < pd.Timestamp('10:15:00').time())
+            ]
+            if len(first_hour) < 10:
+                logger.info(f"REGIME: ALLOW {symbol} on {date_str} (insufficient first-hour candles: {len(first_hour)})")
+                self._regime_cache[date_str] = True
+                return True
+
+            vol = first_hour['close'].pct_change().std() * 100
+            allowed = vol >= self.regime_vol_threshold
+            self._regime_cache[date_str] = allowed
+            if allowed:
+                logger.info(f"REGIME: ALLOW {symbol} on {date_str} (first_hour_vol={vol:.4f} >= {self.regime_vol_threshold})")
+            else:
+                logger.info(f"REGIME: REJECT {symbol} on {date_str} (first_hour_vol={vol:.4f} < {self.regime_vol_threshold}) — low-vol day")
+            return allowed
+        except Exception as e:
+            logger.warning(f"REGIME: ALLOW {symbol} on {date_str} (error computing vol: {e})")
+            self._regime_cache[date_str] = True
+            return True
 
     def _normalize_stop_loss_config(self, raw_config) -> Dict[str, float]:
         """Ensure STOP_LOSS_PERCENT config is represented as a dict with above/between/below values."""
@@ -3227,8 +3356,18 @@ class Entry2BacktestStrategyFixed:
                     if pending_opt is not None:
                         result = self._check_pending_optimal_entry(df, i, symbol)
                         if result == 'enter':
+                            if not self._check_regime_filter(df, i, symbol):
+                                logger.info(f"Entry2 optimal entry at bar {i} ({symbol}) rejected by REGIME filter — invalidating pending")
+                                del self.pending_optimal_entry[symbol]
+                                result = 'invalidate'
+                        if result == 'enter':
                             if not self._check_wpr9_entry_gate(df, i, symbol):
                                 logger.info(f"Entry2 optimal entry at bar {i} ({symbol}) rejected by WPR9 entry gate — invalidating pending")
+                                del self.pending_optimal_entry[symbol]
+                                result = 'invalidate'
+                        if result == 'enter':
+                            if not self._check_ml_entry_gate(df, i, symbol):
+                                logger.info(f"Entry2 optimal entry at bar {i} ({symbol}) rejected by ML entry gate — invalidating pending")
                                 del self.pending_optimal_entry[symbol]
                                 result = 'invalidate'
                         if result == 'enter':
@@ -3299,8 +3438,12 @@ class Entry2BacktestStrategyFixed:
                                         logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f} [{_confirm_price_field}], sl_price={sl_price:.2f})")
                                     else:
                                         fb_exec = signal_bar_index + 1 if signal_bar_index + 1 < len(df) else signal_bar_index
-                                        if not self._check_wpr9_entry_gate(df, fb_exec, symbol):
+                                        if not self._check_regime_filter(df, fb_exec, symbol):
+                                            logger.info(f"Entry2 fallback entry at bar {signal_bar_index} ({symbol}) rejected by REGIME filter")
+                                        elif not self._check_wpr9_entry_gate(df, fb_exec, symbol):
                                             logger.info(f"Entry2 fallback entry at bar {signal_bar_index} ({symbol}) rejected by WPR9 gate")
+                                        elif not self._check_ml_entry_gate(df, fb_exec, symbol):
+                                            logger.info(f"Entry2 fallback entry at bar {signal_bar_index} ({symbol}) rejected by ML gate")
                                         else:
                                             entered = self._enter_position(df, signal_bar_index, "Entry2")
                                             if entered:
@@ -3314,8 +3457,12 @@ class Entry2BacktestStrategyFixed:
                                                 logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
                                 else:
                                     exec_bar = signal_bar_index + 1 if signal_bar_index + 1 < len(df) else signal_bar_index
-                                    if not self._check_wpr9_entry_gate(df, exec_bar, symbol):
+                                    if not self._check_regime_filter(df, exec_bar, symbol):
+                                        logger.info(f"Entry2 signal at bar {signal_bar_index} ({symbol}) rejected by REGIME filter at execution bar {exec_bar}")
+                                    elif not self._check_wpr9_entry_gate(df, exec_bar, symbol):
                                         logger.info(f"Entry2 signal at bar {signal_bar_index} ({symbol}) rejected by WPR9 entry gate at execution bar {exec_bar}")
+                                    elif not self._check_ml_entry_gate(df, exec_bar, symbol):
+                                        logger.info(f"Entry2 signal at bar {signal_bar_index} ({symbol}) rejected by ML entry gate at execution bar {exec_bar}")
                                     else:
                                         entered = self._enter_position(df, signal_bar_index, "Entry2")
                                         if entered:
