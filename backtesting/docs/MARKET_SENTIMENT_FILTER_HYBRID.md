@@ -51,11 +51,11 @@ In `backtesting_config.yaml`:
 MARKET_SENTIMENT_FILTER:
   ENABLED: true
   MODE: HYBRID
-  SENTIMENT_VERSION: v5
+  SENTIMENT_VERSION: v1
   HYBRID_STRICT_ZONE: R1_S1   # Only R1_S1 is supported
 ```
 
-- **SENTIMENT_VERSION** is used **only inside the strict zone** (v5 = BULLISH→CE only, BEARISH→PE only).
+- **SENTIMENT_VERSION** is used **only inside the strict zone** (v1 = BULLISH→CE only, BEARISH→PE only).
 - **HYBRID_STRICT_ZONE**: currently only **R1_S1** is supported (strict zone = between R1 and S1).
 
 ---

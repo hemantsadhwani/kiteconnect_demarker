@@ -41,10 +41,10 @@ In `backtesting_config.yaml`:
 MARKET_SENTIMENT_FILTER:
   ENABLED: true
   MODE: AUTO
-  SENTIMENT_VERSION: v5   # or v2, v3, v4 — see below
+  SENTIMENT_VERSION: v1   # or v2, v3, v4 — see below
 ```
 
-- **SENTIMENT_VERSION** controls which rule set is used (v2 = traditional only; v3/v4 = transition-based; v5 = traditional, same as used with HYBRID strict zone).
+- **SENTIMENT_VERSION** controls which rule set is used (v2 = traditional only; v3/v4 = transition-based; v1 = traditional, same as used with HYBRID strict zone).
 
 ---
 

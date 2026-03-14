@@ -1,6 +1,6 @@
 """
 Utility functions for calculating CPR_PIVOT_WIDTH and determining dynamic CPR_BAND_WIDTH.
-Ported from backtesting_st50/grid_search_tools/cpr_market_sentiment_v5.
+Ported from backtesting/grid_search_tools/cpr_market_sentiment_v1.
 """
 
 

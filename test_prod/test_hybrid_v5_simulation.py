@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from entry_conditions import compute_effective_sentiment_hybrid, EntryConditionManager
-from market_sentiment_v5.trading_sentiment_analyzer import NiftySentimentAnalyzer
+from market_sentiment_v1.trading_sentiment_analyzer import NiftySentimentAnalyzer
 from trade_state_manager import TradeStateManager
 
 
@@ -114,8 +114,8 @@ def test_state_manager_hybrid():
 def test_v5_realtime_manager_cpr_today():
     """Test: v5 RealTimeMarketSentimentManager init from cpr_today (no Kite)."""
     print("\n--- 5. v5 RealTimeMarketSentimentManager (cpr_today init) ---")
-    from market_sentiment_v5.realtime_sentiment_manager import RealTimeMarketSentimentManager
-    config_path = Path(__file__).parent.parent / "market_sentiment_v5" / "config.yaml"
+    from market_sentiment_v1.realtime_sentiment_manager import RealTimeMarketSentimentManager
+    config_path = Path(__file__).parent.parent / "market_sentiment_v1" / "config.yaml"
     cpr_today = {"P": 24500.0, "R1": 24600.0, "S1": 24400.0}
     try:
         mgr = RealTimeMarketSentimentManager(str(config_path), kite=None, cpr_today=cpr_today)

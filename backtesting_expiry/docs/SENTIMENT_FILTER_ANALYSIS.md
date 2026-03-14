@@ -58,7 +58,7 @@ All three modes use the **same backtest entry logic**: `CPR_TRADING_RANGE` is ap
 - **Between R1 and S1**: AUTO sentiment (BULLISH→CE, BEARISH→PE).
 - **Below S1 and above R1**: NEUTRAL (take all CE/PE).
 
-Config: `MODE: HYBRID`, `SENTIMENT_VERSION: v5`, `HYBRID_STRICT_ZONE: R1_S1`.
+Config: `MODE: HYBRID`, `SENTIMENT_VERSION: v1`, `HYBRID_STRICT_ZONE: R1_S1`.
 
 ---
 

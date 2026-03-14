@@ -898,7 +898,7 @@ class AsyncTradingBot:
             logger.info("  %s = %.2f", upper_col, cpr_upper)
             logger.info("=" * 60)
 
-            # Store for live use: entry-band check, HYBRID R1/S1, and for market_sentiment_v5 reuse (full levels + all bands)
+            # Store for live use: entry-band check, HYBRID R1/S1, and for market_sentiment_v1 reuse (full levels + all bands)
             self.cpr_today = {
                 "P": pivot, "R1": r1, "R2": r2, "R3": r3, "R4": r4, "S1": s1, "S2": s2, "S3": s3, "S4": s4,
                 "band_S2_lower": cpr_lower, "band_R2_upper": cpr_upper,
@@ -1254,20 +1254,20 @@ class AsyncTradingBot:
             else:
                 version = f"v{version}" if version.isdigit() else 'v1'
             
-            # Import the correct version (v5 can accept cpr_today from workflow to avoid duplicate computation)
+            # Import the correct version (v1 can accept cpr_today from workflow to avoid duplicate computation)
             cpr_today = getattr(self, 'cpr_today', None)
-            if version == 'v5':
-                from market_sentiment_v5.realtime_sentiment_manager import RealTimeMarketSentimentManager
-                default_config_path = 'market_sentiment_v5/config.yaml'
+            if version == 'v1':
+                from market_sentiment_v1.realtime_sentiment_manager import RealTimeMarketSentimentManager
+                default_config_path = 'market_sentiment_v1/config.yaml'
                 if cpr_today is None:
                     logger.warning(
-                        "Market Sentiment v5: cpr_today is None (CPR_TRADING_RANGE may be disabled). "
-                        "v5 will try to init from Kite OHLC; if that fails, sentiment will stay NEUTRAL."
+                        "Market Sentiment v1: cpr_today is None (CPR_TRADING_RANGE may be disabled). "
+                        "v1 will try to init from Kite OHLC; if that fails, sentiment will stay NEUTRAL."
                     )
                 else:
-                    logger.info("Using Market Sentiment v5 (CPR + Type 2 bands; reuses workflow cpr_today)")
+                    logger.info("Using Market Sentiment v1 (CPR + Type 2 bands; reuses workflow cpr_today)")
                 sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
-                if 'v5' not in sentiment_config_path:
+                if 'market_sentiment_v1' not in sentiment_config_path:
                     sentiment_config_path = default_config_path
                 self.market_sentiment_manager = RealTimeMarketSentimentManager(
                     sentiment_config_path, self.kite, cpr_today=cpr_today
@@ -1283,15 +1283,17 @@ class AsyncTradingBot:
             else:
                 from market_sentiment_v1.realtime_sentiment_manager import RealTimeMarketSentimentManager
                 default_config_path = 'market_sentiment_v1/config.yaml'
-                logger.info("Using Market Sentiment v1 (legacy implementation)")
+                logger.info("Using Market Sentiment v1 (fallback for other versions)")
                 sentiment_config_path = sentiment_config.get('CONFIG_PATH', default_config_path)
-                if version == 'v1' and 'v2' in sentiment_config_path:
+                if version != 'v2' and 'v2' in sentiment_config_path:
                     sentiment_config_path = default_config_path
-                self.market_sentiment_manager = RealTimeMarketSentimentManager(sentiment_config_path, self.kite)
+                self.market_sentiment_manager = RealTimeMarketSentimentManager(
+                    sentiment_config_path, self.kite, cpr_today=cpr_today
+                )
             
-            # v2 and v5: No cold start - analyzer initializes when first candle is processed (v5 may use cpr_today from workflow)
-            # v1: Perform cold start if method exists
-            if version in ('v2', 'v5'):
+            # v2 and v1: No cold start - analyzer initializes when first candle is processed (v1 may use cpr_today from workflow)
+            # legacy: Perform cold start if method exists
+            if version in ('v2', 'v1'):
                 logger.info(f"[OK] Automated Market Sentiment Manager ({version}) initialized. "
                           f"Analyzer will initialize when first candle is processed. "
                           f"(config: {sentiment_config_path})")

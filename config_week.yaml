@@ -243,8 +243,8 @@ MARKET_SENTIMENT:
   HYBRID_STRICT_ZONE: R1_S1  # Only R1_S1 supported; strict zone = [S1, R1]
 
   # Used when MODE=AUTO or MODE=HYBRID (strict zone)
-  SENTIMENT_VERSION: "v5"
-  CONFIG_PATH: "market_sentiment_v5/config.yaml"
+  SENTIMENT_VERSION: "v1"
+  CONFIG_PATH: "market_sentiment_v1/config.yaml"
 
   # Used when MODE=MANUAL
   MANUAL_SENTIMENT: NEUTRAL  # BULLISH | BEARISH | NEUTRAL | DISABLE

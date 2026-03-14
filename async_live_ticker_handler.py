@@ -1171,7 +1171,7 @@ class AsyncLiveTickerHandler:
                 return
             
             # Process candle and get sentiment (runs in thread to avoid blocking).
-            # NCP uses same formula as backtest grid_search cpr_market_sentiment_v5: Bullish (C>=O) -> (H+C)/2, Bearish -> (L+C)/2.
+            # NCP uses same formula as backtest grid_search cpr_market_sentiment_v1: Bullish (C>=O) -> (H+C)/2, Bearish -> (L+C)/2.
             sentiment = await asyncio.to_thread(
                 self.trading_bot.market_sentiment_manager.process_candle,
                 ohlc,

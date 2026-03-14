@@ -191,8 +191,8 @@ MARKET_SENTIMENT:
   MODE: HYBRID  # Backtest: HYBRID
   HYBRID_STRICT_ZONE: R1_S1
 
-  SENTIMENT_VERSION: "v5"
-  CONFIG_PATH: "market_sentiment_v5/config.yaml"
+  SENTIMENT_VERSION: "v1"
+  CONFIG_PATH: "market_sentiment_v1/config.yaml"
 
   MANUAL_SENTIMENT: NEUTRAL  # Used when MODE=MANUAL
 
