@@ -481,7 +481,19 @@ class Entry2BacktestStrategyFixed:
         # 'CLOSE' uses the signal candle's CLOSE instead. CLOSE is slightly lower (fewer misses on big-wick candles)
         # and more consistent between historical and real-time OHLC data sources.
         self.entry2_optimal_entry_confirm_price = entry2_config.get('OPTIMAL_ENTRY_CONFIRM_PRICE', 'HIGH').upper()
+        # WPR9_ENTRY_GATE: production-robust alternative to OPTIMAL_ENTRY_CONFIRM_PRICE.
+        # Checks fast_wpr at the execution bar; rejects entry when WPR9 < threshold.
+        # Unlike OPEN-price-based confirm, WPR9 is computed from CLOSE (consistent in live trading).
+        _wpr9_gate_cfg = entry2_config.get('WPR9_ENTRY_GATE', {})
+        if isinstance(_wpr9_gate_cfg, dict):
+            self.entry2_wpr9_gate_enabled = _wpr9_gate_cfg.get('ENABLED', False)
+            self.entry2_wpr9_gate_threshold = float(_wpr9_gate_cfg.get('THRESHOLD', -50))
+        else:
+            self.entry2_wpr9_gate_enabled = False
+            self.entry2_wpr9_gate_threshold = -50.0
         logger.info(f"Entry2 trigger mode: {self.entry2_trigger}, confirmation window: {self.entry2_confirmation_window} candles, optimal entry above confirm open: {self.entry2_optimal_entry_above_confirm_open}, confirm_price field: {self.entry2_optimal_entry_confirm_price}, optimal entry WPR invalidate: {self.entry2_optimal_entry_wpr_invalidate}, trigger require SuperTrend bearish: {self.entry2_trigger_require_supertrend_bearish}")
+        if self.entry2_wpr9_gate_enabled:
+            logger.info(f"Entry2 WPR9 entry gate ENABLED: threshold={self.entry2_wpr9_gate_threshold} (reject entry when fast_wpr < {self.entry2_wpr9_gate_threshold})")
         # DeMarker-based Entry2 params: from indicators_config.yaml THRESHOLDS (single source, no duplication in backtesting_config)
         self.demarker_oversold = float(thresholds.get('DEMARKER_OVERSOLD', 0.30))
         self.stoch_k_min = float(thresholds.get('STOCH_RSI_OVERSOLD', 20))  # Entry2 confirmation: StochRSI(K) > this
@@ -660,6 +672,25 @@ class Entry2BacktestStrategyFixed:
             logger.info(f"Entry2 optimal entry: ENTER at bar {current_index} for {symbol} (open={open_price:.2f} >= confirm_high={confirm_high:.2f})")
             return 'enter'
         return 'wait'
+
+    def _check_wpr9_entry_gate(self, df: pd.DataFrame, execution_index: int, symbol: str) -> bool:
+        """WPR9 entry gate: reject entry when fast_wpr at execution bar is below threshold.
+        Returns True if entry is allowed, False if rejected."""
+        if not getattr(self, 'entry2_wpr9_gate_enabled', False):
+            return True
+        if execution_index < 0 or execution_index >= len(df):
+            return True
+        row = df.iloc[execution_index]
+        wpr9 = row.get('fast_wpr', row.get('wpr_9', None))
+        if pd.isna(wpr9):
+            logger.info(f"Entry2 WPR9 gate: ALLOW {symbol} at bar {execution_index} (fast_wpr=NaN, no data to filter)")
+            return True
+        wpr9 = float(wpr9)
+        if wpr9 >= self.entry2_wpr9_gate_threshold:
+            logger.info(f"Entry2 WPR9 gate: ALLOW {symbol} at bar {execution_index} (fast_wpr={wpr9:.2f} >= {self.entry2_wpr9_gate_threshold})")
+            return True
+        logger.info(f"Entry2 WPR9 gate: REJECT {symbol} at bar {execution_index} (fast_wpr={wpr9:.2f} < {self.entry2_wpr9_gate_threshold})")
+        return False
 
     def _normalize_stop_loss_config(self, raw_config) -> Dict[str, float]:
         """Ensure STOP_LOSS_PERCENT config is represented as a dict with above/between/below values."""
@@ -3196,6 +3227,11 @@ class Entry2BacktestStrategyFixed:
                     if pending_opt is not None:
                         result = self._check_pending_optimal_entry(df, i, symbol)
                         if result == 'enter':
+                            if not self._check_wpr9_entry_gate(df, i, symbol):
+                                logger.info(f"Entry2 optimal entry at bar {i} ({symbol}) rejected by WPR9 entry gate — invalidating pending")
+                                del self.pending_optimal_entry[symbol]
+                                result = 'invalidate'
+                        if result == 'enter':
                             if not hasattr(self, 'entry2_last_signal_index'):
                                 self.entry2_last_signal_index = {}
                             self.entry2_last_signal_index[symbol] = i
@@ -3262,6 +3298,25 @@ class Entry2BacktestStrategyFixed:
                                         self._reset_entry2_state_machine(symbol)
                                         logger.info(f"Entry2 optimal entry: Pending at bar {i} for {symbol} (confirm_high={confirm_high:.2f} [{_confirm_price_field}], sl_price={sl_price:.2f})")
                                     else:
+                                        fb_exec = signal_bar_index + 1 if signal_bar_index + 1 < len(df) else signal_bar_index
+                                        if not self._check_wpr9_entry_gate(df, fb_exec, symbol):
+                                            logger.info(f"Entry2 fallback entry at bar {signal_bar_index} ({symbol}) rejected by WPR9 gate")
+                                        else:
+                                            entered = self._enter_position(df, signal_bar_index, "Entry2")
+                                            if entered:
+                                                entry2_signal_detected = True
+                                                if 'entry2_signal' in df.columns:
+                                                    df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
+                                                if 'entry2_entry_type' in df.columns:
+                                                    df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
+                                                if 'entry2_pnl' in df.columns:
+                                                    df.at[signal_bar_index, 'entry2_pnl'] = 0.0
+                                                logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
+                                else:
+                                    exec_bar = signal_bar_index + 1 if signal_bar_index + 1 < len(df) else signal_bar_index
+                                    if not self._check_wpr9_entry_gate(df, exec_bar, symbol):
+                                        logger.info(f"Entry2 signal at bar {signal_bar_index} ({symbol}) rejected by WPR9 entry gate at execution bar {exec_bar}")
+                                    else:
                                         entered = self._enter_position(df, signal_bar_index, "Entry2")
                                         if entered:
                                             entry2_signal_detected = True
@@ -3272,17 +3327,6 @@ class Entry2BacktestStrategyFixed:
                                             if 'entry2_pnl' in df.columns:
                                                 df.at[signal_bar_index, 'entry2_pnl'] = 0.0
                                             logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
-                                else:
-                                    entered = self._enter_position(df, signal_bar_index, "Entry2")
-                                    if entered:
-                                        entry2_signal_detected = True
-                                        if 'entry2_signal' in df.columns:
-                                            df.at[signal_bar_index, 'entry2_signal'] = 'Entry2'
-                                        if 'entry2_entry_type' in df.columns:
-                                            df.at[signal_bar_index, 'entry2_entry_type'] = 'Entry'
-                                        if 'entry2_pnl' in df.columns:
-                                            df.at[signal_bar_index, 'entry2_pnl'] = 0.0
-                                        logger.info(f"Marked Entry2 signal in DataFrame at index {signal_bar_index} (risk validation passed)")
                             else:
                                 logger.info(f"Entry2 signal at bar {signal_bar_index} ({symbol}) filtered out by risk validation - not setting pending/marking entry")
                         else:

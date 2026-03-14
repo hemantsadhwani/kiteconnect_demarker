@@ -249,6 +249,13 @@ ENTRY2:
   # Switch between HIGH and CLOSE here to A/B test; keep HIGH for production-equivalent baseline.
   OPTIMAL_ENTRY_CONFIRM_PRICE: HIGH
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
+  # WPR9_ENTRY_GATE: production-robust replacement for OPTIMAL_ENTRY_CONFIRM_PRICE.
+  # Rejects Entry2 when fast_wpr (WPR9) at execution bar < THRESHOLD.
+  # Uses CLOSE-based indicator (consistent live vs historical), not OPEN price.
+  # Research: WPR9 >= -50 retains 76% winners, rejects 55% losers, win rate 52%.
+  WPR9_ENTRY_GATE:
+    ENABLED: true
+    THRESHOLD: -50
   SL_MODE: Fixed Percentage #Swing Low 
   TRIGGER: WPR  #DEMARKER #WPR 
   # When true (default): exit Entry2 DeMarker trade if DeMarker goes below DEMARKER_OVERSOLD; reset state so new trigger can initiate next bar

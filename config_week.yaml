@@ -78,6 +78,14 @@ TRADE_SETTINGS:
   OPTIMAL_ENTRY_WPR_INVALIDATE: false
   WPR_INVALIDATION: true
 
+  # WPR9_ENTRY_GATE: production-robust replacement for OPTIMAL_ENTRY_CONFIRM_PRICE.
+  # Rejects Entry2 when fast_wpr (WPR9) at execution bar < THRESHOLD.
+  # Uses CLOSE-based indicator (consistent live vs historical), not OPEN price.
+  # Research: WPR9 >= -50 retains 76% winners, rejects 55% losers, win rate 52%.
+  WPR9_ENTRY_GATE:
+    ENABLED: true
+    THRESHOLD: -50
+
 # High-Water Mark Trailing Stop Risk Management (aligned with backtesting_st50/backtesting_config.yaml)
 # Implements trailing max drawdown to cap daily losses from highest PnL/capital
 MARK2MARKET:

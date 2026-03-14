@@ -147,6 +147,22 @@ class EntryConditionManager:
         self.optimal_entry_above_confirm_open = strategy_config.get('OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN', False)
         self.optimal_entry_wpr_invalidate = strategy_config.get('OPTIMAL_ENTRY_WPR_INVALIDATE', False)
         self.logger.info(f"OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN: {self.optimal_entry_above_confirm_open}, OPTIMAL_ENTRY_WPR_INVALIDATE: {self.optimal_entry_wpr_invalidate}")
+        # WPR9_ENTRY_GATE: production-robust replacement for OPTIMAL_ENTRY_CONFIRM_PRICE.
+        # Rejects Entry2 when fast_wpr (WPR9) at the current candle < THRESHOLD.
+        # Uses CLOSE-based indicator (consistent in live trading), not OPEN price.
+        _wpr9_gate_cfg = strategy_config.get('WPR9_ENTRY_GATE', {})
+        if isinstance(_wpr9_gate_cfg, dict):
+            self.wpr9_gate_enabled = _wpr9_gate_cfg.get('ENABLED', False)
+            self.wpr9_gate_threshold = float(_wpr9_gate_cfg.get('THRESHOLD', -50))
+        else:
+            self.wpr9_gate_enabled = False
+            self.wpr9_gate_threshold = -50.0
+        if self.wpr9_gate_enabled:
+            self.logger.info(
+                f"WPR9_ENTRY_GATE ENABLED: reject Entry2 when fast_wpr < {self.wpr9_gate_threshold}"
+            )
+        else:
+            self.logger.info("WPR9_ENTRY_GATE disabled")
         # SL_MODE for Entry2: "Swing Low" = use swing low as invalidation level for pending optimal entry; "Fixed Percentage" = use % below confirm close
         sl_mode_raw = (strategy_config.get('SL_MODE') or 'Fixed Percentage').strip()
         self.sl_mode_use_swing_low = sl_mode_raw.upper().startswith('SWING')
@@ -1534,6 +1550,37 @@ class EntryConditionManager:
             )
             return 'enter'
         return 'wait'
+
+    def _check_wpr9_entry_gate(self, df_with_indicators, symbol: str) -> bool:
+        """WPR9 entry gate: reject Entry2 when fast_wpr at the current candle is below threshold.
+        Returns True if entry is ALLOWED, False if REJECTED.
+        Uses the latest completed candle's fast_wpr (CLOSE-based, production-consistent)."""
+        if not getattr(self, 'wpr9_gate_enabled', False):
+            return True
+        if df_with_indicators is None or df_with_indicators.empty:
+            self.logger.info(
+                f"WPR9 gate: ALLOW {symbol} (no indicator data available)"
+            )
+            return True
+        row = df_with_indicators.iloc[-1]
+        wpr9 = row.get('fast_wpr', row.get('wpr_9', None))
+        if pd.isna(wpr9):
+            self.logger.info(
+                f"WPR9 gate: ALLOW {symbol} (fast_wpr=NaN, no data to filter)"
+            )
+            return True
+        wpr9 = float(wpr9)
+        if wpr9 >= self.wpr9_gate_threshold:
+            self.logger.info(
+                f"WPR9 gate: ALLOW {symbol} "
+                f"(fast_wpr={wpr9:.2f} >= {self.wpr9_gate_threshold})"
+            )
+            return True
+        self.logger.info(
+            f"WPR9 gate: REJECT {symbol} "
+            f"(fast_wpr={wpr9:.2f} < {self.wpr9_gate_threshold})"
+        )
+        return False
 
     def _validate_price_zone(self, symbol, ticker_handler):
         """
@@ -3685,6 +3732,10 @@ class EntryConditionManager:
                             self.logger.info(f"Skipping REVERSAL trade (optimal entry) for {symbol}: Swing low distance ({swing_low_distance_percent:.2f}%) exceeds max ({max_swing_low_distance_percent:.2f}%)")
                             del self.pending_optimal_entry[symbol]
                             return False
+                    if not self._check_wpr9_entry_gate(df_with_indicators, symbol):
+                        del self.pending_optimal_entry[symbol]
+                        self.logger.info(f"Entry 2 (optimal entry) for {symbol} REJECTED by WPR9 gate — clearing pending")
+                        return False
                     del self.pending_optimal_entry[symbol]
                     self.logger.info(f"Entry 2 (optimal entry) conditions met for {symbol}, returning 2")
                     return 2
@@ -3748,6 +3799,12 @@ class EntryConditionManager:
                             )
                             del self.pending_optimal_entry[symbol]
                             return False
+                    if not self._check_wpr9_entry_gate(df_with_indicators, symbol):
+                        del self.pending_optimal_entry[symbol]
+                        self.logger.info(
+                            f"Entry 2 (retroactive optimal entry) for {symbol} REJECTED by WPR9 gate — clearing pending"
+                        )
+                        return False
                     del self.pending_optimal_entry[symbol]
                     self.logger.info(
                         f"Entry 2 (retroactive optimal entry) conditions met for {symbol}, returning 2"
@@ -3796,6 +3853,11 @@ class EntryConditionManager:
                     else:
                         self.logger.debug(f"Entry Risk Validation PASSED for {symbol}: Swing low distance ({swing_low_distance_percent:.2f}%) <= maximum allowed ({max_swing_low_distance_percent:.2f}%)")
                 
+                if not self._check_wpr9_entry_gate(df_with_indicators, symbol):
+                    self.logger.info(f"Entry 2 ({self.entry2_confirmation_window}-Bar) for {symbol} REJECTED by WPR9 gate")
+                    if symbol in self.entry2_state_machine:
+                        self._reset_entry2_state_machine(symbol)
+                    return False
                 self.logger.info(f"Entry 2 ({self.entry2_confirmation_window}-Bar Window Confirmation) conditions met for {symbol}, returning 2")
                 return 2
         else:
