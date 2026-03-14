@@ -13,18 +13,17 @@ import os
 import re
 from typing import Optional
 
-# Import Kite API utilities for CPR width calculation
+# Export runs fully offline: no Kite API. CPR filter (when enabled) and NIFTY prev-day data use local files only.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+BACKTESTING_DIR = Path(__file__).resolve().parent.parent  # backtesting/
 ORIGINAL_CWD = os.getcwd()
+if str(BACKTESTING_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKTESTING_DIR))
 
 try:
-    from trading_bot_utils import get_kite_api_instance
-except (ImportError, FileNotFoundError):
-    if PROJECT_ROOT not in sys.path:
-        sys.path.insert(0, PROJECT_ROOT)
-    os.chdir(PROJECT_ROOT)
-    from trading_bot_utils import get_kite_api_instance
-    os.chdir(ORIGINAL_CWD)
+    from config_resolver import resolve_strike_mode
+except ImportError:
+    from backtesting.config_resolver import resolve_strike_mode
 
 try:
     from calculate_high_swing_low import (
@@ -41,7 +40,6 @@ except ImportError:
         calculate_swing_low_at_entry,
     )
 
-_cached_kite_client = None
 _skip_first_flag_cache = {}
 _strategy_df_cache = {}
 
@@ -76,9 +74,9 @@ INDICATOR_COLUMNS = [
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Price band to filter (70-249)
-PRICE_BAND_MIN = 70
-PRICE_BAND_MAX = 249
+# Price band defaults (overridden from BACKTESTING_ANALYSIS.PRICE_ZONES when available)
+PRICE_BAND_MIN = 20
+PRICE_BAND_MAX = 350
 # PnL threshold: trades above this value are considered winning
 PNL_THRESHOLD_WIN = -2.5
 
@@ -147,28 +145,43 @@ def normalize_time_str(time_value: Optional[str]) -> Optional[str]:
     return time_value
 
 def extract_hyperlink_path(value: str) -> Optional[str]:
-    """Pull path from Excel-style HYPERLINK string."""
+    """Pull path from Excel-style HYPERLINK string (handles "" and ")."""
     if not isinstance(value, str):
         return None
-    match = re.search(r'=HYPERLINK\("([^"]+)"', value.replace('""', '"'))
+    normalized = value.replace('""', '"')
+    match = re.search(r'=HYPERLINK\("([^"]+)"', normalized)
     if match:
-        return match.group(1)
+        return match.group(1).strip()
     return None
 
 def resolve_strategy_file(symbol_value, symbol_html_value, source_file: Optional[str]) -> Optional[Path]:
-    """Best-effort resolution of strategy CSV path for a trade row."""
-    # 1. Direct hyperlink on symbol column
+    """Best-effort resolution of strategy CSV path for a trade row.
+    Supports both ATM (entry2_dynamic_atm_*) and OTM (entry2_dynamic_otm_*) trade files."""
+    trade_dir = Path(source_file).parent if source_file else None
+
+    # 1. Direct hyperlink on symbol column (e.g. OTM/NIFTY2631723800PE_strategy.csv)
     hyperlink_path = extract_hyperlink_path(symbol_value) if symbol_value else None
     if hyperlink_path:
-        return Path(hyperlink_path)
-    
+        p = Path(hyperlink_path)
+        if trade_dir and not p.is_absolute():
+            p = (trade_dir / p).resolve()
+        if p.exists():
+            return p
+        if Path(hyperlink_path).exists():
+            return Path(hyperlink_path)
+
     # 2. Hyperlink on symbol_html column (HTML file) -> convert to CSV
     html_path = extract_hyperlink_path(symbol_html_value) if symbol_html_value else None
     if html_path:
         csv_candidate = Path(html_path).with_suffix('.csv')
-        return csv_candidate
-    
-    # 3. Construct from symbol text and source directory
+        if trade_dir and not csv_candidate.is_absolute():
+            csv_candidate = (trade_dir / csv_candidate).resolve()
+        if csv_candidate.exists():
+            return csv_candidate
+        if Path(html_path).with_suffix('.csv').exists():
+            return Path(html_path).with_suffix('.csv')
+
+    # 3. Construct from symbol text and source directory (ATM and OTM subdirs)
     symbol_text = None
     if isinstance(symbol_value, str):
         if '=HYPERLINK' in symbol_value:
@@ -177,27 +190,23 @@ def resolve_strategy_file(symbol_value, symbol_html_value, source_file: Optional
                 symbol_text = text_match[1]
         else:
             symbol_text = symbol_value.strip()
-    
+
     if not symbol_text:
         return None
-    
+
     strategy_filename = symbol_text
     if not strategy_filename.endswith('_strategy.csv'):
         strategy_filename = f"{strategy_filename}_strategy.csv"
-    
-    if source_file:
-        trade_dir = Path(source_file).parent
-        atm_dir = trade_dir / 'ATM'
-        candidate_dirs = [atm_dir, trade_dir]
-    else:
-        candidate_dirs = []
-    
-    for directory in candidate_dirs:
-        candidate_path = directory / strategy_filename
+
+    if trade_dir:
+        for subdir in ('OTM', 'ATM'):
+            candidate_path = trade_dir / subdir / strategy_filename
+            if candidate_path.exists():
+                return candidate_path
+        candidate_path = trade_dir / strategy_filename
         if candidate_path.exists():
             return candidate_path
-    
-    # Fall back to direct filename if reachable
+
     candidate_path = Path(strategy_filename)
     return candidate_path if candidate_path.exists() else None
 
@@ -373,17 +382,17 @@ def get_nifty_price_at_930(nifty_file: Path) -> Optional[float]:
     return get_nifty_price_at_time(nifty_file, "09:30:00")
 
 def get_nifty_prev_day_close(nifty_file: Path) -> Optional[float]:
-    """Get previous trading day's close price for NIFTY50."""
+    """Get previous trading day's close price for NIFTY50 (local files only, offline)."""
     if not nifty_file or not nifty_file.exists():
         return None
     
     try:
-        # Try using Kite API first (more reliable)
-        prev_day_high, prev_day_low, prev_day_close, prev_day_date = fetch_prev_day_nifty_ohlc_via_kite(str(nifty_file))
+        # Local only: sibling day NIFTY 1min CSV in same expiry folder
+        _, _, prev_day_close, _ = fetch_prev_day_ohlc_from_local(nifty_file.parent)
         if prev_day_close is not None:
             return prev_day_close
         
-        # Fallback: try to read from file (if previous day data is in the file)
+        # Fallback: same file if it contains previous day data
         df = pd.read_csv(nifty_file)
         if df.empty or 'date' not in df.columns:
             return None
@@ -411,16 +420,16 @@ def get_nifty_prev_day_close(nifty_file: Path) -> Optional[float]:
     return None
 
 def get_nifty_prev_day_pivot(nifty_file: Path) -> Optional[float]:
-    """Calculate previous day's pivot ((H + L + C) / 3)."""
+    """Calculate previous day's pivot ((H + L + C) / 3) from local files only."""
     if not nifty_file or not nifty_file.exists():
         return None
     
     try:
-        prev_high, prev_low, prev_close, _ = fetch_prev_day_nifty_ohlc_via_kite(str(nifty_file))
+        prev_high, prev_low, prev_close, _ = fetch_prev_day_ohlc_from_local(nifty_file.parent)
         if prev_high is not None and prev_low is not None and prev_close is not None:
             return (prev_high + prev_low + prev_close) / 3
     except Exception as e:
-        logger.debug(f"Error fetching prev day OHLC for pivot via Kite: {e}")
+        logger.debug(f"Error getting prev day OHLC for pivot from local: {e}")
     
     try:
         df = pd.read_csv(nifty_file)
@@ -711,7 +720,7 @@ def _get_strategy_dataframe(strategy_file: Path) -> Optional[pd.DataFrame]:
         return None
 
 def _extract_indicator_values(strategy_df: pd.DataFrame, entry_time: str) -> dict:
-    """Fetch indicator columns for the row matching entry_time."""
+    """Fetch indicator columns for the row matching entry_time. Strategy bars are at :00; entry_time can be :01."""
     result = {col: None for col in INDICATOR_COLUMNS}
     if strategy_df is None or entry_time is None:
         return result
@@ -721,17 +730,19 @@ def _extract_indicator_values(strategy_df: pd.DataFrame, entry_time: str) -> dic
         return result
     
     try:
-        target_time = pd.to_datetime(normalized_time).time()
+        t = pd.to_datetime(normalized_time)
+        entry_hour, entry_minute = t.hour, t.minute
     except Exception:
         return result
     
-    matches = strategy_df[strategy_df['date'].dt.time == target_time]
+    # Match by hour+minute (strategy bar is e.g. 09:21:00, entry_time may be 09:21:01)
+    mask = (strategy_df['date'].dt.hour == entry_hour) & (strategy_df['date'].dt.minute == entry_minute)
+    matches = strategy_df[mask]
     if matches.empty:
         return result
     
     idx = matches.index[0]
-    row_idx = idx - 1 if idx > 0 else idx
-    row = strategy_df.iloc[row_idx]
+    row = strategy_df.iloc[idx]
     for col in INDICATOR_COLUMNS:
         if col in row:
             result[col] = row[col]
@@ -767,105 +778,107 @@ def add_indicator_snapshot(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-def fetch_prev_day_nifty_ohlc_via_kite(csv_file_path: str):
-    """Fetch previous trading day's OHLC data for NIFTY 50 using KiteConnect API"""
-    global _cached_kite_client
-    
+def fetch_prev_day_ohlc_from_local(data_dir: Path):
+    """Get previous trading day OHLC from a sibling day's nifty50_1min CSV (same expiry). Offline only."""
+    from datetime import timedelta
+    nifty_file = data_dir / f"nifty50_1min_data_{data_dir.name.lower()}.csv"
+    if not nifty_file.exists():
+        return None, None, None, None
     try:
-        if _cached_kite_client is None:
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(PROJECT_ROOT)
-                kite, _, _ = get_kite_api_instance(suppress_logs=True)
-            finally:
-                os.chdir(original_cwd)
-            _cached_kite_client = kite
-        else:
-            kite = _cached_kite_client
-        
-        if kite is None:
-            logger.debug("Could not get Kite API instance - cannot fetch previous day OHLC")
-            return None, None, None, None
-        
-        df_tmp = pd.read_csv(csv_file_path)
-        df_tmp['date'] = pd.to_datetime(df_tmp['date'])
-        current_date = df_tmp['date'].iloc[0].date()
-        from datetime import timedelta
-        prev_date = current_date - timedelta(days=1)
-        
-        backoff_date = prev_date
-        data = []
-        for days_back in range(7):
-            try:
-                data = kite.historical_data(
-                    instrument_token=256265,
-                    from_date=backoff_date,
-                    to_date=backoff_date,
-                    interval='day'
-                )
-                if data and len(data) > 0:
-                    logger.debug(f"Found trading day data for {backoff_date} (checked {days_back + 1} days back)")
-                    break
-            except Exception as e:
-                logger.debug(f"Error fetching data for {backoff_date}: {e}")
-            
-            backoff_date = backoff_date - timedelta(days=1)
-        
-        if not data or len(data) == 0:
-            logger.debug(f"Could not fetch previous day OHLC data for {current_date}")
-            return None, None, None, None
-        
-        c = data[0]
-        return float(c['high']), float(c['low']), float(c['close']), backoff_date
+        df = pd.read_csv(nifty_file, nrows=1)
+        df['date'] = pd.to_datetime(df['date'])
+        current_date = df['date'].iloc[0].date()
+        for days_back in range(1, 8):
+            prev_date = current_date - timedelta(days=days_back)
+            month_abbr = prev_date.strftime('%b').upper()
+            day_str = str(prev_date.day).lstrip('0') or '1'
+            prev_label = month_abbr + day_str
+            prev_nifty = data_dir.parent / prev_label / f"nifty50_1min_data_{prev_label.lower()}.csv"
+            if prev_nifty.exists():
+                pdf = pd.read_csv(prev_nifty)
+                if pdf.empty:
+                    continue
+                high = pd.to_numeric(pdf['high'], errors='coerce').max()
+                low = pd.to_numeric(pdf['low'], errors='coerce').min()
+                close = pd.to_numeric(pdf['close'], errors='coerce').iloc[-1]
+                if pd.notna(high) and pd.notna(low) and pd.notna(close):
+                    return float(high), float(low), float(close), prev_date
+        return None, None, None, None
     except Exception as e:
-        logger.debug(f"Error in fetch_prev_day_nifty_ohlc_via_kite: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
+        logger.debug(f"Local prev-day OHLC failed for {data_dir.name}: {e}")
         return None, None, None, None
 
-def calculate_cpr_width(data_dir: Path) -> float:
-    """Calculate CPR width = TC - BC"""
-    # Extract day_label from data_dir (e.g., NOV06 from NOV11_DYNAMIC/NOV06)
+
+_cpr_width_cache = {}  # (expiry_week, day_label) -> width or None
+
+
+def calculate_cpr_width(data_dir: Path, cache_key: Optional[tuple] = None) -> Optional[float]:
+    """Calculate CPR width = TC - BC from local sibling-day NIFTY 1min CSV only (offline)."""
+    if cache_key is not None and cache_key in _cpr_width_cache:
+        return _cpr_width_cache[cache_key]
     day_label = data_dir.name.upper()
     day_label_lower = day_label.lower()
     nifty_file = data_dir / f"nifty50_1min_data_{day_label_lower}.csv"
-    
     if not nifty_file.exists():
         logger.debug(f"Could not find nifty50_1min_data_{day_label_lower}.csv in {data_dir} - cannot calculate CPR width")
+        if cache_key is not None:
+            _cpr_width_cache[cache_key] = None
         return None
-    
     try:
-        prev_day_high, prev_day_low, prev_day_close, prev_day_date = fetch_prev_day_nifty_ohlc_via_kite(str(nifty_file))
-        
+        prev_day_high, prev_day_low, prev_day_close, prev_day_date = fetch_prev_day_ohlc_from_local(data_dir)
         if prev_day_high is None or prev_day_low is None or prev_day_close is None:
             logger.debug(f"Could not fetch previous day OHLC for {data_dir.name} - cannot calculate CPR width")
+            if cache_key is not None:
+                _cpr_width_cache[cache_key] = None
             return None
-        
         pivot = (prev_day_high + prev_day_low + prev_day_close) / 3
         bc = (prev_day_high + prev_day_low) / 2
         tc = (pivot - bc) + pivot
         cpr_width = abs(tc - bc)
-        
         logger.debug(f"CPR width for {data_dir.name}: {cpr_width:.2f}")
+        if cache_key is not None:
+            _cpr_width_cache[cache_key] = cpr_width
         return cpr_width
-        
     except Exception as e:
         logger.warning(f"Error calculating CPR width for {data_dir.name}: {e}")
+        if cache_key is not None:
+            _cpr_width_cache[cache_key] = None
         return None
 
 def get_trade_files(config_file: Path):
-    """Get all dynamic ATM trade files, excluding dates with CPR width > 60"""
+    """Get all dynamic ATM/OTM trade files, using the same day set as the workflow aggregate.
+
+    Excludes days with CPR width > threshold (from CPR_WIDTH_FILTER in config) so that the
+    exported trades are exactly those that contribute to the aggregated summary (Filtered Trades,
+    Filtered P&L). Winning + losing exports together equal that Filtered Trades count (181)
+    when using the same price band and EXECUTED-only.
+
+    Returns list of (trade_file_path, date_str) tuples for DYNAMIC_OTM (ST50) or DYNAMIC_ATM.
+    """
     if not config_file.exists():
         logger.error(f"Config file not found: {config_file}")
         return []
-    
+
     with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
-    
+    config = resolve_strike_mode(config)
+
+    cpr_config = config.get('CPR_WIDTH_FILTER', {}) or {}
+    cpr_enabled = cpr_config.get('ENABLED', False)
+    cpr_threshold = cpr_config.get('CPR_WIDTH_SIZE', 60)
+
     expiry_config = config.get('BACKTESTING_EXPIRY', {})
     expiry_weeks = expiry_config.get('EXPIRY_WEEK_LABELS', [])
     backtesting_days = expiry_config.get('BACKTESTING_DAYS', [])
-    
+    if not backtesting_days:
+        logger.warning("BACKTESTING_DAYS empty after resolve_strike_mode; check BACKTESTING_DAYS_ST50/ST100")
+
+    backtesting_analysis = config.get('BACKTESTING_ANALYSIS', {})
+    if backtesting_analysis.get('DYNAMIC_OTM') == 'ENABLE':
+        trade_filename = 'entry2_dynamic_otm_mkt_sentiment_trades.csv'
+    else:
+        trade_filename = 'entry2_dynamic_atm_mkt_sentiment_trades.csv'
+
     def date_to_day_label(date_str):
         try:
             date_obj = pd.to_datetime(date_str)
@@ -874,60 +887,56 @@ def get_trade_files(config_file: Path):
             if int(day) > 9:
                 day = day.lstrip('0')
             return f"{month}{day}"
-        except:
+        except Exception:
             return None
-    
+
     trade_files = []
     filtered_days = []
-    
-    # Determine data directory base path
+
     script_dir = Path(__file__).parent if '__file__' in globals() else Path.cwd()
-    possible_data_paths = [
-        script_dir.parent / 'data',  # backtesting/data
-        script_dir.parent.parent / 'backtesting' / 'data',  # backtesting/data from root
-        Path('data'),  # Current directory
-        Path('backtesting/data'),  # backtesting/ subdirectory
-    ]
-    
-    data_dir_base = None
-    for path in possible_data_paths:
-        if path.exists():
-            data_dir_base = path
-            logger.debug(f"Found data directory at: {data_dir_base}")
-            break
-    
-    if data_dir_base is None:
-        logger.error(f"Data directory not found. Tried: {possible_data_paths}")
+    backtesting_dir = script_dir.parent
+    data_dir_name = config.get('PATHS', {}).get('DATA_DIR', 'data_st50')
+    data_dir_base = backtesting_dir / data_dir_name
+    if not data_dir_base.exists():
+        data_dir_base = script_dir.parent.parent / 'backtesting' / data_dir_name
+    if not data_dir_base.exists():
+        logger.error(f"Data directory not found: {data_dir_base}")
         return []
-    
+
+    if cpr_enabled:
+        logger.info("CPR filter enabled: checking CPR width per day (local files only, offline).")
+
     for expiry_week in expiry_weeks:
         for date_str in backtesting_days:
             day_label = date_to_day_label(date_str)
             if not day_label:
                 continue
-            
+
             dynamic_path = data_dir_base / f"{expiry_week}_DYNAMIC" / day_label
-            
+
             if dynamic_path.exists():
-                cpr_width = calculate_cpr_width(dynamic_path)
-                if cpr_width is not None and cpr_width > 60:
-                    logger.info(f"[FILTER] FILTERING OUT {day_label} - CPR width ({cpr_width:.2f}) > 60")
-                    filtered_days.append(f"{expiry_week}/{day_label}")
-                    continue
-                elif cpr_width is None:
-                    logger.warning(f"[FILTER] Could not calculate CPR width for {day_label} - EXCLUDING")
-                    filtered_days.append(f"{expiry_week}/{day_label}")
-                    continue
-                else:
-                    logger.debug(f"[INCLUDE] Including {day_label} - CPR width ({cpr_width:.2f}) <= 60")
-            
-            dynamic_base = data_dir_base / f"{expiry_week}_DYNAMIC" / day_label
-            trade_files.append(dynamic_base / 'entry2_dynamic_atm_mkt_sentiment_trades.csv')
+                if cpr_enabled:
+                    cpr_width = calculate_cpr_width(dynamic_path, cache_key=(expiry_week, day_label))
+                    if cpr_width is not None and cpr_width > cpr_threshold:
+                        logger.info(f"[FILTER] FILTERING OUT {day_label} - CPR width ({cpr_width:.2f}) > {cpr_threshold}")
+                        filtered_days.append(f"{expiry_week}/{day_label}")
+                        continue
+                    elif cpr_width is None:
+                        logger.warning(f"[FILTER] Could not calculate CPR width for {day_label} - EXCLUDING")
+                        filtered_days.append(f"{expiry_week}/{day_label}")
+                        continue
+                    else:
+                        logger.debug(f"[INCLUDE] Including {day_label} - CPR width ({cpr_width:.2f}) <= {cpr_threshold}")
+
+            trade_path = data_dir_base / f"{expiry_week}_DYNAMIC" / day_label / trade_filename
+            trade_files.append((trade_path, date_str))
     
-    if filtered_days:
-        logger.info(f"\n[FILTER SUMMARY] Filtered out {len(filtered_days)} days (CPR width > 60): {filtered_days}")
+    if cpr_enabled and filtered_days:
+        logger.info(f"\n[FILTER SUMMARY] Filtered out {len(filtered_days)} days (CPR width > {cpr_threshold}): {filtered_days}")
+    elif cpr_enabled:
+        logger.info(f"\n[OK] All days included (CPR width <= {cpr_threshold})")
     else:
-        logger.info(f"\n[OK] All days included (CPR width <= 60)")
+        logger.info(f"\n[OK] CPR filter disabled - all days included")
     
     return trade_files
 
@@ -958,60 +967,62 @@ def main():
     
     # Load config once for downstream helpers
     config_data = load_config(config_file)
-    
-    # Get all trade files
+    config_data = resolve_strike_mode(config_data)
+
+    # Price band from BACKTESTING_ANALYSIS.PRICE_ZONES (DYNAMIC_OTM or DYNAMIC_ATM)
+    price_zones = config_data.get('BACKTESTING_ANALYSIS', {}).get('PRICE_ZONES', {})
+    if config_data.get('BACKTESTING_ANALYSIS', {}).get('DYNAMIC_OTM') == 'ENABLE':
+        pz = price_zones.get('DYNAMIC_OTM', {})
+    else:
+        pz = price_zones.get('DYNAMIC_ATM', {})
+    price_min = pz.get('LOW_PRICE', PRICE_BAND_MIN)
+    price_max = pz.get('HIGH_PRICE', PRICE_BAND_MAX)
+
+    # Get all trade files (returns list of (path, date_str))
     logger.info("Loading trade files from backtesting_config.yaml...")
     trade_files = get_trade_files(config_file)
     logger.info(f"Found {len(trade_files)} potential trade files")
-    
-    # Load and filter trades
+
     all_trades = []
-    
-    for trade_file in trade_files:
+
+    for trade_file, date_str in trade_files:
         if not trade_file.exists():
             logger.debug(f"File not found (skipping): {trade_file}")
             continue
-        
+
         try:
             df = pd.read_csv(trade_file)
             if df.empty:
                 logger.debug(f"File is empty (skipping): {trade_file}")
                 continue
-            
-            # Ensure required columns exist
-            required_cols = ['entry_price', 'pnl']
-            if not all(col in df.columns for col in required_cols):
-                logger.warning(f"Missing required columns in {trade_file.name}, skipping")
+
+            # Use sentiment_pnl when pnl is missing (DYNAMIC_OTM trades)
+            if 'pnl' not in df.columns and 'sentiment_pnl' in df.columns:
+                df['pnl'] = df['sentiment_pnl']
+            elif 'pnl' not in df.columns:
+                logger.warning(f"Missing pnl/sentiment_pnl in {trade_file.name}, skipping")
                 continue
-            
-            # Filter out rows with missing entry_price or pnl
-            df = df.dropna(subset=['entry_price', 'pnl'])
-            
-            # Convert to numeric
+
+            # Keep only EXECUTED trades (exclude SKIPPED)
+            if 'trade_status' in df.columns:
+                df = df[df['trade_status'].astype(str).str.upper() == 'EXECUTED'].copy()
+
+            if df.empty:
+                continue
+
+            df = df.dropna(subset=['entry_price'])
             df['entry_price'] = pd.to_numeric(df['entry_price'], errors='coerce')
             df['pnl'] = pd.to_numeric(df['pnl'], errors='coerce')
-            
-            # Remove rows with invalid values
             df = df[df['entry_price'].notna() & df['pnl'].notna()]
-            
-            # Filter for price band 70-249
-            df = df[(df['entry_price'] >= PRICE_BAND_MIN) & (df['entry_price'] <= PRICE_BAND_MAX)]
-            
-            # Filter for winning trades (PnL > threshold, e.g., -2.5)
+
+            df = df[(df['entry_price'] >= price_min) & (df['entry_price'] <= price_max)]
             df = df[df['pnl'] > PNL_THRESHOLD_WIN]
-            
+
             if len(df) > 0:
-                # Extract date from file path and add as column
-                trade_date = extract_date_from_file_path(trade_file)
-                if trade_date:
-                    df['date'] = trade_date
-                else:
-                    df['date'] = None
-                    logger.warning(f"Could not extract date from {trade_file}, setting date to None")
-                
+                df['date'] = date_str
                 df['source_trade_file'] = str(trade_file)
                 all_trades.append(df)
-                logger.info(f"Loaded {len(df)} winning trades from {trade_file.name} (price band {PRICE_BAND_MIN}-{PRICE_BAND_MAX})")
+                logger.info(f"Loaded {len(df)} winning trades from {trade_file.name} (price band {price_min}-{price_max})")
         except Exception as e:
             logger.warning(f"Error reading {trade_file.name}: {e}")
             continue
@@ -1084,8 +1095,7 @@ def main():
         
         combined_df = combined_df[cols]
     
-    if 'source_trade_file' in combined_df.columns:
-        combined_df = combined_df.drop(columns=['source_trade_file'])
+    # Keep source_trade_file until after Excel hyperlink resolution (needed to resolve OTM/... to absolute path)
     logger.info(f"\n{'='*60}")
     logger.info(f"EXPORT SUMMARY")
     logger.info(f"{'='*60}")
@@ -1094,7 +1104,7 @@ def main():
     logger.info(f"{'='*60}\n")
     
     # Save to Excel with hyperlink preservation
-    output_file = output_dir / 'winning_trades_70_249.xlsx'
+    output_file = output_dir / 'winning_trades.xlsx'
     try:
         from openpyxl import load_workbook
         import re
@@ -1118,44 +1128,57 @@ def main():
             elif cell.value == 'symbol_html':
                 symbol_html_col = col_idx
         
-        # Process hyperlinks in symbol column
+        def path_to_file_uri(path: Path) -> str:
+            """File URI so link resolves to local path (same idea as workflow CSV relative path, but absolute)."""
+            s = path.resolve().as_posix()
+            return ('file:///' + s) if not s.startswith('/') else ('file://' + s)
+
+        def set_hyperlink_from_trade_row(ws, combined_df, row_idx, col_idx, url_rel, display_text):
+            """Resolve url_rel relative to that row's trade CSV dir; write HYPERLINK formula with file:/// (like workflow CSV)."""
+            safe_text = str(display_text).replace('"', '""') if display_text else ""
+            source_file = combined_df.iloc[row_idx - 2].get('source_trade_file')
+            if source_file:
+                try:
+                    trade_dir = Path(source_file).parent.resolve()
+                    abs_path = (trade_dir / url_rel).resolve()
+                    if abs_path.exists():
+                        target = path_to_file_uri(abs_path)
+                        formula = f'=HYPERLINK("{target}", "{safe_text}")'
+                        ws.cell(row=row_idx, column=col_idx).value = formula
+                        ws.cell(row=row_idx, column=col_idx).style = "Hyperlink"
+                        return
+                except Exception:
+                    pass
+            ws.cell(row=row_idx, column=col_idx).value = f'=HYPERLINK("{url_rel}", "{safe_text}")'
+            ws.cell(row=row_idx, column=col_idx).style = "Hyperlink"
+
+        # Process symbol column: resolve OTM/... relative to row's source_trade_file dir (same as workflow CSV)
         if symbol_col:
-            for row_idx in range(2, len(combined_df) + 2):  # Start from row 2 (after header)
+            for row_idx in range(2, len(combined_df) + 2):
                 cell = ws.cell(row=row_idx, column=symbol_col)
                 if cell.value and isinstance(cell.value, str) and cell.value.startswith('=HYPERLINK('):
-                    # Extract URL and display text from HYPERLINK formula
-                    # Handle escaped quotes in CSV format: =HYPERLINK(""path"", ""text"")
                     match = re.search(r'=HYPERLINK\(""([^"]+)"",\s*""([^"]+)""\)', cell.value)
                     if not match:
-                        # Try standard format: =HYPERLINK("path", "text")
                         match = re.search(r'=HYPERLINK\("([^"]+)",\s*"([^"]+)"\)', cell.value)
                     if match:
-                        url = match.group(1)
-                        display_text = match.group(2)
-                        cell.value = display_text
-                        # Create hyperlink using openpyxl's hyperlink module
-                        from openpyxl.worksheet.hyperlink import Hyperlink
-                        cell.hyperlink = Hyperlink(ref=cell.coordinate, target=url, tooltip=url)
-                        cell.style = "Hyperlink"
-        
-        # Process hyperlinks in symbol_html column
+                        set_hyperlink_from_trade_row(ws, combined_df, row_idx, symbol_col, match.group(1), match.group(2))
+
+        # Process symbol_html column: same resolution as workflow (path relative to day folder)
         if symbol_html_col:
             for row_idx in range(2, len(combined_df) + 2):
                 cell = ws.cell(row=row_idx, column=symbol_html_col)
                 if cell.value and isinstance(cell.value, str) and cell.value.startswith('=HYPERLINK('):
-                    # Extract URL and display text from HYPERLINK formula
                     match = re.search(r'=HYPERLINK\(""([^"]+)"",\s*""([^"]+)""\)', cell.value)
                     if not match:
                         match = re.search(r'=HYPERLINK\("([^"]+)",\s*"([^"]+)"\)', cell.value)
                     if match:
-                        url = match.group(1)
-                        display_text = match.group(2)
-                        cell.value = display_text
-                        # Create hyperlink using openpyxl's hyperlink module
-                        from openpyxl.worksheet.hyperlink import Hyperlink
-                        cell.hyperlink = Hyperlink(ref=cell.coordinate, target=url, tooltip=url)
-                        cell.style = "Hyperlink"
+                        set_hyperlink_from_trade_row(ws, combined_df, row_idx, symbol_html_col, match.group(1), match.group(2))
         
+        # Remove source_trade_file column from sheet (was only needed to resolve hyperlinks)
+        for col_idx, cell in enumerate(ws[header_row], 1):
+            if cell.value == 'source_trade_file':
+                ws.delete_cols(col_idx, 1)
+                break
         wb.save(output_file)
         logger.info(f"Saved winning trades to {output_file}")
         logger.info(f"Total rows: {len(combined_df)}")
@@ -1164,7 +1187,7 @@ def main():
         import traceback
         logger.error(traceback.format_exc())
         # Fallback to CSV if Excel fails
-        output_file_csv = output_dir / 'winning_trades_70_249.csv'
+        output_file_csv = output_dir / 'winning_trades.csv'
         combined_df.to_csv(output_file_csv, index=False)
         logger.info(f"Saved as CSV instead: {output_file_csv}")
 

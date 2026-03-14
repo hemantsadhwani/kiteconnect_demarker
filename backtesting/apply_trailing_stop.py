@@ -230,7 +230,11 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             # that would wrongly imply MARK2MARKET stopped the day. Reserve SKIPPED (RISK STOP) only for actual MARK2MARKET.
             if not trading_active:
                 df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
-                df.at[idx, 'trade_status_reason'] = 'MARK2MARKET: Not executed; trading already stopped for the day (earlier trade hit drawdown limit from day high)'
+                drawdown_limit = _drawdown_limit(high_water_mark)
+                df.at[idx, 'trade_status_reason'] = (
+                    f'MARK2MARKET: Not executed; trading already stopped (earlier trade hit {loss_mark}% drawdown limit from day high). '
+                    f'HWM=₹{high_water_mark:,.0f}, limit=₹{drawdown_limit:,.0f}.'
+                )
             else:
                 # Trading still active: this row was never executed in strategy — use actual Phase 2 reason
                 if original_status and original_status.strip() and 'SKIPPED' in original_status:
@@ -243,7 +247,6 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
                         'Most likely: ACTIVE_TRADE_EXISTS (another CE/PE trade was already open at signal time). '
                         'Re-run full workflow from Phase 1 so Phase 2 writes CE/PE with exact reason.'
                     )
-            
             df.at[idx, 'realized_pnl'] = 0.0
             df.at[idx, 'running_capital'] = current_capital
             df.at[idx, 'high_water_mark'] = high_water_mark
@@ -260,7 +263,11 @@ def apply_trailing_stop(csv_path: Path, config_path: Path, output_path: Path = N
             drawdown_limit = _drawdown_limit(high_water_mark)
             df.at[idx, 'drawdown_limit'] = drawdown_limit
             df.at[idx, 'trade_status'] = 'SKIPPED (RISK STOP)'
-            df.at[idx, 'trade_status_reason'] = 'MARK2MARKET: Trading stopped for the day; this trade would have been after the drawdown limit (LOSS_MARK% from day high) was hit by an earlier trade'
+            df.at[idx, 'trade_status_reason'] = (
+                f'MARK2MARKET: Trading stopped for the day; this trade would have been after the drawdown limit '
+                f'({loss_mark}% from day high water mark) was hit by an earlier trade. '
+                f'Day HWM=₹{high_water_mark:,.0f}, limit=₹{drawdown_limit:,.0f}, capital after breach=₹{current_capital:,.0f}.'
+            )
             if 'sentiment_pnl' in df.columns:
                 df.at[idx, 'sentiment_pnl'] = 0
             continue
