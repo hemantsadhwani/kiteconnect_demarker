@@ -3007,66 +3007,46 @@ class ConsolidatedDynamicATMAnalysis:
         set_realized_pnl_pct(ce_trades)
         set_realized_pnl_pct(pe_trades)
         
-        # Convert high and swing_low to percentages, remove pnl and realized_pnl columns
         def convert_to_percentages(df):
-            """Convert high and swing_low to percentages relative to entry_price, remove pnl and realized_pnl"""
+            """Convert high and swing_low from absolute prices to percentages relative to entry_price."""
             if df.empty:
                 return df
-            
+
             df = df.copy()
-            
-            # Convert high to percentage (leave None/NaN when high was not calculated)
+
             if 'high' in df.columns and 'entry_price' in df.columns:
                 def calc_high_pct(row):
-                    entry_price = row.get('entry_price')
-                    high = row.get('high')
-                    # Treat missing/None high as unknown (do not show 0)
-                    if pd.isna(high) or high is None:
+                    entry_price = row.get('entry_price', None)
+                    high = row.get('high', None)
+                    exit_price = row.get('exit_price', None)
+                    if not (pd.notna(entry_price) and pd.notna(high) and float(entry_price) > 0):
+                        # Fallback: high must be >= exit_price
+                        if pd.notna(entry_price) and pd.notna(exit_price) and float(entry_price) > 0:
+                            return round(max(((float(exit_price) - float(entry_price)) / float(entry_price)) * 100, 0), 2)
                         return None
-                    if pd.isna(entry_price) or entry_price is None or entry_price <= 0:
-                        return None
-                    try:
-                        high = float(high)
-                        entry_price = float(entry_price)
-                    except (TypeError, ValueError):
-                        return None
-                    # Check if high is already a percentage (if it's between -200 and 200, it's likely a percentage)
-                    # Absolute prices should be much larger (typically 40-600+ for options)
-                    if abs(high) < 200 and abs(high) < entry_price * 0.5:
-                        # Already a percentage, clamp to >= 0 (high cannot be negative)
-                        return round(max(high, 0), 2)
-                    # Otherwise, convert from absolute price to percentage
-                    # High should be >= entry_price, so percentage should be >= 0
-                    pct = ((high - entry_price) / entry_price) * 100
-                    return round(max(pct, 0), 2)  # Clamp to >= 0
+                    ep = float(entry_price)
+                    h = float(high)
+                    pct = ((h - ep) / ep) * 100
+                    # Floor: high_pct can never be below realized PnL%
+                    if pd.notna(exit_price) and float(exit_price) > 0:
+                        pnl_pct = ((float(exit_price) - ep) / ep) * 100
+                        pct = max(pct, pnl_pct)
+                    return round(max(pct, 0), 2)
                 df['high'] = df.apply(calc_high_pct, axis=1)
-            
-            # Convert swing_low to percentage
+
             if 'swing_low' in df.columns and 'entry_price' in df.columns:
                 def calc_swing_low_pct(row):
                     entry_price = row.get('entry_price', 0)
-                    swing_low = row.get('swing_low', 0)
-                    if pd.notna(entry_price) and pd.notna(swing_low) and entry_price > 0:
-                        # Check if swing_low is already a percentage (if it's between -200 and 200, it's likely a percentage)
-                        # Absolute prices should be much larger (typically 40-600+ for options)
-                        if abs(swing_low) < 200 and abs(swing_low) < entry_price * 0.5:
-                            # Already a percentage, return as-is
-                            return round(swing_low, 2)
-                        # Otherwise, convert from absolute price to percentage
-                        return round(((swing_low - entry_price) / entry_price) * 100, 2)
+                    swing_low = row.get('swing_low', None)
+                    if pd.notna(entry_price) and pd.notna(swing_low) and float(entry_price) > 0:
+                        return round(((float(swing_low) - float(entry_price)) / float(entry_price)) * 100, 2)
                     return None
                 df['swing_low'] = df.apply(calc_swing_low_pct, axis=1)
-            
-            # Remove pnl and realized_pnl columns (keep only realized_pnl_pct)
-            columns_to_remove = []
-            if 'pnl' in df.columns:
-                columns_to_remove.append('pnl')
-            if 'realized_pnl' in df.columns:
-                columns_to_remove.append('realized_pnl')
-            
+
+            columns_to_remove = [c for c in ['pnl', 'realized_pnl'] if c in df.columns]
             if columns_to_remove:
                 df = df.drop(columns=columns_to_remove)
-            
+
             return df
         
         # Apply conversion to both DataFrames

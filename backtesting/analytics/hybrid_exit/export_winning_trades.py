@@ -575,6 +575,15 @@ def enrich_with_nifty_data(df: pd.DataFrame, enable_sentiment: bool = True) -> p
     
     return df
 
+def _pnl_pct(row) -> float:
+    """Realized PnL% from entry/exit prices (floor for high_pct)."""
+    ep = row.get('entry_price')
+    xp = row.get('exit_price')
+    if pd.notna(ep) and pd.notna(xp) and float(ep) > 0:
+        return round(((float(xp) - float(ep)) / float(ep)) * 100, 2)
+    return 0.0
+
+
 def enrich_with_high_swing_low(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     """Add/compute high and swing_low columns using strategy data."""
     if df.empty:
@@ -585,80 +594,100 @@ def enrich_with_high_swing_low(df: pd.DataFrame, config: dict) -> pd.DataFrame:
     swing_low_pct_values = []
     high_abs_values = []
     swing_low_abs_values = []
-    
+
     for idx, row in df.iterrows():
         existing_high = row.get('high')
         existing_swing_low = row.get('swing_low')
-        
-        # Preserve pre-computed values when present
-        if pd.notna(existing_high) and pd.notna(existing_swing_low):
-            high_abs_values.append(existing_high)
-            swing_low_abs_values.append(existing_swing_low)
-            # Calculate percentages
-            entry_price_val = row.get('entry_price')
+        entry_price_val = row.get('entry_price')
+        pnl_floor = _pnl_pct(row)
+
+        # Trade CSVs store high/swing_low as percentage values.
+        # Validate: high_pct must be >= pnl_pct (exit price was reached during trade).
+        # If the pre-computed value violates this, treat high as missing and recalculate.
+        high_valid = pd.notna(existing_high) and float(existing_high) >= pnl_floor
+        swing_low_valid = pd.notna(existing_swing_low)
+
+        if high_valid and swing_low_valid:
+            high_pct = round(float(existing_high), 2)
+            swing_low_pct_val = round(float(existing_swing_low), 2)
+            high_pct_values.append(high_pct)
+            swing_low_pct_values.append(swing_low_pct_val)
             if pd.notna(entry_price_val) and entry_price_val:
                 try:
-                    entry_price_float = float(entry_price_val)
-                    high_pct = ((existing_high - entry_price_float) / entry_price_float * 100) if existing_high is not None else None
-                    swing_low_pct = ((existing_swing_low - entry_price_float) / entry_price_float * 100) if existing_swing_low is not None else None
+                    ep = float(entry_price_val)
+                    high_abs_values.append(round(ep * (1 + high_pct / 100), 2))
+                    swing_low_abs_values.append(round(ep * (1 + swing_low_pct_val / 100), 2))
                 except Exception:
-                    high_pct = None
-                    swing_low_pct = None
+                    high_abs_values.append(None)
+                    swing_low_abs_values.append(None)
             else:
-                high_pct = None
-                swing_low_pct = None
-            high_pct_values.append(high_pct)
-            swing_low_pct_values.append(swing_low_pct)
+                high_abs_values.append(None)
+                swing_low_abs_values.append(None)
             continue
-        
+
+        # Pre-computed values missing or invalid → recalculate from strategy file
         entry_time = normalize_time_str(row.get('entry_time'))
         exit_time = normalize_time_str(row.get('exit_time'))
-        entry_price = row.get('entry_price')
+        entry_price = entry_price_val
         strategy_file = resolve_strategy_file(
             row.get('symbol'),
             row.get('symbol_html'),
             row.get('source_trade_file')
         )
-        
-        high = existing_high if pd.notna(existing_high) else None
-        swing_low = existing_swing_low if pd.notna(existing_swing_low) else None
-        
+
+        high = None
+        swing_low = None if not swing_low_valid else None
+
         if strategy_file and strategy_file.exists() and entry_time and exit_time and pd.notna(entry_price):
             try:
                 entry_price_float = float(entry_price)
-                if high is None:
-                    high = calculate_high_between_entry_exit(strategy_file, entry_time, exit_time, entry_price_float)
-                if swing_low is None:
+                high = calculate_high_between_entry_exit(strategy_file, entry_time, exit_time, entry_price_float)
+                if not swing_low_valid:
                     swing_low = calculate_swing_low_at_entry(strategy_file, entry_time, entry_price_float, swing_low_candles)
             except Exception as calc_err:
                 logger.warning(f"High/Swing low calc failed for row {idx} ({strategy_file}): {calc_err}")
         else:
             if not strategy_file or not strategy_file.exists():
                 logger.debug(f"Strategy file missing for row {idx}: {strategy_file}")
-        
-        high_abs_values.append(high)
-        swing_low_abs_values.append(swing_low)
 
-        entry_price_val = row.get('entry_price')
+        high_abs_values.append(high)
+
         if pd.notna(entry_price_val) and entry_price_val:
             try:
                 entry_price_float = float(entry_price_val)
-                high_pct = ((high - entry_price_float) / entry_price_float * 100) if high is not None else None
-                swing_low_pct = ((swing_low - entry_price_float) / entry_price_float * 100) if swing_low is not None else None
+                high_pct = round(((high - entry_price_float) / entry_price_float * 100), 2) if high is not None else None
+                if swing_low_valid:
+                    swing_low_pct_val = round(float(existing_swing_low), 2)
+                    swing_low_abs_values.append(round(entry_price_float * (1 + swing_low_pct_val / 100), 2))
+                else:
+                    swing_low_pct_val = round(((swing_low - entry_price_float) / entry_price_float * 100), 2) if swing_low is not None else None
+                    swing_low_abs_values.append(swing_low)
             except Exception:
                 high_pct = None
-                swing_low_pct = None
+                swing_low_pct_val = None
+                swing_low_abs_values.append(None)
         else:
             high_pct = None
-            swing_low_pct = None
-        high_pct_values.append(high_pct)
-        swing_low_pct_values.append(swing_low_pct)
+            swing_low_pct_val = None
+            swing_low_abs_values.append(None)
 
-    # Replace high/swing_low columns with percentage change, but keep absolute values for reference
+        # Floor: high_pct can never be less than realized PnL%
+        if high_pct is not None and high_pct < pnl_floor:
+            high_pct = round(pnl_floor, 2)
+        elif high_pct is None and pnl_floor > 0:
+            high_pct = round(pnl_floor, 2)
+
+        high_pct_values.append(high_pct)
+        swing_low_pct_values.append(swing_low_pct_val)
+
     df['high_abs'] = high_abs_values
     df['swing_low_abs'] = swing_low_abs_values
-    df['high'] = high_pct_values
-    df['swing_low'] = swing_low_pct_values
+    df['high_pct'] = high_pct_values
+    df['swing_low_pct'] = swing_low_pct_values
+    if 'high' in df.columns:
+        df.drop(columns=['high'], inplace=True)
+    if 'swing_low' in df.columns:
+        df.drop(columns=['swing_low'], inplace=True)
     return df
 
 def add_skip_first_flags(df: pd.DataFrame) -> pd.DataFrame:
