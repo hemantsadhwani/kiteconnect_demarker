@@ -8,7 +8,7 @@ Goal: Improve win rate and PnL by waiting for the typical pullback before enteri
 so weak signals (that would hit SL quickly) are either not taken or entered at a
 better price.
 
-Uses the same R1–S1 trade set as analyze_trades_cpr_zones_r1_s1.py. For each trade:
+Uses the same R1–S1 trade set as analyze_trades_cpr_zones_atm.py. For each trade:
 - Load strategy CSV (1min OHLC).
 - Find entry bar and exit bar by time.
 - For each delay in [0, 1, ..., max_delay_bars]:
@@ -241,7 +241,7 @@ def load_r1_s1_trades_from_csv(script_dir: Path) -> List[Dict]:
 
 def collect_r1_s1_trades(config_path: Path, script_dir: Path) -> List[Dict]:
     """Collect all Between R1 and S1 trades with data_dir and plain symbol for strategy path."""
-    from analyze_trades_cpr_zones_r1_s1 import (
+    from analyze_trades_cpr_zones_atm import (
         _ensure_time_column,
         get_pnl_series,
         nifty_price_at_time,
@@ -251,6 +251,8 @@ def collect_r1_s1_trades(config_path: Path, script_dir: Path) -> List[Dict]:
         config = yaml.safe_load(f)
     all_days = config.get("BACKTESTING_EXPIRY", {}).get("BACKTESTING_DAYS", []) or config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
     cpr_csv_path = script_dir / "cpr_dates.csv"
+    if not cpr_csv_path.exists():
+        cpr_csv_path = script_dir.parent / "cpr_dates.csv"
     cpr_csv_by_date: Dict[str, Dict[str, float]] = {}
     if cpr_csv_path.exists():
         cpr_df = pd.read_csv(cpr_csv_path)
@@ -430,9 +432,9 @@ def main() -> None:
     else:
         trades = collect_r1_s1_trades(config_path, script_dir)
         if trades:
-            logger.info("Using collected R1–S1 trades from config (%d trades; run analyze_trades_cpr_zones_r1_s1.py first for full set CSV).", len(trades))
+            logger.info("Using collected R1–S1 trades from config (%d trades; run analyze_trades_cpr_zones_atm.py first for full set CSV).", len(trades))
     if not trades:
-        logger.error("No Between R1 and S1 trades found. Run analyze_trades_cpr_zones_r1_s1.py first to generate trades_dynamic_atm_between_r1_s1.csv, then re-run this script.")
+        logger.error("No Between R1 and S1 trades found. Run analyze_trades_cpr_zones_atm.py first to generate trades_dynamic_atm_between_r1_s1.csv, then re-run this script.")
         sys.exit(1)
     logger.info("Simulating delays 0..%d (SL=%.1f%%, TP=%.1f%%)", args.max_delay, sl_pct, tp_pct)
 

@@ -7,7 +7,7 @@
 
 ## System in One Paragraph
 
-Automated NIFTY weekly options trading bot. Uses KiteConnect WebSocket for real-time tick data, builds 1-minute OHLC candles, computes indicators (SuperTrend, WPR-9/28, StochRSI K/D), evaluates Entry2 conditions, and executes trades via Kite REST API. Runs on EC2 (production). Backtesting in `backtesting_st50/`. Configuration split between `config.yaml` (prod) and `backtesting_st50/backtesting_config.yaml`. Primary entry strategy is **Entry2** (WPR crossover + StochRSI confirmation + OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN).
+Automated NIFTY weekly options trading bot. Uses KiteConnect WebSocket for real-time tick data, builds 1-minute OHLC candles, computes indicators (SuperTrend, WPR-9/28, StochRSI K/D), evaluates Entry2 conditions, and executes trades via Kite REST API. Runs on EC2 (production). Backtesting in `backtesting/`. Configuration split between `config.yaml` (prod) and `backtesting/backtesting_config.yaml`. Primary entry strategy is **Entry2** (WPR crossover + StochRSI confirmation + OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN). All documentation consolidated in `docs/`.
 
 ---
 
@@ -44,10 +44,10 @@ Previous design precomputed 22 option symbols (11 per side). Replaced with a 6-s
 WebSocket delivers ~1 tick/second. Intra-second H/L extremes are missed. After each minute closes, for the 6 hot-band tokens, Kite historical API is called to fetch the correct OHLC and patch the tick-built candle. This is deferred via `asyncio.create_task` so it doesn't block the tick loop. See `docs/PROD_OHLC_INDICATOR_ALIGNMENT.md`.
 
 ### 4. OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN — enters at candle OPEN, not close
-Entry2 signal is deferred: entry only fires on the first subsequent candle whose `open >= confirmation_candle.high`. This matches backtesting exactly. See `docs/OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN.md`.
+Entry2 signal is deferred: entry only fires on the first subsequent candle whose `open >= confirmation_candle.high`. This matches backtesting exactly. See `docs/OPTIMAL_ENTRY.md`.
 
 ### 5. SKIP_FIRST — skips first Entry2 signal after SuperTrend bearish-to-bullish switch
-Only skips when both Nifty 9:30 sentiment AND CPR Pivot sentiment are bearish. Uses cached daily values for low latency. Implemented identically in backtesting and production. See `docs/SKIP_FIRST_IMPLEMENTATION_DETAILS.md`.
+Only skips when both Nifty 9:30 sentiment AND CPR Pivot sentiment are bearish. Uses cached daily values for low latency. Implemented identically in backtesting and production. See `docs/SKIP_FIRST.md`.
 
 ### 6. Dynamic ATM (slab change)
 When NIFTY moves beyond the current slab, new CE/PE strikes are selected and the 6-symbol band rolls. Slab-change candle is skipped for entry to avoid acting on incomplete indicator data. See `docs/SLAB_CHANGE_AND_BLOCKING_LOGIC.md`.
@@ -106,22 +106,42 @@ All monitored by `realtime_position_manager.py` on every WebSocket tick. Exit = 
 
 ## Doc Index (by topic)
 
+All documentation is in `docs/` (single source of truth).
+
+### Strategy & Entry
 | Topic | Document |
 |-------|---------|
-| System overview | `docs/project_detail.md`, `docs/REALTIME_BOT_OVERVIEW.md` |
-| Entry2 strategy | `docs/Entry2_DEMARKER.md`, `docs/Entry2_WPR.md` |
-| Optimal entry logic + bug fix | `docs/OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN.md` |
-| SKIP_FIRST feature | `docs/SKIP_FIRST_IMPLEMENTATION_DETAILS.md` |
-| 6-symbol rolling band + cold start | `docs/PRECOMPUTED_SYMBOL_BAND_DESIGN.md` |
-| OHLC post-correction | `docs/PROD_OHLC_INDICATOR_ALIGNMENT.md` |
-| Slab change + blocking logic | `docs/SLAB_CHANGE_AND_BLOCKING_LOGIC.md` |
-| SL gap slippage + design options | `docs/SL_GAP_SLIPPAGE_DESIGN.md` |
-| Position management architecture | `docs/TRADE_POSITION_MANAGEMENT_ARCHITECTURE_IMPROVED.md` |
+| Entry2 strategy (WPR) | `docs/Entry2_WPR.md` |
+| Entry2 strategy (DeMarker) | `docs/Entry2_DEMARKER.md` |
+| Entry gate filters (WPR9, Regime, ML) | `docs/ENTRY_GATE_FILTERS.md` |
+| Optimal entry deferral | `docs/OPTIMAL_ENTRY.md` |
 | WPR invalidation | `docs/WPR_INVALIDATION.md` |
-| Mar 10 trade flow (4 trades) | `docs/PRODUCTION_4_TRADES_FLOW_MAR10.md` |
-| EC2 / cron / deployment | `docs/ec2_automation.md`, `docs/crontab.md` |
-| Backtesting overview | `backtesting_st50/docs/BACKTESTING_README.md` |
-| Backtesting Entry2 production vs backtest | `backtesting_st50/docs/ENTRY2_PRODUCTION_VS_BACKTESTING.md` |
+| SKIP_FIRST feature | `docs/SKIP_FIRST.md` |
+| Validate entry risk (swing low) | `docs/VALIDATE_ENTRY_RISK.md` |
+
+### Market Sentiment & Filtering
+| Topic | Document |
+|-------|---------|
+| Market sentiment (AUTO/HYBRID/MANUAL) | `docs/MARKET_SENTIMENT.md` |
+| Future sentiment research (VWAP, regime) | `docs/FUTURE_SENTIMENT_RESEARCH.md` |
+
+### Position & Risk Management
+| Topic | Document |
+|-------|---------|
+| Position management architecture | `docs/TRADE_POSITION_MANAGEMENT_ARCHITECTURE.md` |
+| Take profit + dynamic trailing | `docs/TAKE_PROFIT_TRAILING.md` |
+| MARK2MARKET (HWM drawdown) | `docs/MARK2MARKET.md` |
+| SL gap slippage + design options | `docs/SL_GAP_SLIPPAGE_DESIGN.md` |
+
+### Infrastructure & Data
+| Topic | Document |
+|-------|---------|
+| Dynamic ATM/OTM strikes | `docs/DYNAMIC_ATM_OTM.md` |
+| Slab change + blocking logic | `docs/SLAB_CHANGE_AND_BLOCKING_LOGIC.md` |
+| 6-symbol rolling band + cold start | `docs/PRECOMPUTED_SYMBOL_BAND_DESIGN.md` |
+| Backtesting workflow | `docs/BACKTESTING_WORKFLOW.md` |
+| System overview | `docs/project_detail.md`, `docs/REALTIME_BOT_OVERVIEW.md` |
+| EC2 / cron / deployment | `docs/ec2_automation.md`, `docs/cron_usage.md` |
 
 ---
 

@@ -194,6 +194,9 @@ class EntryConditionManager:
         market_sentiment_config = config.get('MARKET_SENTIMENT', {})
         sentiment_filter_config = config.get('MARKET_SENTIMENT_FILTER', {})  # Legacy fallback for ALLOW_MULTIPLE_SYMBOL_POSITIONS only
         self.hybrid_strict_zone = (market_sentiment_config.get('HYBRID_STRICT_ZONE') or 'R1_S1').strip().upper()
+        self.hybrid_block_bullish_r1_r2 = market_sentiment_config.get('HYBRID_BLOCK_BULLISH_R1_R2', False)
+        if self.hybrid_block_bullish_r1_r2:
+            self.logger.info("HYBRID_BLOCK_BULLISH_R1_R2=true - Will block all trades when Nifty in R1-R2 zone and sentiment is BULLISH")
         self.allow_multiple_symbol_positions = market_sentiment_config.get(
             'ALLOW_MULTIPLE_SYMBOL_POSITIONS',
             sentiment_filter_config.get('ALLOW_MULTIPLE_SYMBOL_POSITIONS', True)
@@ -1842,6 +1845,18 @@ class EntryConditionManager:
                 )
             # Note: NO_SENTIMENT_IN_STRICT_ZONE (exclude when in R1-S1 but no sentiment) is a backtest-only case:
             # production sentiment always comes from state_manager.get_sentiment() which returns only BULLISH/BEARISH/NEUTRAL/DISABLE (or NEUTRAL for invalid).
+
+            # --- HYBRID_BLOCK_BULLISH_R1_R2: block ALL trades when Nifty is in R1-R2 and sentiment is BULLISH ---
+            # Reversal strategy (Entry2) at resistance zone + bullish trend = unreliable reversal signal.
+            if current_mode == 'HYBRID' and getattr(self, 'hybrid_block_bullish_r1_r2', False):
+                r2 = cpr.get('R2') if cpr else None
+                if nifty is not None and r1 is not None and r2 is not None:
+                    if float(r1) < float(nifty) < float(r2) and (sentiment or '').upper().strip() == 'BULLISH':
+                        self.logger.info(
+                            f"[HYBRID] BLOCK_BULLISH_R1_R2: NIFTY={nifty:.2f} is in R1-R2 zone "
+                            f"(R1={r1}, R2={r2}) and sentiment=BULLISH -> blocking all trades"
+                        )
+                        return
 
             # --- Handle Immediate Action Commands (from the API queue) ---
             # Manual commands (BUY_CE, BUY_PE) are ALWAYS allowed regardless of sentiment mode

@@ -248,8 +248,8 @@ def process_all_trade_files(config_file: Path = None):
                 logger.warning(f"Could not convert date {date_str} to day label, skipping")
                 continue
             
-            # Process DYNAMIC files (data is in parent directory)
-            data_dir = Path(__file__).parent.parent / "data"
+            data_dir_name = config.get('PATHS', {}).get('DATA_DIR', expiry_config.get('DATA_DIR', 'data_st50'))
+            data_dir = Path(__file__).parent.parent / data_dir_name
             dynamic_base = data_dir / f"{expiry_week}_DYNAMIC" / day_label
             dynamic_files = [
                 dynamic_base / 'entry2_dynamic_atm_ce_trades.csv',

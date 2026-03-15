@@ -190,6 +190,7 @@ PRICE_ZONES:
 MARKET_SENTIMENT:
   MODE: HYBRID  # Backtest: HYBRID
   HYBRID_STRICT_ZONE: R1_S1
+  HYBRID_BLOCK_BULLISH_R1_R2: true  # Block ALL trades when Nifty is in R1-R2 zone AND sentiment is BULLISH
 
   SENTIMENT_VERSION: "v1"
   CONFIG_PATH: "market_sentiment_v1/config.yaml"

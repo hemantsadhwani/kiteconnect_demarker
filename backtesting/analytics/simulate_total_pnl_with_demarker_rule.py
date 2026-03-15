@@ -46,7 +46,7 @@ def simulate(csv_path: Path, tp_pct: float = 7.0, threshold: float = 0.65) -> No
         else:
             print("  Column 'demarker_at_7pct' exists but all values are missing/NaN.")
         print("  The rule (high >= {}% and dem7 < {}) will NEVER apply; simulated PnL = baseline.".format(tp_pct, threshold))
-        print("  To get DeMarker: run analyze_trades_cpr_zones_r1_s1.py (writes zone CSVs with demarker_at_7pct).")
+        print("  To get DeMarker: run analyze_trades_cpr_zones_atm.py (writes zone CSVs with demarker_at_7pct).")
         print()
 
     baseline_total = df["pnl_num"].sum()
@@ -111,7 +111,7 @@ def resolve_csv_path(path: Path) -> Path:
 def main() -> None:
     import sys
 
-    default_path = Path("trades_dynamic_atm_above_r1.csv")
+    default_path = Path("trade_analytics_by_cpr_band/trades_dynamic_atm_above_r1.csv")
     csv_path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
     csv_path = resolve_csv_path(csv_path)
     tp = float(sys.argv[2]) if len(sys.argv) > 2 else 7.0

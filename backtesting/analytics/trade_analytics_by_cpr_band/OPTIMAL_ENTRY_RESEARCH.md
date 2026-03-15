@@ -13,7 +13,7 @@ This research tests whether **delaying entry** by 1, 2, 3, … bars (waiting for
 
 **`optimal_entry_r1_s1_research.py`**
 
-- Uses the same R1–S1 trade set as `analyze_trades_cpr_zones_r1_s1.py` (DYNAMIC_ATM, S1 ≤ Nifty at entry ≤ R1, EXECUTED only).
+- Uses the same R1–S1 trade set as `analyze_trades_cpr_zones_atm.py` (DYNAMIC_ATM, S1 ≤ Nifty at entry ≤ R1, EXECUTED only).
 - For each trade, loads the option’s strategy CSV (1‑min OHLC), finds the entry bar by time.
 - For each **delay** in `0, 1, …, max_delay_bars`:
   - **Simulated entry price** = open of bar `(entry_bar + delay)`.
@@ -23,7 +23,7 @@ This research tests whether **delaying entry** by 1, 2, 3, … bars (waiting for
 ## Prerequisites
 
 - `backtesting_config.yaml` (with `BACKTESTING_DAYS`, `PATHS.DATA_DIR`, `ENTRY2.STOP_LOSS_PERCENT`, `TAKE_PROFIT_PERCENT`).
-- `cpr_dates.csv` in this folder (same as for `analyze_trades_cpr_zones_r1_s1.py`).
+- `cpr_dates.csv` in this folder or parent `analytics/` folder (same as for `analyze_trades_cpr_zones_atm.py`).
 - Backtest data: `data/{EXPIRY_DYNAMIC}/{DAY}/entry2_dynamic_atm_mkt_sentiment_trades.csv` and `ATM/{SYMBOL}_strategy.csv` for each trade.
 
 ## Usage

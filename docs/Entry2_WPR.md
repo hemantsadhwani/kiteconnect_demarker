@@ -81,8 +81,39 @@ So: **trigger always needs SuperTrend bearish; confirmation (with flexible mode)
 
 ---
 
+## Behavioural Details
+
+### Trigger evaluation during active position
+
+Entry2 state machine runs **every bar**, even when a position is open. This matches production where trigger/confirmation logic keeps running and trade execution is gated separately. If a signal occurs while in a trade, it is **deferred** and executed after the current position exits.
+
+### New trigger during AWAITING_CONFIRMATION
+
+Ignored. We wait for the current confirmation window to expire (or WPR9 invalidation) before accepting a new trigger. No mid-window replacement.
+
+### Window expiry
+
+When the confirmation window expires without all confirmations met, the state machine resets to AWAITING_TRIGGER and immediately checks for a new trigger on the same candle (fall-through).
+
+---
+
+## Production vs Backtesting Parity
+
+| Aspect | Production | Backtesting | Match |
+|---|---|---|---|
+| Window length | `ENTRY2_CONFIRMATION_WINDOW: 4` | `WPR_CONFIRMATION_WINDOW: 4` | Yes |
+| Trigger (WPR9/28/both) | Same logic | Same logic | Yes |
+| StochRSI confirmation (flexible) | No SuperTrend required | Same | Yes |
+| WPR Invalidation | Both WPRs below oversold -> reset | Same (if enabled) | Yes |
+| WPR(28) "already above" in flexible | No `is_bearish` required | **Always requires `is_bearish`** | Difference |
+
+The WPR(28) "already above" difference means production can confirm W%R(28) slightly earlier when SuperTrend flips bullish during the window. This is a known minor divergence.
+
+---
+
 ## Related docs
 
-- [Entry2_DEMARKER.md](Entry2_DEMARKER.md) — Entry2 with DeMarker trigger (alternative to WPR).
-- [WPR_INVALIDATION.md](WPR_INVALIDATION.md) — cancel setup when both W%Rs go below oversold.
-- [OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN.md](OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN.md) — defer entry until a candle opens above confirmation high.
+- [Entry2_DEMARKER.md](Entry2_DEMARKER.md) -- Entry2 with DeMarker trigger (alternative to WPR).
+- [WPR_INVALIDATION.md](WPR_INVALIDATION.md) -- cancel setup when both W%Rs go below oversold.
+- [OPTIMAL_ENTRY.md](OPTIMAL_ENTRY.md) -- defer entry until a candle opens above confirmation high.
+- [ENTRY_GATE_FILTERS.md](ENTRY_GATE_FILTERS.md) -- WPR9 entry gate, NIFTY regime filter.

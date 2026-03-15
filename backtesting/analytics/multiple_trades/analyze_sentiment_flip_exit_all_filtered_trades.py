@@ -10,6 +10,7 @@ from pathlib import Path
 import logging
 from datetime import datetime
 import sys
+import yaml
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def find_all_filtered_trade_files(base_dir: Path):
     for file_path in base_dir.rglob('entry2_dynamic_atm_mkt_sentiment_trades.csv'):
         parts = file_path.parts
         try:
-            data_idx = parts.index('data')
+            data_idx = next(i for i, p in enumerate(parts) if p.startswith('data'))
             if data_idx + 2 < len(parts):
                 expiry_week_dir = parts[data_idx + 1]
                 expiry_week = expiry_week_dir.replace('_DYNAMIC', '').replace('_STATIC', '')
@@ -105,9 +106,19 @@ def is_atm_strike(symbol, nifty_price, strike_diff=50):
     
     return False
 
+def _get_data_dir_name():
+    """Read DATA_DIR from backtesting_config.yaml."""
+    config_path = Path(__file__).parent.parent.parent / 'backtesting_config.yaml'
+    if config_path.exists():
+        with open(config_path, 'r') as f:
+            cfg = yaml.safe_load(f)
+        return cfg.get('PATHS', {}).get('DATA_DIR',
+                   cfg.get('BACKTESTING_EXPIRY', {}).get('DATA_DIR', 'data_st50'))
+    return 'data_st50'
+
 def analyze_sentiment_flip_exit_all_filtered_trades():
     """Main function to analyze impact for all filtered trades"""
-    base_dir = Path(__file__).parent.parent / 'data'
+    base_dir = Path(__file__).parent.parent.parent / _get_data_dir_name()
     
     if not base_dir.exists():
         logger.error(f"Data directory not found: {base_dir}")
@@ -739,7 +750,7 @@ def analyze_sentiment_flip_exit_all_filtered_trades():
     print(f"Impact: {'POSITIVE' if total_pnl_change > 0 else 'NEGATIVE' if total_pnl_change < 0 else 'NEUTRAL'}")
     
     # Compare with aggregate summary
-    summary_file = Path(__file__).parent.parent / 'entry2_aggregate_summary.csv'
+    summary_file = Path(__file__).parent.parent.parent / 'entry2_aggregate_summary.csv'
     if summary_file.exists():
         summary_df = pd.read_csv(summary_file)
         current_filtered_pnl_str = summary_df['Filtered P&L'].iloc[0]

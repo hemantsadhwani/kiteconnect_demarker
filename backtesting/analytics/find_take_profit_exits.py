@@ -343,8 +343,9 @@ def main():
     logger.info(f"\nConfiguration:")
     logger.info(f"  TAKE_PROFIT_PERCENT: {take_profit_percent}%")
     
-    # Find base directory (data is in parent directory)
-    base_dir = Path(__file__).parent.parent / "data"
+    data_dir_name = config.get('PATHS', {}).get('DATA_DIR',
+                        config.get('BACKTESTING_EXPIRY', {}).get('DATA_DIR', 'data_st50'))
+    base_dir = Path(__file__).parent.parent / data_dir_name
     
     if not base_dir.exists():
         logger.error(f"Data directory not found: {base_dir}")

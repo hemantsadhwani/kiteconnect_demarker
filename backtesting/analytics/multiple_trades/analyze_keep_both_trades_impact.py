@@ -98,7 +98,7 @@ def analyze_keep_both_trades_impact():
     print(f"Impact: {'POSITIVE' if (total_keep_both_pnl - total_exit_early_pnl) > 0 else 'NEGATIVE' if (total_keep_both_pnl - total_exit_early_pnl) < 0 else 'NEUTRAL'}")
     
     # Compare with aggregate summary
-    summary_file = Path(__file__).parent.parent / 'entry2_aggregate_summary.csv'
+    summary_file = Path(__file__).parent.parent.parent / 'entry2_aggregate_summary.csv'
     if summary_file.exists():
         summary_df = pd.read_csv(summary_file)
         current_filtered_pnl = summary_df['Filtered P&L'].iloc[0]

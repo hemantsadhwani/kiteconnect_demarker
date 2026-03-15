@@ -137,20 +137,20 @@ def get_previous_trading_day_ohlc_from_1min(
 
 
 def get_previous_day_ohlc(nifty_file: Path):
-    """Prev day OHLC. Prefer export_losing_trades_with_highest_price, else Kite from export_losing_trades."""
+    """Prev day OHLC from local Nifty 1min CSV (previous trading day).
+    Reads the file directly -- no external module dependency."""
     try:
-        from export_losing_trades_with_highest_price import get_previous_day_ohlc_from_nifty_file
-        h, l, c = get_previous_day_ohlc_from_nifty_file(nifty_file)
-        return (h, l, c) if (h is not None and l is not None and c is not None) else (None, None, None)
+        df = pd.read_csv(nifty_file)
+        if df.empty:
+            return (None, None, None)
+        high_col = next((c for c in df.columns if str(c).strip().lower() == "high"), None)
+        low_col = next((c for c in df.columns if str(c).strip().lower() == "low"), None)
+        close_col = next((c for c in df.columns if str(c).strip().lower() == "close"), None)
+        if not high_col or not low_col or not close_col:
+            return (None, None, None)
+        return (float(df[high_col].max()), float(df[low_col].min()), float(df[close_col].iloc[-1]))
     except Exception:
-        pass
-    try:
-        from export_losing_trades import fetch_prev_day_nifty_ohlc_via_kite
-        h, l, c, _ = fetch_prev_day_nifty_ohlc_via_kite(str(nifty_file))
-        return (h, l, c) if (h is not None and l is not None and c is not None) else (None, None, None)
-    except Exception:
-        pass
-    return (None, None, None)
+        return (None, None, None)
 
 
 def parse_entry_time(entry_val) -> Optional[pd.Timestamp]:
@@ -474,8 +474,10 @@ def main() -> None:
     all_days = config.get("BACKTESTING_EXPIRY", {}).get("BACKTESTING_DAYS", []) or config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
     print(f"BACKTESTING_DAYS: {len(all_days)} dates in config. Processing {len(pairs)} dates with trades files.\n")
 
-    # Load cpr_dates.csv only (daily OHLC from Kite; single path, no fallback)
+    # Load cpr_dates.csv (daily OHLC from Kite)
     cpr_csv_path = script_dir / "cpr_dates.csv"
+    if not cpr_csv_path.exists():
+        cpr_csv_path = script_dir.parent / "cpr_dates.csv"
     cpr_csv_by_date: Dict[str, Dict[str, float]] = {}
     if cpr_csv_path.exists():
         try:

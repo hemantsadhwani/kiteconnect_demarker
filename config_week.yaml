@@ -241,6 +241,7 @@ PRICE_ZONES:
 MARKET_SENTIMENT:
   MODE: HYBRID  # Options: AUTO | MANUAL | DISABLE | HYBRID (backtest: HYBRID)
   HYBRID_STRICT_ZONE: R1_S1  # Only R1_S1 supported; strict zone = [S1, R1]
+  HYBRID_BLOCK_BULLISH_R1_R2: true  # Block ALL trades when Nifty is in R1-R2 zone AND sentiment is BULLISH
 
   # Used when MODE=AUTO or MODE=HYBRID (strict zone)
   SENTIMENT_VERSION: "v1"

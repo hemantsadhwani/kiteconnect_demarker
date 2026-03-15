@@ -75,7 +75,7 @@ def analyze(
 
     has_dm = subset["dm_used"].notna().any()
     if not has_dm:
-        print("  (No DeMarker values in CSV for these trades. Re-run analyze_trades_cpr_zones_r1_s1.py.)")
+        print("  (No DeMarker values in CSV for these trades. Re-run analyze_trades_cpr_zones_atm.py.)")
         print()
         return
 
@@ -157,7 +157,7 @@ def analyze(
 
 
 def main() -> None:
-    default_path = Path(__file__).resolve().parent / "trades_dynamic_atm_above_r1.csv"
+    default_path = Path(__file__).resolve().parent / "trade_analytics_by_cpr_band" / "trades_dynamic_atm_above_r1.csv"
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_path
     high_gt = float(sys.argv[2]) if len(sys.argv) > 2 else 7.0
     demarker_threshold = float(sys.argv[3]) if len(sys.argv) > 3 else 0.5

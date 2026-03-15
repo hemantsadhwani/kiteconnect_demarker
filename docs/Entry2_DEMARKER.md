@@ -101,5 +101,6 @@ Example: trigger at 10:42, actual entry at 10:47 (OPTIMAL_ENTRY_ABOVE_CONFIRM_OP
 
 ## Related docs
 
-- [Entry2_WPR.md](Entry2_WPR.md) — W%R-based Entry2 (dual W%R + StochRSI).
-- [OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN.md](OPTIMAL_ENTRY_ABOVE_CONFIRM_OPEN.md) — defer entry until a candle opens above confirmation high.
+- [Entry2_WPR.md](Entry2_WPR.md) -- W%R-based Entry2 (dual W%R + StochRSI).
+- [OPTIMAL_ENTRY.md](OPTIMAL_ENTRY.md) -- defer entry until a candle opens above confirmation high.
+- [ENTRY_GATE_FILTERS.md](ENTRY_GATE_FILTERS.md) -- WPR9 entry gate, NIFTY regime filter.

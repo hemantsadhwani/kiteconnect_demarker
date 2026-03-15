@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Analyze DYNAMIC_ATM CPR zone trade files (from analyze_trades_cpr_zones_r1_s1.py):
+Analyze DYNAMIC_ATM CPR zone trade files (from analyze_trades_cpr_zones_atm.py):
 - Below S1 = trades_dynamic_atm_below_s2.csv + trades_dynamic_atm_between_s1_s2.csv
 - Above R1 = trades_dynamic_atm_between_r1_r2.csv + trades_dynamic_atm_above_r2.csv
 - Between R1 and S1 = trades_dynamic_atm_between_r1_s1.csv
@@ -68,7 +68,7 @@ def main() -> None:
     for p in (below_s2_path, s1_s2_path, r1_r2_path, above_r2_path, between_r1_s1_path):
         if not p.exists():
             print(f"File not found: {p}")
-            print("Run first: python analyze_trades_cpr_zones_r1_s1.py")
+            print("Run first: python analyze_trades_cpr_zones_atm.py")
             sys.exit(1)
 
     # Below S1 = below_s2 + between_s1_s2

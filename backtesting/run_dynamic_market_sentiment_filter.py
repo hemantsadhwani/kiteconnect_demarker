@@ -64,6 +64,8 @@ def _load_config():
                 manual_sentiment = sentiment_filter_config.get('MANUAL_SENTIMENT', 'NEUTRAL').upper()  # NEUTRAL, BULLISH, BEARISH (used when MODE=MANUAL)
                 # HYBRID: strict sentiment only when Nifty at entry is in this zone (e.g. R1_S1 = between R1 and S1); outside zone allow all (NEUTRAL)
                 hybrid_strict_zone = (sentiment_filter_config.get('HYBRID_STRICT_ZONE') or 'R1_S1').strip().upper()
+                hybrid_block_neutral_ce = sentiment_filter_config.get('HYBRID_BLOCK_NEUTRAL_CE', False)
+                hybrid_block_bullish_r1_r2 = sentiment_filter_config.get('HYBRID_BLOCK_BULLISH_R1_R2', False)
                 
                 # CPR trading range: exclude trades when Nifty at entry is outside band (column names in cpr_dates.csv)
                 cpr_range = config.get('CPR_TRADING_RANGE', {})
@@ -83,6 +85,8 @@ def _load_config():
                     'sentiment_version': sentiment_version,
                     'manual_sentiment': manual_sentiment,
                     'sentiment_hybrid_strict_zone': hybrid_strict_zone,
+                    'hybrid_block_neutral_ce': hybrid_block_neutral_ce,
+                    'hybrid_block_bullish_r1_r2': hybrid_block_bullish_r1_r2,
                     'cpr_trading_range_enabled': cpr_range_enabled,
                     'cpr_upper_col': cpr_upper_col,
                     'cpr_lower_col': cpr_lower_col,
@@ -102,6 +106,8 @@ def _load_config():
         'sentiment_version': 'v2',  # Default to v2
         'manual_sentiment': 'NEUTRAL',  # Default to NEUTRAL
         'sentiment_hybrid_strict_zone': 'R1_S1',
+        'hybrid_block_neutral_ce': False,
+        'hybrid_block_bullish_r1_r2': False,
         'cpr_trading_range_enabled': False,
         'cpr_upper_col': 'band_R2_upper',
         'cpr_lower_col': 'band_S2_lower',
@@ -179,23 +185,37 @@ def _nifty_price_at_entry(nifty_df: pd.DataFrame, entry_time_dt) -> float:
 
 
 def _load_cpr_r1_s1_for_date(trade_date: str) -> tuple:
-    """Load R1, S1 for trade_date from analytics/cpr_dates.csv. Returns (R1, S1) or (None, None)."""
+    """Load R1, S1, R2 for trade_date from cpr_dates.csv. Returns (R1, S1, R2).
+    Any value may be None if not found. Searches multiple known locations."""
     script_dir = Path(__file__).resolve().parent
-    cpr_path = script_dir / 'analytics' / 'cpr_dates.csv'
-    if not cpr_path.exists():
-        return (None, None)
+    candidates = [
+        script_dir / 'analytics' / 'cpr_dates.csv',
+        script_dir / 'analytics' / 'trade_analytics_by_cpr_band' / 'cpr_dates.csv',
+        script_dir / 'grid_search_tools' / 'cpr_market_sentiment_v1' / 'cpr_dates.csv',
+    ]
+    cpr_path = None
+    for p in candidates:
+        if p.exists():
+            cpr_path = p
+            break
+    if cpr_path is None:
+        logger.warning("cpr_dates.csv not found in any of: %s", [str(c) for c in candidates])
+        return (None, None, None)
     try:
         cpr_df = pd.read_csv(cpr_path)
         if 'date' not in cpr_df.columns or 'R1' not in cpr_df.columns or 'S1' not in cpr_df.columns:
-            return (None, None)
+            return (None, None, None)
         cpr_df['_date'] = pd.to_datetime(cpr_df['date']).dt.strftime('%Y-%m-%d')
         row = cpr_df[cpr_df['_date'] == trade_date]
         if row.empty:
-            return (None, None)
-        return (float(row.iloc[0]['R1']), float(row.iloc[0]['S1']))
+            return (None, None, None)
+        r1 = float(row.iloc[0]['R1'])
+        s1 = float(row.iloc[0]['S1'])
+        r2 = float(row.iloc[0]['R2']) if 'R2' in cpr_df.columns and pd.notna(row.iloc[0].get('R2')) else None
+        return (r1, s1, r2)
     except Exception as e:
         logger.debug(f"Could not load CPR for {trade_date}: {e}")
-        return (None, None)
+        return (None, None, None)
 
 
 def _is_in_r1_s1_zone(nifty_at_entry: float, r1: float, s1: float) -> bool:
@@ -477,7 +497,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
 
     # HYBRID mode: load Nifty 1min and CPR R1/S1 for zone-based effective sentiment
     hybrid_nifty_df = None
-    hybrid_r1, hybrid_s1 = None, None
+    hybrid_r1, hybrid_s1, hybrid_r2 = None, None, None
     if config.get('sentiment_mode') == 'HYBRID':
         hybrid_strict_zone = (config.get('sentiment_hybrid_strict_zone') or 'R1_S1').strip().upper()
         if hybrid_strict_zone == 'R1_S1':
@@ -489,7 +509,7 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     logger.warning(f"HYBRID: Could not load nifty file {nifty_path.name}: {e}")
             else:
                 logger.warning(f"HYBRID: Nifty file not found: {nifty_path}")
-            hybrid_r1, hybrid_s1 = _load_cpr_r1_s1_for_date(trade_date)
+            hybrid_r1, hybrid_s1, hybrid_r2 = _load_cpr_r1_s1_for_date(trade_date)
             if hybrid_r1 is None or hybrid_s1 is None:
                 logger.warning(f"HYBRID: No CPR R1/S1 for {trade_date}; strict zone check will treat all as outside R1-S1 (NEUTRAL)")
         # Other zones (e.g. R2_S2) can be added later; for now only R1_S1
@@ -563,7 +583,13 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
     elif sentiment_mode == 'MANUAL':
         logger.info(f"Market sentiment filter ENABLED - MANUAL mode with sentiment: {manual_sentiment}")
     elif sentiment_mode == 'HYBRID':
-        logger.info(f"Market sentiment filter ENABLED - HYBRID mode, strict sentiment in zone: {config.get('sentiment_hybrid_strict_zone', 'R1_S1')}, NEUTRAL outside")
+        extra = []
+        if config.get('hybrid_block_neutral_ce', False):
+            extra.append('BLOCK_NEUTRAL_CE')
+        if config.get('hybrid_block_bullish_r1_r2', False):
+            extra.append('BLOCK_BULLISH_R1_R2')
+        ext_str = f" + {', '.join(extra)}" if extra else ""
+        logger.info(f"Market sentiment filter ENABLED - HYBRID mode, strict sentiment in zone: {config.get('sentiment_hybrid_strict_zone', 'R1_S1')}, NEUTRAL outside{ext_str}")
     else:
         logger.info(f"Market sentiment filter ENABLED - AUTO mode, SENTIMENT_VERSION={sentiment_version}")
     
@@ -660,7 +686,21 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
             if sentiment_mode == 'HYBRID':
                 nifty_at_entry = _nifty_price_at_entry(hybrid_nifty_df, entry_time) if hybrid_nifty_df is not None else None
                 in_strict_zone = _is_in_r1_s1_zone(nifty_at_entry, hybrid_r1, hybrid_s1)
-                if not in_strict_zone:
+
+                # R1-R2 zone: block ALL trades during BULLISH (price at resistance + trending up = reversal unreliable)
+                in_r1_r2 = False
+                if hybrid_r2 is not None and nifty_at_entry is not None and hybrid_r1 is not None:
+                    in_r1_r2 = float(hybrid_r1) < float(nifty_at_entry) < float(hybrid_r2)
+
+                if in_r1_r2 and config.get('hybrid_block_bullish_r1_r2', False):
+                    sent_upper = matching_sentiment.upper().strip() if matching_sentiment else ''
+                    if sent_upper == 'BULLISH':
+                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (HYBRID_BULLISH_BLOCKED_R1_R2)'})
+                        logger.debug(f"HYBRID: Blocking BULLISH trade in R1-R2 zone at {entry_time} (Nifty={nifty_at_entry})")
+                        continue
+                    else:
+                        effective_sentiment = 'NEUTRAL'
+                elif not in_strict_zone:
                     effective_sentiment = 'NEUTRAL'
                     logger.debug(f"HYBRID: Nifty at entry {nifty_at_entry} outside R1-S1 ({hybrid_r1}/{hybrid_s1}), treating as NEUTRAL at {entry_time}")
                 else:
@@ -668,6 +708,11 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     if not matching_sentiment:
                         excluded.append({**trade.to_dict(), 'market_sentiment': 'N/A', 'filter_status': 'EXCLUDED (NO_SENTIMENT_IN_STRICT_ZONE)'})
                         logger.debug(f"No sentiment in HYBRID strict zone for trade at {entry_time}, skipping")
+                        continue
+                    # Block CE during NEUTRAL in strict zone (CE reversals unreliable during NEUTRAL)
+                    if effective_sentiment == 'NEUTRAL' and config.get('hybrid_block_neutral_ce', False) and trade['option_type'] == 'CE':
+                        excluded.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': 'EXCLUDED (HYBRID_NEUTRAL_CE_BLOCKED)'})
+                        logger.debug(f"HYBRID: Blocking CE trade during NEUTRAL in R1-S1 zone at {entry_time}")
                         continue
             
             # Apply time zone filter
@@ -735,9 +780,9 @@ def _process_one_set(sentiment_df: pd.DataFrame, base_dir: Path, day_label: str,
                     logger.warning(f"Unknown sentiment value '{matching_sentiment}' for trade at {entry_time}, skipping")
                     continue
             
-            # AUTO / HYBRID (strict zone): v5 TRADITIONAL FILTERING - BULLISH → CE only; BEARISH → PE only
-            elif (sentiment_mode == 'AUTO' or sentiment_mode == 'HYBRID') and sentiment_version == 'v5':
-                sent_label = 'v5' if sentiment_mode == 'AUTO' else 'HYBRID_v5'
+            # AUTO / HYBRID (strict zone): v1/v2/v5 TRADITIONAL FILTERING - BULLISH -> CE only; BEARISH -> PE only
+            elif (sentiment_mode == 'AUTO' or sentiment_mode == 'HYBRID') and sentiment_version in ('v1', 'v2', 'v5'):
+                sent_label = f'{sentiment_mode}_{sentiment_version}'
                 if effective_sentiment == 'BULLISH':
                     if trade['option_type'] == 'CE':
                         filtered.append({**trade.to_dict(), 'market_sentiment': matching_sentiment, 'filter_status': f'INCLUDED ({sent_label}_BULLISH_CE)'})

@@ -33,7 +33,7 @@ try:
     )
 except ImportError:
     # Ensure analytics directory on sys.path
-    analytics_dir = Path(__file__).parent
+    analytics_dir = Path(__file__).parent.parent
     if str(analytics_dir) not in sys.path:
         sys.path.insert(0, str(analytics_dir))
     from calculate_high_swing_low import (
