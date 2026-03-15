@@ -3,34 +3,21 @@
 # Target: DYNAMIC_ATM (all trades, no market sentiment filter)
 
 # Grid Search Parameters
+# STOP_LOSS_PRICE_THRESHOLD is frozen (not searched); only STOP_LOSS_PERCENT is optimized.
+FROZEN_STOP_LOSS_THRESHOLD:
+  HIGH: 120
+  LOW: 60
+
+# Not trading above 120 or below 60; above/below percents fixed (not searched).
+FROZEN_STOP_LOSS_PERCENT:
+  ABOVE_THRESHOLD: 6.5   # fixed when price > 120
+  BELOW_THRESHOLD: 8.0   # fixed when price < 60
+
 GRID_SEARCH:
-  # STOP_LOSS_PRICE_THRESHOLD: [high_threshold, low_threshold]
-  # High threshold range (for first value in list)
-  STOP_LOSS_PRICE_THRESHOLD_HIGH:
-    MIN: 80
-    MAX: 180
-    STEP: 10
-  
-  # Low threshold range (for second value in list)
-  STOP_LOSS_PRICE_THRESHOLD_LOW:
-    MIN: 30
-    MAX: 80
-    STEP: 10
-  
-  # STOP_LOSS_PERCENT ranges
-  STOP_LOSS_PERCENT_ABOVE_THRESHOLD:
-    MIN: 5.5
-    MAX: 8.0
-    STEP: 0.5
-  
+  # Only BETWEEN_THRESHOLD (60–120) is optimized
   STOP_LOSS_PERCENT_BETWEEN_THRESHOLD:
-    MIN: 6.5
-    MAX: 8.5
-    STEP: 0.5
-  
-  STOP_LOSS_PERCENT_BELOW_THRESHOLD:
-    MIN: 7.0
-    MAX: 8.5
+    MIN: 6.0
+    MAX: 10.0
     STEP: 0.5
 
 # Optimization Target

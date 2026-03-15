@@ -1,0 +1,170 @@
+2026-03-14 21:54:15,881 - INFO - Logging to file: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\grid_search.log
+2026-03-14 21:54:15,881 - INFO - Initialized Stop Loss Grid Search
+2026-03-14 21:54:15,881 - INFO - Base path: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting
+2026-03-14 21:54:15,881 - INFO - Entry type: Entry2
+2026-03-14 21:54:15,881 - INFO - Summary CSV: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\entry2_aggregate_summary.csv
+2026-03-14 21:54:15,881 - INFO - Threshold frozen: HIGH=120, LOW=60 (not searched)
+2026-03-14 21:54:15,882 - INFO - Above Percent: frozen at 6.5% (not searched)
+2026-03-14 21:54:15,882 - INFO - Between Percent: 6.0-10.0 (step: 0.5)
+2026-03-14 21:54:15,882 - INFO - Below Percent: frozen at 8.0% (not searched)
+2026-03-14 21:54:15,882 - INFO - Optimization target: filtered_pnl for DYNAMIC_OTM
+2026-03-14 21:54:15,882 - INFO - Total grid combinations: 9 | config: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\config.yaml
+2026-03-14 21:54:15,891 - INFO - Backtesting config backed up to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\backtesting_config_backup_20260314_215415.yaml
+2026-03-14 21:54:15,892 - INFO - ================================================================================
+2026-03-14 21:54:15,892 - INFO - ESTABLISHING BASELINE FROM CURRENT CONFIGURATION
+2026-03-14 21:54:15,892 - INFO - ================================================================================
+2026-03-14 21:54:15,897 - INFO - Current configuration:
+2026-03-14 21:54:15,897 - INFO -   STOP_LOSS_PRICE_THRESHOLD: [120, 60]
+2026-03-14 21:54:15,897 - INFO -   STOP_LOSS_PERCENT.ABOVE_THRESHOLD: 6.5
+2026-03-14 21:54:15,897 - INFO -   STOP_LOSS_PERCENT.BETWEEN_THRESHOLD: 6.5
+2026-03-14 21:54:15,897 - INFO -   STOP_LOSS_PERCENT.BELOW_THRESHOLD: 8.0
+2026-03-14 21:54:15,897 - INFO - 
+2026-03-14 21:54:15,898 - INFO - Running baseline workflow...
+2026-03-14 21:54:15,898 - INFO - Note: Skipping run_indicators.py (stop loss parameters don't affect indicators)
+2026-03-14 21:54:15,898 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 21:55:12,992 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 21:55:13,495 - INFO - Read DYNAMIC_OTM metrics: P&L=966.55%, Win Rate=44.1%, Trades=195
+2026-03-14 21:55:13,496 - INFO - ================================================================================
+2026-03-14 21:55:13,496 - INFO - BASELINE ESTABLISHED
+2026-03-14 21:55:13,496 - INFO - ================================================================================
+2026-03-14 21:55:13,496 - INFO - Threshold: [120, 60]
+2026-03-14 21:55:13,496 - INFO - Above: 6.5% | Between: 6.5% | Below: 8.0%
+2026-03-14 21:55:13,496 - INFO - Filtered P&L: 966.55%
+2026-03-14 21:55:13,496 - INFO - Win Rate: 44.1%
+2026-03-14 21:55:13,496 - INFO - Total Trades: 637
+2026-03-14 21:55:13,496 - INFO - Filtered Trades: 195
+2026-03-14 21:55:13,496 - INFO - ================================================================================
+2026-03-14 21:55:13,497 - INFO - Running FULL GRID SEARCH
+2026-03-14 21:55:13,497 - INFO - Starting full grid search with all stop loss parameter combinations...
+2026-03-14 21:55:13,497 - INFO - Total combinations to test: 9
+2026-03-14 21:55:13,497 - INFO - Threshold frozen: HIGH=120, LOW=60
+2026-03-14 21:55:13,497 - INFO - Above Percent: frozen at 6.5%
+2026-03-14 21:55:13,497 - INFO - Between Percent: 6.0-10.0 (step: 0.5)
+2026-03-14 21:55:13,497 - INFO - Below Percent: frozen at 8.0%
+2026-03-14 21:55:13,497 - INFO - 
+[PROGRESS 1/9] Threshold=[120, 60], Above=6.5%, Between=6.0%, Below=8.0%
+2026-03-14 21:55:13,497 - INFO - ⏱️  Calculating time estimates after first iteration...
+2026-03-14 21:55:13,497 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=6.0%, Below=8.0%
+2026-03-14 21:55:13,507 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 21:56:10,868 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 21:56:11,370 - INFO - Read DYNAMIC_OTM metrics: P&L=925.58%, Win Rate=42.6%, Trades=197
+2026-03-14 21:56:11,370 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=6.0% Below=8.0% - P&L: 925.58% (-40.97% vs baseline) | Win Rate: 42.6% (-1.5% vs baseline) | Trades: 197 (+2 vs baseline)
+2026-03-14 21:56:11,370 - INFO - 🏆 NEW BEST: Threshold=[120, 60], Above=6.5%, Between=6.0%, Below=8.0% with 925.58% P&L!
+2026-03-14 21:56:11,370 - INFO - --------------------------------------------------------------------------------
+2026-03-14 21:56:11,370 - INFO - 
+[PROGRESS 2/9 (22.2%)] Threshold=[120, 60], Above=6.5%, Between=6.5%, Below=8.0%
+2026-03-14 21:56:11,370 - INFO - ⏱️  Elapsed: 58s | Est. Remaining: 6.8min | Est. Total: 7.7min | ETA: 22:02:56
+2026-03-14 21:56:11,370 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=6.5%, Below=8.0%
+2026-03-14 21:56:11,381 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 21:57:08,505 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 21:57:09,007 - INFO - Read DYNAMIC_OTM metrics: P&L=966.55%, Win Rate=44.1%, Trades=195
+2026-03-14 21:57:09,007 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=6.5% Below=8.0% - P&L: 966.55% (+0.00% vs baseline) | Win Rate: 44.1% (+0.0% vs baseline) | Trades: 195 (+0 vs baseline)
+2026-03-14 21:57:09,007 - INFO - 🏆 NEW BEST: Threshold=[120, 60], Above=6.5%, Between=6.5%, Below=8.0% with 966.55% P&L!
+2026-03-14 21:57:09,007 - INFO - --------------------------------------------------------------------------------
+2026-03-14 21:57:09,007 - INFO - 
+[PROGRESS 3/9 (33.3%)] Threshold=[120, 60], Above=6.5%, Between=7.0%, Below=8.0%
+2026-03-14 21:57:09,008 - INFO - ⏱️  Elapsed: 1.9min | Est. Remaining: 5.8min | Est. Total: 7.7min | ETA: 22:02:55
+2026-03-14 21:57:09,008 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=7.0%, Below=8.0%
+2026-03-14 21:57:09,017 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 21:58:04,601 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 21:58:05,103 - INFO - Read DYNAMIC_OTM metrics: P&L=927.87%, Win Rate=44.6%, Trades=195
+2026-03-14 21:58:05,103 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=7.0% Below=8.0% - P&L: 927.87% (-38.68% vs baseline) | Win Rate: 44.6% (+0.5% vs baseline) | Trades: 195 (+0 vs baseline)
+2026-03-14 21:58:05,104 - INFO - --------------------------------------------------------------------------------
+2026-03-14 21:58:05,104 - INFO - 
+[PROGRESS 4/9 (44.4%)] Threshold=[120, 60], Above=6.5%, Between=7.5%, Below=8.0%
+2026-03-14 21:58:05,104 - INFO - ⏱️  Elapsed: 2.9min | Est. Remaining: 4.8min | Est. Total: 7.6min | ETA: 22:02:51
+2026-03-14 21:58:05,104 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=7.5%, Below=8.0%
+2026-03-14 21:58:05,114 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 21:59:02,945 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 21:59:03,447 - INFO - Read DYNAMIC_OTM metrics: P&L=890.36%, Win Rate=44.7%, Trades=197
+2026-03-14 21:59:03,447 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=7.5% Below=8.0% - P&L: 890.36% (-76.19% vs baseline) | Win Rate: 44.7% (+0.6% vs baseline) | Trades: 197 (+2 vs baseline)
+2026-03-14 21:59:03,448 - INFO - --------------------------------------------------------------------------------
+2026-03-14 21:59:03,448 - INFO - 
+[PROGRESS 5/9 (55.6%)] Threshold=[120, 60], Above=6.5%, Between=8.0%, Below=8.0%
+2026-03-14 21:59:03,448 - INFO - ⏱️  Elapsed: 3.8min | Est. Remaining: 3.8min | Est. Total: 7.7min | ETA: 22:02:53
+2026-03-14 21:59:03,448 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=8.0%, Below=8.0%
+2026-03-14 21:59:03,457 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 22:00:00,709 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 22:00:01,211 - INFO - Read DYNAMIC_OTM metrics: P&L=900.81%, Win Rate=46.1%, Trades=195
+2026-03-14 22:00:01,212 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=8.0% Below=8.0% - P&L: 900.81% (-65.74% vs baseline) | Win Rate: 46.1% (+2.0% vs baseline) | Trades: 195 (+0 vs baseline)
+2026-03-14 22:00:01,212 - INFO - --------------------------------------------------------------------------------
+2026-03-14 22:00:01,212 - INFO - 
+[PROGRESS 6/9 (66.7%)] Threshold=[120, 60], Above=6.5%, Between=8.5%, Below=8.0%
+2026-03-14 22:00:01,212 - INFO - ⏱️  Elapsed: 4.8min | Est. Remaining: 2.9min | Est. Total: 7.7min | ETA: 22:02:53
+2026-03-14 22:00:01,212 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=8.5%, Below=8.0%
+2026-03-14 22:00:01,222 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 22:00:58,311 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 22:00:58,813 - INFO - Read DYNAMIC_OTM metrics: P&L=932.68%, Win Rate=47.7%, Trades=193
+2026-03-14 22:00:58,814 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=8.5% Below=8.0% - P&L: 932.68% (-33.87% vs baseline) | Win Rate: 47.7% (+3.6% vs baseline) | Trades: 193 (-2 vs baseline)
+2026-03-14 22:00:58,814 - INFO - --------------------------------------------------------------------------------
+2026-03-14 22:00:58,814 - INFO - 
+[PROGRESS 7/9 (77.8%)] Threshold=[120, 60], Above=6.5%, Between=9.0%, Below=8.0%
+2026-03-14 22:00:58,814 - INFO - ⏱️  Elapsed: 5.8min | Est. Remaining: 1.9min | Est. Total: 7.7min | ETA: 22:02:53
+2026-03-14 22:00:58,814 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=9.0%, Below=8.0%
+2026-03-14 22:00:58,823 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 22:01:55,458 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 22:01:55,960 - INFO - Read DYNAMIC_OTM metrics: P&L=942.75%, Win Rate=49.5%, Trades=186
+2026-03-14 22:01:55,960 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=9.0% Below=8.0% - P&L: 942.75% (-23.80% vs baseline) | Win Rate: 49.5% (+5.4% vs baseline) | Trades: 186 (-9 vs baseline)
+2026-03-14 22:01:55,960 - INFO - --------------------------------------------------------------------------------
+2026-03-14 22:01:55,960 - INFO - 
+[PROGRESS 8/9 (88.9%)] Threshold=[120, 60], Above=6.5%, Between=9.5%, Below=8.0%
+2026-03-14 22:01:55,961 - INFO - ⏱️  Elapsed: 6.7min | Est. Remaining: 57s | Est. Total: 7.7min | ETA: 22:02:53
+2026-03-14 22:01:55,961 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=9.5%, Below=8.0%
+2026-03-14 22:01:55,970 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 22:02:51,254 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 22:02:51,756 - INFO - Read DYNAMIC_OTM metrics: P&L=930.97%, Win Rate=50.0%, Trades=184
+2026-03-14 22:02:51,756 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=9.5% Below=8.0% - P&L: 930.97% (-35.58% vs baseline) | Win Rate: 50.0% (+5.9% vs baseline) | Trades: 184 (-11 vs baseline)
+2026-03-14 22:02:51,757 - INFO - --------------------------------------------------------------------------------
+2026-03-14 22:02:51,757 - INFO - 
+[PROGRESS 9/9 (100.0%)] Threshold=[120, 60], Above=6.5%, Between=10.0%, Below=8.0%
+2026-03-14 22:02:51,757 - INFO - ⏱️  Elapsed: 7.6min | Est. Remaining: 0s | Est. Total: 7.6min | ETA: 22:02:51
+2026-03-14 22:02:51,757 - INFO - Testing combination: Threshold=[120, 60], Above=6.5%, Between=10.0%, Below=8.0%
+2026-03-14 22:02:51,767 - INFO - Running run_weekly_workflow_parallel.py...
+2026-03-14 22:03:47,002 - INFO - run_weekly_workflow_parallel.py completed successfully
+2026-03-14 22:03:47,503 - INFO - Read DYNAMIC_OTM metrics: P&L=1050.29%, Win Rate=51.4%, Trades=181
+2026-03-14 22:03:47,504 - INFO - ✅ Threshold=[120,60] Above=6.5% Between=10.0% Below=8.0% - P&L: 1050.29% (+83.74% vs baseline) | Win Rate: 51.4% (+7.3% vs baseline) | Trades: 181 (-14 vs baseline)
+2026-03-14 22:03:47,504 - INFO - 🏆 NEW BEST: Threshold=[120, 60], Above=6.5%, Between=10.0%, Below=8.0% with 1050.29% P&L!
+2026-03-14 22:03:47,504 - INFO - --------------------------------------------------------------------------------
+2026-03-14 22:03:47,504 - INFO - 
+🎯 GRID SEARCH COMPLETE!
+2026-03-14 22:03:47,504 - INFO - 📊 Total combinations tested: 9
+2026-03-14 22:03:47,504 - INFO - ✅ Successful tests: 9
+2026-03-14 22:03:47,504 - INFO - ❌ Failed tests: 0
+2026-03-14 22:03:47,504 - INFO - ⏱️  Total time: 8.6min
+2026-03-14 22:03:47,504 - INFO - 📊 Average time per iteration: 57s
+2026-03-14 22:03:47,505 - INFO - 🏆 BEST COMBINATION: Threshold=[120, 60], Above=6.5%, Between=10.0%, Below=8.0%
+2026-03-14 22:03:47,506 - INFO - Results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\grid_search_results.json
+2026-03-14 22:03:47,506 - INFO - ========================================================================================================================
+2026-03-14 22:03:47,507 - INFO - GRID SEARCH RESULTS SUMMARY (Top 10)
+2026-03-14 22:03:47,507 - INFO - ========================================================================================================================
+2026-03-14 22:03:47,507 - INFO - Th_High  Th_Low   Above%   Between%  Below%   P&L        Win Rate   Trades   Score     
+2026-03-14 22:03:47,507 - INFO - ------------------------------------------------------------------------------------------------------------------------
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      10.0      8.0      1050.29% (+83.74%) 51.4      % 181      1050.2900 
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      6.5       8.0      966.55% (+0.00%)   44.1      % 195      966.5500  
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      9.0       8.0      942.75% (-23.80%)  49.5      % 186      942.7500  
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      8.5       8.0      932.68% (-33.87%)  47.7      % 193      932.6800  
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      9.5       8.0      930.97% (-35.58%)  50.0      % 184      930.9700  
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      7.0       8.0      927.87% (-38.68%)  44.6      % 195      927.8700  
+2026-03-14 22:03:47,507 - INFO - 120      60       6.5      6.0       8.0      925.58% (-40.97%)  42.6      % 197      925.5800  
+2026-03-14 22:03:47,508 - INFO - 120      60       6.5      8.0       8.0      900.81% (-65.74%)  46.1      % 195      900.8100  
+2026-03-14 22:03:47,508 - INFO - 120      60       6.5      7.5       8.0      890.36% (-76.19%)  44.7      % 197      890.3600  
+2026-03-14 22:03:47,508 - INFO - ========================================================================================================================
+2026-03-14 22:03:47,508 - INFO - BEST COMBINATION:
+2026-03-14 22:03:47,508 - INFO -   Threshold: [120, 60]
+2026-03-14 22:03:47,508 - INFO -   Above: 6.5% | Between: 10.0% | Below: 8.0%
+2026-03-14 22:03:47,508 - INFO - Filtered P&L: 1050.29%
+2026-03-14 22:03:47,508 - INFO - P&L Improvement: +83.74%
+2026-03-14 22:03:47,508 - INFO - Win Rate: 51.4%
+2026-03-14 22:03:47,508 - INFO - Win Rate Improvement: +7.3%
+2026-03-14 22:03:47,508 - INFO - Total Trades: 637
+2026-03-14 22:03:47,508 - INFO - Filtered Trades: 181
+2026-03-14 22:03:47,508 - INFO - Trade Change: -14 vs baseline
+2026-03-14 22:03:47,508 - INFO - 
+✅ Results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\grid_search_results.json
+2026-03-14 22:03:47,509 - INFO - Top 9 results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\grid_search_top_results.json
+2026-03-14 22:03:47,509 - INFO - ✅ Top 15 results saved to: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\grid_search_top_results.json
+2026-03-14 22:03:47,509 - INFO - Restoring original backtesting config...
+2026-03-14 22:03:47,519 - INFO - Backtesting config restored from: C:\Users\Hemant\OneDrive\Documents\Projects\kiteconnect_demarker\backtesting\grid_search_tools\sl_grid_search\backtesting_config_backup_20260314_215415.yaml
+2026-03-14 22:03:47,519 - INFO - Cleaning up backup files...
+2026-03-14 22:03:47,520 - INFO - Deleted current backup file: backtesting_config_backup_20260314_215415.yaml
+2026-03-14 22:03:47,520 - INFO - Cleaned up 1 backup file(s)

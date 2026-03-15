@@ -89,18 +89,46 @@ def analyze_trades(trade_files, output_file: Path, price_zone_low=None, price_zo
                 logger.debug(f"File is empty (skipping): {trade_file}")
                 continue
             
-            # Ensure required columns exist
-            required_cols = ['entry_price', 'pnl']
-            if not all(col in df.columns for col in required_cols):
-                logger.warning(f"Missing required columns in {trade_file.name}, skipping")
+            # Require entry_price; pnl can be 'pnl', 'realized_pnl_pct', or 'sentiment_pnl'
+            if 'entry_price' not in df.columns:
+                logger.warning(f"Missing required column 'entry_price' in {trade_file.name}, skipping")
+                continue
+            # Prefer the PnL column that has non-null data (some files have empty realized_pnl_pct but filled sentiment_pnl)
+            pnl_col = None
+            for col in ['pnl', 'sentiment_pnl', 'realized_pnl_pct']:
+                if col in df.columns and df[col].notna().any():
+                    # Check that we have at least one numeric value
+                    try:
+                        s = pd.to_numeric(df[col].astype(str).str.replace('%', '', regex=False), errors='coerce')
+                        if s.notna().any():
+                            pnl_col = col
+                            break
+                    except Exception:
+                        continue
+            if pnl_col is None:
+                # Fallback: any column that exists (use first with data after conversion)
+                for col in ['pnl', 'sentiment_pnl', 'realized_pnl_pct']:
+                    if col in df.columns:
+                        pnl_col = col
+                        break
+            if pnl_col is None:
+                logger.warning(f"Missing required columns (need pnl, realized_pnl_pct, or sentiment_pnl) in {trade_file.name}, skipping")
                 continue
             
             # Filter out rows with missing entry_price or pnl
-            df = df.dropna(subset=['entry_price', 'pnl'])
+            df = df.dropna(subset=['entry_price', pnl_col])
             
             # Convert to numeric
             df['entry_price'] = pd.to_numeric(df['entry_price'], errors='coerce')
-            df['pnl'] = pd.to_numeric(df['pnl'], errors='coerce')
+            pnl_series = pd.to_numeric(
+                df[pnl_col].astype(str).str.replace('%', '', regex=False),
+                errors='coerce'
+            )
+            # If pnl_col is percentage (realized_pnl_pct/sentiment_pnl), derive absolute pnl for consistency
+            if pnl_col in ('realized_pnl_pct', 'sentiment_pnl'):
+                df['pnl'] = (df['entry_price'] * pnl_series / 100).fillna(0)
+            else:
+                df['pnl'] = pnl_series
             
             # Remove rows with invalid values
             df = df[df['entry_price'].notna() & df['pnl'].notna()]
@@ -373,10 +401,14 @@ def get_all_trade_files(config_file: Path):
     
     # Load CPR config for DATE_MAPPINGS (same as aggregation script)
     script_dir = Path(__file__).parent if '__file__' in globals() else Path.cwd()
+    backtesting_dir = script_dir.parent  # analytics/ -> backtesting/
     possible_cpr_config_paths = [
-        script_dir.parent / 'grid_search_tools' / 'cpr_market_sentiment' / 'config.yaml',
-        script_dir.parent.parent / 'backtesting' / 'grid_search_tools' / 'cpr_market_sentiment' / 'config.yaml',
-        Path('grid_search_tools/cpr_market_sentiment/config.yaml'),
+        backtesting_dir / 'grid_search_tools' / 'cpr_market_sentiment_v1' / 'config.yaml',
+        backtesting_dir.parent / 'backtesting' / 'grid_search_tools' / 'cpr_market_sentiment_v1' / 'config.yaml',
+        Path('grid_search_tools/cpr_market_sentiment_v1/config.yaml'),
+        Path('backtesting/grid_search_tools/cpr_market_sentiment_v1/config.yaml'),
+        # Legacy path (no version suffix)
+        backtesting_dir / 'grid_search_tools' / 'cpr_market_sentiment' / 'config.yaml',
         Path('backtesting/grid_search_tools/cpr_market_sentiment/config.yaml'),
     ]
     
@@ -392,10 +424,24 @@ def get_all_trade_files(config_file: Path):
                 logger.warning(f"Could not load CPR config from {cpr_path}: {e}")
     
     # Build expiry_days mapping from DATE_MAPPINGS (same logic as aggregation script)
+    # DATE_MAPPINGS format: 'YYYY-MM-DD' -> EXPIRY_WEEK; convert date to day label (e.g. OCT15)
+    def date_to_day_label(date_str):
+        try:
+            date_obj = pd.to_datetime(date_str)
+            month = date_obj.strftime('%b').upper()
+            day = date_obj.strftime('%d')
+            if int(day) > 9:
+                day = day.lstrip('0')
+            return f"{month}{day}"
+        except Exception:
+            return None
+
     date_mappings = cpr_config.get('DATE_MAPPINGS', {})
     expiry_days = {}
-    for day_suffix, mapped_expiry in date_mappings.items():
-        day_label = day_suffix.upper()
+    for date_str, mapped_expiry in date_mappings.items():
+        day_label = date_to_day_label(date_str)
+        if day_label is None:
+            continue
         if mapped_expiry not in expiry_days:
             expiry_days[mapped_expiry] = []
         if day_label not in expiry_days[mapped_expiry]:
@@ -434,15 +480,27 @@ def get_all_trade_files(config_file: Path):
     logger.debug(f"Using expiry_days mapping: {expiry_days}")
     
     dynamic_atm_files = []
+    dynamic_otm_files = []
     static_files = []
     filtered_days = []
     
-    # Determine data directory base path
+    # Which dynamic mode is enabled (BACKTESTING_ANALYSIS: DYNAMIC_ATM / DYNAMIC_OTM)
+    analysis_config = config.get('BACKTESTING_ANALYSIS', {})
+    dynamic_atm_enabled = str(analysis_config.get('DYNAMIC_ATM', 'DISABLE')).upper() == 'ENABLE'
+    dynamic_otm_enabled = str(analysis_config.get('DYNAMIC_OTM', 'DISABLE')).upper() == 'ENABLE'
+    
+    # Determine data directory: use DATA_DIR from STRIKE_MODE_SETTINGS (data_st50 or data_st100)
+    strike_mode = config.get('STRIKE_MODE', 'ST50')
+    strike_settings = config.get('STRIKE_MODE_SETTINGS', {})
+    data_dir_name = strike_settings.get(strike_mode, {}).get('DATA_DIR', 'data_st50')
     possible_data_paths = [
-        script_dir.parent / 'data',  # backtesting/data
-        script_dir.parent.parent / 'backtesting' / 'data',  # backtesting/data from root
-        Path('data'),  # Current directory
-        Path('backtesting/data'),  # backtesting/ subdirectory
+        script_dir.parent / data_dir_name,  # backtesting/data_st50 or data_st100
+        script_dir.parent.parent / 'backtesting' / data_dir_name,
+        Path(data_dir_name),
+        Path(f'backtesting/{data_dir_name}'),
+        # Fallback to plain data for older setups
+        script_dir.parent / 'data',
+        Path('backtesting/data'),
     ]
     
     data_dir_base = None
@@ -488,26 +546,11 @@ def get_all_trade_files(config_file: Path):
                 # CPR width filter disabled - include all days
                 logger.debug(f"[INCLUDE] Including {day_label} - CPR width filter disabled")
             
-            # Check summary file to ensure we only include days with filtered trades > 0
-            # This matches the aggregation script logic which reads from summary files
+            # Include every day that has a dynamic day directory - load all trade files so we get
+            # the full set of filtered trades (e.g. 204 OTM). Do NOT skip based on summary;
+            # summary can be stale or missing; the actual trade CSVs are the source of truth.
             dynamic_summary = dynamic_path / "entry2_dynamic_market_sentiment_summary.csv"
             static_summary = static_path / "entry2_static_market_sentiment_summary.csv"
-            
-            # For dynamic, check if summary shows filtered trades > 0
-            if dynamic_summary.exists():
-                try:
-                    summary_df = pd.read_csv(dynamic_summary)
-                    # Find ATM row
-                    atm_rows = summary_df[summary_df['Strike Type'].str.contains('ATM', case=False, na=False)]
-                    if atm_rows.empty:
-                        logger.debug(f"[SKIP] {day_label} - No ATM row in summary, skipping")
-                        continue
-                    filtered_count = int(atm_rows.iloc[0].get('Filtered Trades', 0))
-                    if filtered_count == 0:
-                        logger.info(f"[SKIP] {day_label} - 0 filtered trades in summary, skipping")
-                        continue
-                except Exception as e:
-                    logger.warning(f"Could not read summary for {day_label}: {e}")
             
             # For static, check if summary shows filtered trades > 0
             if static_summary.exists():
@@ -526,17 +569,24 @@ def get_all_trade_files(config_file: Path):
                 except Exception as e:
                     logger.warning(f"Could not read static summary for {day_label}: {e}")
             
-            # Dynamic files - ATM sentiment-filtered trades
+            # Dynamic files - use ATM or OTM based on BACKTESTING_ANALYSIS config
             dynamic_base = data_dir_base / f"{expiry_week}_DYNAMIC" / day_label
-            dynamic_atm_files.extend([
-                dynamic_base / 'entry2_dynamic_atm_mkt_sentiment_trades.csv',
-            ])
+            if dynamic_otm_enabled:
+                dynamic_atm_files.extend([dynamic_base / 'entry2_dynamic_otm_mkt_sentiment_trades.csv'])
+            else:
+                dynamic_atm_files.extend([dynamic_base / 'entry2_dynamic_atm_mkt_sentiment_trades.csv'])
             
             # Static files - Only use ATM sentiment-filtered trades
             static_base = data_dir_base / f"{expiry_week}_STATIC" / day_label
             static_files.extend([
                 static_base / 'entry2_static_atm_mkt_sentiment_trades.csv',
             ])
+    
+    # Use rglob to discover ALL trade files that exist (source of truth for the 204 filtered trades)
+    trade_filename = 'entry2_dynamic_otm_mkt_sentiment_trades.csv' if dynamic_otm_enabled else 'entry2_dynamic_atm_mkt_sentiment_trades.csv'
+    discovered = sorted(data_dir_base.rglob(trade_filename))
+    dynamic_atm_files = [p for p in discovered if p.exists()]
+    logger.info(f"Discovered {len(dynamic_atm_files)} trade files via rglob ({trade_filename})")
     
     if cpr_filter_enabled:
         if filtered_days:
@@ -600,22 +650,26 @@ def main():
     
     # Get all trade files
     logger.info("Loading trade files from backtesting_config.yaml...")
-    dynamic_atm_files, static_files = get_all_trade_files(config_file)
+    dynamic_files, static_files = get_all_trade_files(config_file)
     
-    logger.info(f"Found {len(dynamic_atm_files)} potential dynamic ATM trade files")
+    analysis_config = config.get('BACKTESTING_ANALYSIS', {})
+    dynamic_otm_enabled = str(analysis_config.get('DYNAMIC_OTM', 'DISABLE')).upper() == 'ENABLE'
+    mode_label = "OTM" if dynamic_otm_enabled else "ATM"
+    
+    logger.info(f"Found {len(dynamic_files)} potential dynamic {mode_label} trade files")
     logger.info(f"Found {len(static_files)} potential static trade files")
     
-    # Analyze dynamic ATM trades
+    # Analyze dynamic trades (ATM or OTM based on config)
     logger.info(f"\n{'='*60}")
-    logger.info("ANALYZING DYNAMIC ATM TRADES")
+    logger.info(f"ANALYZING DYNAMIC {mode_label} TRADES")
     logger.info(f"{'='*60}")
-    dynamic_atm_output = output_dir / 'win_rate_dynamic.csv'
+    dynamic_output = output_dir / 'win_rate_dynamic.csv'
     try:
         # NOTE: win_rate_price_band.py should NOT apply PRICE_ZONES filter here
         # It should analyze ALL trades to show the breakdown by price bands
         # The PRICE_ZONES filter is applied in strategy.py when generating trades
         # So we pass None to analyze_trades to skip the filter
-        analyze_trades(dynamic_atm_files, dynamic_atm_output, price_zone_low=None, price_zone_high=None, analysis_type='DYNAMIC_ATM')
+        analyze_trades(dynamic_files, dynamic_output, price_zone_low=None, price_zone_high=None, analysis_type=f'DYNAMIC_{mode_label}')
     except Exception as e:
         logger.error(f"Failed to analyze dynamic ATM trades: {e}")
     
@@ -633,7 +687,7 @@ def main():
     logger.info(f"\n{'='*60}")
     logger.info("ANALYSIS COMPLETE")
     logger.info(f"{'='*60}")
-    logger.info(f"Dynamic ATM results: {dynamic_atm_output}")
+    logger.info(f"Dynamic results: {dynamic_output}")
     # logger.info(f"Static results: {static_output}")
     logger.info(f"{'='*60}\n")
 

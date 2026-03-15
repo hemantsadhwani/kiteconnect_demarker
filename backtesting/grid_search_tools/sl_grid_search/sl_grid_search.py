@@ -59,18 +59,20 @@ class StopLossGridSearch:
         Args:
             config_path: Path to config.yaml file (default: config.yaml in same directory)
         """
-        # Determine config path
+        # Determine config path (default: config.yaml next to this script)
+        script_dir = Path(__file__).resolve().parent
         if config_path is None:
-            script_dir = Path(__file__).parent
             config_path = script_dir / "config.yaml"
         else:
-            config_path = Path(config_path)
+            config_path = Path(config_path).resolve()
         
         if not config_path.exists():
             raise FileNotFoundError(f"Config file not found: {config_path}")
         
+        self._config_path = str(config_path)
         # Load configuration
         self.config = self._load_config(config_path)
+        logger.info(f"Config file: {self._config_path}")
         
         # Base path: use BACKTESTING_BASE_PATH (set at top of file)
         script_dir = Path(__file__).parent
@@ -91,13 +93,40 @@ class StopLossGridSearch:
         else:
             self.summary_csv = self.base_path / f"{entry_type_lower}_aggregate_weekly_market_sentiment_summary.csv"
         
-        # Grid search parameters
+        # Grid search parameters (thresholds may be frozen)
         grid_config = self.config['GRID_SEARCH']
-        self.threshold_high_range = self._get_range(grid_config['STOP_LOSS_PRICE_THRESHOLD_HIGH'])
-        self.threshold_low_range = self._get_range(grid_config['STOP_LOSS_PRICE_THRESHOLD_LOW'])
-        self.above_percent_range = self._get_range(grid_config['STOP_LOSS_PERCENT_ABOVE_THRESHOLD'])
+        frozen_threshold = self.config.get('FROZEN_STOP_LOSS_THRESHOLD')
+        if frozen_threshold:
+            self.frozen_threshold_high = frozen_threshold.get('HIGH', 120)
+            self.frozen_threshold_low = frozen_threshold.get('LOW', 60)
+            self.threshold_high_range = None
+            self.threshold_low_range = None
+        else:
+            self.frozen_threshold_high = None
+            self.frozen_threshold_low = None
+            self.threshold_high_range = self._get_range(grid_config['STOP_LOSS_PRICE_THRESHOLD_HIGH'])
+            self.threshold_low_range = self._get_range(grid_config['STOP_LOSS_PRICE_THRESHOLD_LOW'])
+        # When FROZEN_STOP_LOSS_PERCENT is set, always use it for above/below (ignore any ranges in GRID_SEARCH)
+        frozen_percent = self.config.get('FROZEN_STOP_LOSS_PERCENT') or {}
+        if frozen_percent:
+            self.above_percent_range = None
+            self.frozen_above_percent = frozen_percent.get('ABOVE_THRESHOLD', 6.5)
+            self.below_percent_range = None
+            self.frozen_below_percent = frozen_percent.get('BELOW_THRESHOLD', 8.0)
+        else:
+            if 'STOP_LOSS_PERCENT_ABOVE_THRESHOLD' in grid_config:
+                self.above_percent_range = self._get_range(grid_config['STOP_LOSS_PERCENT_ABOVE_THRESHOLD'])
+                self.frozen_above_percent = None
+            else:
+                self.above_percent_range = None
+                self.frozen_above_percent = 6.5
+            if 'STOP_LOSS_PERCENT_BELOW_THRESHOLD' in grid_config:
+                self.below_percent_range = self._get_range(grid_config['STOP_LOSS_PERCENT_BELOW_THRESHOLD'])
+                self.frozen_below_percent = None
+            else:
+                self.below_percent_range = None
+                self.frozen_below_percent = 8.0
         self.between_percent_range = self._get_range(grid_config['STOP_LOSS_PERCENT_BETWEEN_THRESHOLD'])
-        self.below_percent_range = self._get_range(grid_config['STOP_LOSS_PERCENT_BELOW_THRESHOLD'])
         
         # Optimization settings
         self.primary_metric = self.config['OPTIMIZATION']['PRIMARY_METRIC']
@@ -149,12 +178,25 @@ class StopLossGridSearch:
         logger.info(f"Base path: {self.base_path}")
         logger.info(f"Entry type: {self.entry_type}")
         logger.info(f"Summary CSV: {self.summary_csv}")
-        logger.info(f"Threshold High: {self.threshold_high_range['MIN']}-{self.threshold_high_range['MAX']} (step: {self.threshold_high_range['STEP']})")
-        logger.info(f"Threshold Low: {self.threshold_low_range['MIN']}-{self.threshold_low_range['MAX']} (step: {self.threshold_low_range['STEP']})")
-        logger.info(f"Above Percent: {self.above_percent_range['MIN']}-{self.above_percent_range['MAX']} (step: {self.above_percent_range['STEP']})")
+        if self.threshold_high_range is not None:
+            logger.info(f"Threshold High: {self.threshold_high_range['MIN']}-{self.threshold_high_range['MAX']} (step: {self.threshold_high_range['STEP']})")
+            logger.info(f"Threshold Low: {self.threshold_low_range['MIN']}-{self.threshold_low_range['MAX']} (step: {self.threshold_low_range['STEP']})")
+        else:
+            logger.info(f"Threshold frozen: HIGH={self.frozen_threshold_high}, LOW={self.frozen_threshold_low} (not searched)")
+        if self.above_percent_range is not None:
+            logger.info(f"Above Percent: {self.above_percent_range['MIN']}-{self.above_percent_range['MAX']} (step: {self.above_percent_range['STEP']})")
+        else:
+            logger.info(f"Above Percent: frozen at {self.frozen_above_percent}% (not searched)")
         logger.info(f"Between Percent: {self.between_percent_range['MIN']}-{self.between_percent_range['MAX']} (step: {self.between_percent_range['STEP']})")
-        logger.info(f"Below Percent: {self.below_percent_range['MIN']}-{self.below_percent_range['MAX']} (step: {self.below_percent_range['STEP']})")
+        if self.below_percent_range is not None:
+            logger.info(f"Below Percent: {self.below_percent_range['MIN']}-{self.below_percent_range['MAX']} (step: {self.below_percent_range['STEP']})")
+        else:
+            logger.info(f"Below Percent: frozen at {self.frozen_below_percent}% (not searched)")
         logger.info(f"Optimization target: {self.primary_metric} for {self.strike_type}")
+        n_combos = len(self.generate_all_combinations())
+        logger.info(f"Total grid combinations: {n_combos} | config: {self._config_path}")
+        if n_combos > 20 and self.config.get('FROZEN_STOP_LOSS_PERCENT'):
+            logger.warning("FROZEN_STOP_LOSS_PERCENT is set but combination count is %d; check that config is from this folder.", n_combos)
     
     def _get_range(self, range_config):
         """Extract range configuration"""
@@ -637,31 +679,41 @@ class StopLossGridSearch:
     
     def generate_all_combinations(self):
         """Generate all possible stop loss parameter combinations"""
-        threshold_highs = self._generate_range(
-            self.threshold_high_range['MIN'],
-            self.threshold_high_range['MAX'],
-            self.threshold_high_range['STEP']
-        )
-        threshold_lows = self._generate_range(
-            self.threshold_low_range['MIN'],
-            self.threshold_low_range['MAX'],
-            self.threshold_low_range['STEP']
-        )
-        above_percents = self._generate_range(
-            self.above_percent_range['MIN'],
-            self.above_percent_range['MAX'],
-            self.above_percent_range['STEP']
-        )
+        if self.threshold_high_range is None:
+            threshold_highs = [self.frozen_threshold_high]
+            threshold_lows = [self.frozen_threshold_low]
+        else:
+            threshold_highs = self._generate_range(
+                self.threshold_high_range['MIN'],
+                self.threshold_high_range['MAX'],
+                self.threshold_high_range['STEP']
+            )
+            threshold_lows = self._generate_range(
+                self.threshold_low_range['MIN'],
+                self.threshold_low_range['MAX'],
+                self.threshold_low_range['STEP']
+            )
+        if self.above_percent_range is not None:
+            above_percents = self._generate_range(
+                self.above_percent_range['MIN'],
+                self.above_percent_range['MAX'],
+                self.above_percent_range['STEP']
+            )
+        else:
+            above_percents = [self.frozen_above_percent]
         between_percents = self._generate_range(
             self.between_percent_range['MIN'],
             self.between_percent_range['MAX'],
             self.between_percent_range['STEP']
         )
-        below_percents = self._generate_range(
-            self.below_percent_range['MIN'],
-            self.below_percent_range['MAX'],
-            self.below_percent_range['STEP']
-        )
+        if self.below_percent_range is not None:
+            below_percents = self._generate_range(
+                self.below_percent_range['MIN'],
+                self.below_percent_range['MAX'],
+                self.below_percent_range['STEP']
+            )
+        else:
+            below_percents = [self.frozen_below_percent]
         
         # Generate all combinations (constraint: high > low)
         all_combinations = []
@@ -788,12 +840,21 @@ class StopLossGridSearch:
         all_combinations = self.generate_all_combinations()
         
         logger.info(f"Total combinations to test: {len(all_combinations)}")
-        logger.info(f"Threshold High: {self.threshold_high_range['MIN']}-{self.threshold_high_range['MAX']} (step: {self.threshold_high_range['STEP']})")
-        logger.info(f"Threshold Low: {self.threshold_low_range['MIN']}-{self.threshold_low_range['MAX']} (step: {self.threshold_low_range['STEP']})")
-        logger.info(f"Above Percent: {self.above_percent_range['MIN']}-{self.above_percent_range['MAX']} (step: {self.above_percent_range['STEP']})")
+        if self.threshold_high_range is not None:
+            logger.info(f"Threshold High: {self.threshold_high_range['MIN']}-{self.threshold_high_range['MAX']} (step: {self.threshold_high_range['STEP']})")
+            logger.info(f"Threshold Low: {self.threshold_low_range['MIN']}-{self.threshold_low_range['MAX']} (step: {self.threshold_low_range['STEP']})")
+        else:
+            logger.info(f"Threshold frozen: HIGH={self.frozen_threshold_high}, LOW={self.frozen_threshold_low}")
+        if self.above_percent_range is not None:
+            logger.info(f"Above Percent: {self.above_percent_range['MIN']}-{self.above_percent_range['MAX']} (step: {self.above_percent_range['STEP']})")
+        else:
+            logger.info(f"Above Percent: frozen at {self.frozen_above_percent}%")
         logger.info(f"Between Percent: {self.between_percent_range['MIN']}-{self.between_percent_range['MAX']} (step: {self.between_percent_range['STEP']})")
-        logger.info(f"Below Percent: {self.below_percent_range['MIN']}-{self.below_percent_range['MAX']} (step: {self.below_percent_range['STEP']})")
-        
+        if self.below_percent_range is not None:
+            logger.info(f"Below Percent: {self.below_percent_range['MIN']}-{self.below_percent_range['MAX']} (step: {self.below_percent_range['STEP']})")
+        else:
+            logger.info(f"Below Percent: frozen at {self.frozen_below_percent}%")
+
         results = []
         best_score = float('-inf')
         best_combination = None
@@ -1035,11 +1096,13 @@ def main():
         action='store_true',
         help='Run in test mode (4 random combinations)'
     )
+    _script_dir = Path(__file__).resolve().parent
+    _default_config = _script_dir / "config.yaml"
     parser.add_argument(
         '--config',
         type=str,
-        default=None,
-        help='Path to config.yaml file (default: config.yaml in script directory)'
+        default=str(_default_config),
+        help=f'Path to config.yaml (default: {_default_config})'
     )
     parser.add_argument(
         '--num-test',

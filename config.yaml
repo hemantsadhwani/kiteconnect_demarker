@@ -28,10 +28,10 @@ TRADE_SETTINGS:
   # - If option price > highest threshold (120), use ABOVE_THRESHOLD percentage (6.0%)
   # - If option price is between thresholds (70-120), use BETWEEN_THRESHOLD percentage (7.0%)
   # - If option price < lowest threshold (70), use BELOW_THRESHOLD percentage (8.0%)
-  STOP_LOSS_PRICE_THRESHOLD: [120, 40] # Price thresholds for stop loss selection [high, low]
+  STOP_LOSS_PRICE_THRESHOLD: [120, 60] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (aligned with backtesting_st50)
-    BETWEEN_THRESHOLD: 8.0 # Stop loss % when entry price between 40 and 140
+    BETWEEN_THRESHOLD: 9.0 # Stop loss % when entry price between 60 and 120
     BELOW_THRESHOLD: 8.0   # Stop loss % when entry price < 40
   # Legacy single value (for backward compatibility, will be overridden by above if both exist)
   # STOP_LOSS_PERCENT: 6.0 # Fixed percentage stop loss (Stage 1) - DEPRECATED: Use STOP_LOSS_PERCENT.ABOVE_THRESHOLD/BELOW_THRESHOLD

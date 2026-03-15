@@ -24,7 +24,7 @@ TRADE_SETTINGS:
   STOP_LOSS_PRICE_THRESHOLD: [140, 40] # Price thresholds for stop loss selection [high, low]
   STOP_LOSS_PERCENT:
     ABOVE_THRESHOLD: 6.5   # Stop loss % when entry price > 140 (backtest: 6.5)
-    BETWEEN_THRESHOLD: 8.0 # Stop loss % when entry price between 40 and 140 (backtest: 8.0)
+    BETWEEN_THRESHOLD: 9.0 # Stop loss % when entry price between 60 and 120 (backtest: 9.0)
     BELOW_THRESHOLD: 8.0   # Stop loss % when entry price < 40 (backtest: 8.0)
   TAKE_PROFIT_PERCENT: 8.0 # Fixed percentage take profit (backtest: 8.0; redundant if DYNAMIC_TRAILING_MA is active)
   # Dynamic Trailing MA Configuration (Stage 3)
