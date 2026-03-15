@@ -105,7 +105,7 @@ s4 = s3 - (s1 - s2)
 ### Previous Day OHLC Source
 
 - **process_sentiment.py**: Fetches previous tradable day OHLC via **Kite API** (NIFTY 50, instrument token 256265), **daily** interval (not 1-minute).
-- **generate_cpr_dates.py** (in this folder and in `analytics/`): Can generate `cpr_dates.csv` for all BACKTESTING_DAYS using Kite daily OHLC; used by analytics scripts for R1/S1 zones.
+- **generate_cpr_dates.py** (in this folder): Generates `cpr_dates.csv` for dates in DATE_MAPPINGS (or BACKTESTING_DAYS) using Kite daily OHLC. Writes to both this folder and `backtesting/analytics/cpr_dates.csv`. Supports NEW_DAY mode for single-date append/update.
 
 ---
 
@@ -261,8 +261,11 @@ With **no lag**, the backtest at 09:16 can use sentiment from 09:16’s OHLC (in
 
 | Parameter                 | Description |
 |---------------------------|-------------|
-| `DATE_MAPPINGS`           | day_label (e.g. jan16) → expiry_week (e.g. JAN20) for input/output paths. |
-| `LAG_SENTIMENT_BY_ONE`    | **false**: workflow CSV = 1:1 (row T = sentiment of T; backtest has lookahead). **true**: workflow CSV lagged by 1 (row T = sentiment of T−1; realtime-aligned). Plot file is always 1:1. |
+| `DATE_MAPPINGS`           | YYYY-MM-DD → expiry_week (e.g. `'2026-03-11': MAR17`) for input/output paths. Keys must match the date argument when processing. |
+| `LAG_SENTIMENT_BY_ONE`    | **false**: workflow CSV = 1:1 (row T = sentiment of T; backtest has lookahead). **true**: workflow CSV lagged by 1 (row T = sentiment of T−1; first row = DISABLE; realtime-aligned). Plot file is always 1:1. |
+| `STRIKE_MODE`             | **ST50** | **ST100** | **BOTH**. When BOTH, process_sentiment runs for both data_st50 and data_st100. Read from backtesting_config.yaml when present; config.yaml is fallback. |
+| `STRIKE_MODE_SETTINGS`    | Per-mode `DATA_DIR` (e.g. ST50: data_st50, ST100: data_st100). |
+| `NEW_DAY`                 | Optional. Single YYYY-MM-DD for generate_cpr_dates "new day only" mode: fetch only that date and append/update in cpr_dates.csv. |
 | `PLOT_ENABLED`            | Enable HTML plot generation. |
 | `VERBOSE_SWING_LOGGING`   | Extra logging (legacy path). |
 
@@ -278,7 +281,7 @@ cpr_market_sentiment_v1/
 ├── trading_sentiment_analyzer.py # NiftySentimentAnalyzer + legacy TradingSentimentAnalyzer
 ├── process_sentiment.py          # Kite prev-day OHLC, run analyzer, write CSV
 ├── plot.py                      # HTML plot (CPR bands, NCP; no R4/S4, no swing bands)
-├── generate_cpr_dates.py        # Copy that writes analytics/cpr_dates.csv (Kite daily OHLC)
+├── generate_cpr_dates.py        # Writes cpr_dates.csv here and to analytics/ (Kite daily OHLC; NEW_DAY mode supported)
 ├── run_accuracy_test.py         # Accuracy vs manual labels
 ├── cpr_width_utils.py           # Utilities if used
 ├── cpr_pinescript_extended.pine # Full Pine Script (TradingView) reference
@@ -291,7 +294,9 @@ cpr_market_sentiment_v1/
 
 ### Output
 
-- **process_sentiment.py**: CSV with `date`, `sentiment`, `calculated_price` (NCP), and OHLC. One row per candle; no DISABLE row; optional 1-candle lag if `LAG_SENTIMENT_BY_ONE: true`.
+- **process_sentiment.py**: Two files per run:
+  - **Plot file** (`nifty_market_sentiment_<date>_plot.csv`): 1:1 alignment; columns `date`, `sentiment`, `calculated_price` (NCP), OHLC.
+  - **Workflow file** (`nifty_market_sentiment_<date>.csv`): If `LAG_SENTIMENT_BY_ONE: true`, sentiment is shifted by 1 candle and first row is DISABLE (realtime-aligned).
 
 ---
 
@@ -303,8 +308,12 @@ From project root (or with PYTHONPATH including kiteconnect_app):
 
 ```bash
 python backtesting/grid_search_tools/cpr_market_sentiment_v1/process_sentiment.py <date_id>
-# e.g. jan16
+# date_id must be a key in DATE_MAPPINGS (config.yaml), e.g. 2026-03-11 or 2026-01-16
 ```
+
+- **Single date**: `python ... process_sentiment.py 2026-03-11`
+- **All dates**: `python ... process_sentiment.py all` (or omit argument to process all dates in DATE_MAPPINGS)
+- **Data dirs**: When `STRIKE_MODE: BOTH`, runs for both data_st50 and data_st100. Input files are under `data_*/<EXPIRY>_DYNAMIC/<DAY>/` or `_STATIC`.
 
 ### Generate analytics CPR dates (Kite daily OHLC)
 
@@ -312,7 +321,9 @@ python backtesting/grid_search_tools/cpr_market_sentiment_v1/process_sentiment.p
 python backtesting/grid_search_tools/cpr_market_sentiment_v1/generate_cpr_dates.py
 ```
 
-Writes `backtesting/analytics/cpr_dates.csv` for all BACKTESTING_DAYS in `backtesting_config.yaml`.
+- Writes to **both** `cpr_market_sentiment_v1/cpr_dates.csv` and `backtesting/analytics/cpr_dates.csv`.
+- Uses `DATE_MAPPINGS` from config.yaml (or BACKTESTING_DAYS from backtesting_config.yaml as fallback).
+- **NEW_DAY** mode: Set `NEW_DAY: "2026-02-25"` in config.yaml to fetch only that date and append/update in cpr_dates.csv.
 
 ### Run accuracy test
 
@@ -398,5 +409,5 @@ v5 is a **NCP + CPR Fib band + state machine** implementation aligned with the P
 
 ---
 
-**Last updated**: February 2026  
+**Last updated**: March 2026  
 **Path**: `backtesting/grid_search_tools/cpr_market_sentiment_v1/`

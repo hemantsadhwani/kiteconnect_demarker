@@ -43,26 +43,33 @@ def date_to_day_label(date_str: str) -> str:
 
 
 def find_trades_files_from_config(config_path: Path) -> List[Tuple[str, Path]]:
-    """Return list of (date_str, trades_file_path) for each BACKTESTING_DAY."""
+    """Return list of (date_str, trades_file_path) for each backtesting day.
+    For each date, includes every expiry that has a trades file (so totals match aggregated summary).
+    Uses BACKTESTING_DAYS_ST50/ST100 and DATA_DIR from config; expiry folders from disk under data_dir.
+    """
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    backtesting_days = config.get("BACKTESTING_EXPIRY", {}).get("BACKTESTING_DAYS", [])
+    expiry_cfg = config.get("BACKTESTING_EXPIRY", {}) or config.get("TARGET_EXPIRY", {})
+    strike_mode = config.get("STRIKE_MODE", "ST50")
+    backtesting_days = expiry_cfg.get("BACKTESTING_DAYS_ST50", []) if strike_mode == "ST50" else expiry_cfg.get("BACKTESTING_DAYS_ST100", [])
     if not backtesting_days:
-        backtesting_days = config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
-    expiry_weeks = config.get("BACKTESTING_EXPIRY", {}).get("EXPIRY_WEEK_LABELS", [])
-    if not expiry_weeks:
-        expiry_weeks = config.get("TARGET_EXPIRY", {}).get("EXPIRY_WEEK_LABELS", [])
-    data_dir = config_path.parent / config.get("PATHS", {}).get("DATA_DIR", "data")
-    result = []
+        backtesting_days = expiry_cfg.get("BACKTESTING_DAYS", []) or config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
+    data_dir_name = (
+        config.get("STRIKE_MODE_SETTINGS", {}).get(strike_mode, {}).get("DATA_DIR")
+        or config.get("PATHS", {}).get("DATA_DIR", "data_st50")
+    )
+    data_dir = config_path.parent / (data_dir_name or "data_st50")
+    trades_filename = "entry2_dynamic_otm_mkt_sentiment_trades.csv"
+    result: List[Tuple[str, Path]] = []
     for date_str in backtesting_days:
         day_label = date_to_day_label(date_str)
-        for expiry_week in expiry_weeks:
-            trades_file = data_dir / f"{expiry_week}_DYNAMIC" / day_label / "entry2_dynamic_otm_mkt_sentiment_trades.csv"
+        # Include every expiry folder that has this day's trades file (match aggregate source)
+        for item in data_dir.iterdir():
+            if not item.is_dir() or "_DYNAMIC" not in item.name:
+                continue
+            trades_file = item / day_label / trades_filename
             if trades_file.exists():
                 result.append((date_str, trades_file))
-                break
-        else:
-            logger.warning("No trades file for %s (day %s)", date_str, day_label)
     return result
 
 
@@ -101,7 +108,7 @@ def get_previous_trading_day_ohlc_from_1min(
 ) -> Tuple[Optional[float], Optional[float], Optional[float]]:
     """
     Get previous trading day OHLC by reading that day's nifty 1min file.
-    Uses actual PDH, PDL, PDC from 1min data so CPR is correct (avoids Kite/synthetic fallback).
+    data_dir: day folder (parent of trades CSV), e.g. .../data_st50/EXPIRY_DYNAMIC/DAY so previous day is data_dir.parent / day_label_prev.
     Returns (high, low, close) or (None, None, None).
     """
     try:
@@ -452,15 +459,33 @@ def get_pnl_series(df: pd.DataFrame) -> pd.Series:
     return pd.Series(dtype=float)
 
 
+def _find_backtesting_config(script_dir: Path) -> Optional[Path]:
+    """Find backtesting_config.yaml by walking up from script dir (works from any subfolder)."""
+    candidate = script_dir
+    for _ in range(6):
+        if candidate is None or not candidate.name:
+            break
+        p = candidate / "backtesting_config.yaml"
+        if p.exists():
+            return p
+        p2 = candidate / "indicators_config.yaml"
+        if p2.exists():
+            return p2
+        candidate = candidate.parent
+    return None
+
+
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
     if str(script_dir) not in sys.path:
         sys.path.insert(0, str(script_dir))
-    config_path = script_dir.parent.parent / "backtesting_config.yaml"
+    config_path = _find_backtesting_config(script_dir)
+    if config_path is None:
+        config_path = script_dir.parent.parent / "backtesting_config.yaml"
     if not config_path.exists():
         config_path = script_dir.parent.parent / "indicators_config.yaml"
     if not config_path.exists():
-        logger.error("Config not found")
+        logger.error("Config not found (looked from %s)", script_dir)
         sys.exit(1)
 
     pairs = find_trades_files_from_config(config_path)
@@ -471,8 +496,12 @@ def main() -> None:
     # All dates from BACKTESTING_DAYS that have a trades file
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-    all_days = config.get("BACKTESTING_EXPIRY", {}).get("BACKTESTING_DAYS", []) or config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
-    print(f"BACKTESTING_DAYS: {len(all_days)} dates in config. Processing {len(pairs)} dates with trades files.\n")
+    expiry_cfg = config.get("BACKTESTING_EXPIRY", {}) or config.get("TARGET_EXPIRY", {})
+    strike_mode = config.get("STRIKE_MODE", "ST50")
+    all_days = (
+        expiry_cfg.get("BACKTESTING_DAYS_ST50", []) if strike_mode == "ST50" else expiry_cfg.get("BACKTESTING_DAYS_ST100", [])
+    ) or expiry_cfg.get("BACKTESTING_DAYS", []) or config.get("TARGET_EXPIRY", {}).get("TRADING_DAYS", [])
+    print(f"BACKTESTING_DAYS: {len(all_days)} dates in config. Processing {len(pairs)} trade files (all expiry/day pairs with trades CSV).\n")
 
     # Load cpr_dates.csv only (daily OHLC from Kite; single path, no fallback)
     cpr_csv_path = script_dir / "cpr_dates.csv"
@@ -631,11 +660,12 @@ def main() -> None:
             plain_symbol = str(rec.get("symbol", "")).strip()
             if not plain_symbol:
                 plain_symbol = "UNKNOWN"
-            # HYPERLINKs relative to this CSV's folder (trade_analytics_by_cpr_band): ../../data/EXPIRY_DYNAMIC/DAY/OTM/
+            # HYPERLINKs relative to this CSV's folder (trade_analytics_by_cpr_band): ../../DATA_DIR/EXPIRY_DYNAMIC/DAY/OTM/
+            data_root_name = data_dir.parent.parent.name  # e.g. data_st50
             expiry_folder = data_dir.parent.name
             day_label_here = data_dir.name
-            rel_csv = f"../../data/{expiry_folder}/{day_label_here}/OTM/{plain_symbol}_strategy.csv"
-            rel_html = f"../../data/{expiry_folder}/{day_label_here}/OTM/{plain_symbol}_strategy.html"
+            rel_csv = f"../../{data_root_name}/{expiry_folder}/{day_label_here}/OTM/{plain_symbol}_strategy.csv"
+            rel_html = f"../../{data_root_name}/{expiry_folder}/{day_label_here}/OTM/{plain_symbol}_strategy.html"
             rec["symbol"] = f'=HYPERLINK("{rel_csv}", "{plain_symbol}")'
             rec["symbol_html"] = f'=HYPERLINK("{rel_html}", "View")'
             # If high is 0 or missing but we have valid PnL, try to recompute from strategy file
